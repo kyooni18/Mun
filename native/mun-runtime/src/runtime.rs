@@ -442,6 +442,7 @@ impl Runtime {
 
     pub fn clear_focus(&mut self) {
         self.focused_action = None;
+        self.input.clear_keyboard_capture();
     }
 
     fn reconcile_focus(&mut self, previous_order: &[String]) {
@@ -457,6 +458,7 @@ impl Runtime {
 
         if actions.is_empty() {
             self.focused_action = None;
+            self.input.clear_keyboard_capture();
             return;
         }
 
@@ -469,6 +471,7 @@ impl Runtime {
             .position(|id| id == &focused)
             .and_then(|index| actions.get(index.min(actions.len() - 1)))
             .cloned();
+        self.input.clear_keyboard_capture();
     }
 
     pub fn focus_action(&mut self, id: &str) -> bool {
@@ -477,6 +480,9 @@ impl Runtime {
         };
         if !self.node_enabled(base) {
             return false;
+        }
+        if self.focused_action.as_deref() != Some(id) {
+            self.input.clear_keyboard_capture();
         }
         self.focused_action = Some(id.to_owned());
         true
@@ -487,6 +493,7 @@ impl Runtime {
         collect_focusable_actions(&self.program.root.child, self, &mut actions);
         if actions.is_empty() {
             self.focused_action = None;
+            self.input.clear_keyboard_capture();
             return None;
         }
 
@@ -506,6 +513,9 @@ impl Runtime {
             }
         };
         let id = actions[next].clone();
+        if self.focused_action.as_deref() != Some(id.as_str()) {
+            self.input.clear_keyboard_capture();
+        }
         self.focused_action = Some(id.clone());
         Some(id)
     }
@@ -2527,6 +2537,46 @@ mod tests {
             .expect("release after blur");
         assert!(!release.activated);
         assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn focus_change_clears_keyboard_pressed_identity() {
+        let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
+        runtime
+            .handle_input(pressed_key(LogicalKey::Space), 320.0, 200.0)
+            .expect("space press");
+        assert_eq!(runtime.keyboard_pressed_action(), Some("first"));
+
+        assert!(runtime.focus_action("second"));
+        assert_eq!(runtime.focused_action(), Some("second"));
+        assert_eq!(runtime.keyboard_pressed_action(), None);
+
+        runtime
+            .handle_input(pressed_key(LogicalKey::Space), 320.0, 200.0)
+            .expect("space press on second");
+        assert_eq!(runtime.keyboard_pressed_action(), Some("second"));
+
+        runtime.focus_next_action(false);
+        assert_eq!(runtime.focused_action(), Some("first"));
+        assert_eq!(runtime.keyboard_pressed_action(), None);
+    }
+
+    #[test]
+    fn focus_reconciliation_clears_keyboard_pressed_identity() {
+        let mut runtime =
+            Runtime::from_json(REMOVE_LAST_FOCUSED_ACTION).expect("valid focus removal program");
+        assert!(runtime.focus_action("remove"));
+        runtime
+            .handle_input(pressed_key(LogicalKey::Space), 320.0, 200.0)
+            .expect("space press");
+        assert_eq!(runtime.keyboard_pressed_action(), Some("remove"));
+
+        runtime
+            .activate_action("stable")
+            .expect("stable action removes focused peer");
+
+        assert_eq!(runtime.focused_action(), Some("stable"));
+        assert_eq!(runtime.keyboard_pressed_action(), None);
     }
 
     #[test]
