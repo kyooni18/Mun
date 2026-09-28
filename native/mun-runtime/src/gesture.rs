@@ -446,6 +446,10 @@ fn finite_f32_or(value: f32, fallback: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        ir::MotionProperty,
+        motion::{InertiaSpec, KineticSpec, MotionChannelKey, MotionScheduler},
+    };
 
     fn point(x: f32, y: f32) -> InputPoint {
         InputPoint::new(x, y)
@@ -536,6 +540,47 @@ mod tests {
         assert_eq!(cancelled.phase, GesturePhase::Cancelled);
         assert_eq!(cancelled.velocity, point(0.0, 0.0));
         assert!(!drag.is_active());
+    }
+
+    #[test]
+    fn drag_release_velocity_hands_off_to_existing_motion_scheduler() {
+        let mut drag = DragRecognizer::new(DragRecognizerConfig {
+            axis: DragAxis::X,
+            ..Default::default()
+        });
+        let pointer = PointerId(17);
+        drag.begin(pointer, point(0.0, 0.0), 0.0);
+        drag.move_pointer(pointer, point(12.0, 0.0), 0.04)
+            .expect("drag sample");
+        drag.move_pointer(pointer, point(28.0, 0.0), 0.08)
+            .expect("drag sample");
+        let ended = drag.end(pointer, 0.10).expect("drag release");
+        let release = ended.release(DragAxis::X).expect("x-axis release");
+        assert!(release.velocity > 0.0);
+
+        let key = MotionChannelKey {
+            node_id: "drag-target".into(),
+            property: MotionProperty::TranslationX,
+        };
+        let mut scheduler = MotionScheduler::default();
+        let spec = KineticSpec::Inertia(InertiaSpec {
+            velocity: Some(release.velocity as f64),
+            power: 1.0,
+            min: -500.0,
+            max: 500.0,
+            ..Default::default()
+        });
+        scheduler
+            .animate_velocity(key.clone(), release.position, &spec)
+            .expect("kinetic handoff");
+
+        let start = scheduler.value(&key).expect("kinetic presentation");
+        let velocity = scheduler.velocity(&key).expect("kinetic velocity");
+        assert!((start - release.position).abs() < 0.001);
+        assert!((velocity - release.velocity).abs() < 0.001);
+
+        scheduler.step(1.0 / 60.0);
+        assert!(scheduler.value(&key).expect("advanced presentation") > start);
     }
 
     #[test]
