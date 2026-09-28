@@ -155,3 +155,12 @@ Native presentation now distinguishes layout geometry from scene-space transform
 `Transition` is a canonical core semantic value and its descriptor now crosses the same compiler/IR boundary as other native UI semantics. Native presence supports ordered `opacity`, uniform `scale`, and directional `move` effects for insertion and removal. The lifecycle is driven by a single normalized channel in the existing motion scheduler; it does not create widget-local timers or renderer-owned animation state.
 
 An entering subtree is part of the live semantic tree immediately. Its presentation transform is projected after Taffy layout across drawing, pointer hit geometry, and accessibility bounds around the same root center pivot. A removed subtree leaves the live semantic/action/accessibility tree immediately, while a visual-only retained scene snapshot may continue its exit transition until the scheduler settles. This preserves stable layout snapshots for future FLIP/matched-geometry work and prevents an outgoing animation from retaining interaction or accessibility authority.
+
+
+## Native structural FLIP
+
+Animated structural state mutations now preserve stable sibling position with native FLIP projection. The runtime captures the current rendered semantic bounds before mutation, recomputes the new Taffy layout after the branch changes, and applies an inverse scene-space translation to stable siblings so their first post-mutation presentation frame remains visually continuous. The inverse converges to identity using the transaction's existing motion plan.
+
+The same translation is applied to retained drawing, action hit geometry, descendants, and Accessibility bounds; Taffy remains the final layout source of truth. Unanimated structural mutations snap without FLIP. Interrupted FLIP captures the current presentation geometry before replacing the projection, so retargeting does not jump back to the underlying layout rectangle.
+
+This is deliberately the positional structural-reflow slice, not a claim that all legacy layout animation is complete. Non-uniform size projection and shared/matched-geometry routing still need the remaining `packages/animation/src/layout` behavior ported onto native layout/scene snapshots.

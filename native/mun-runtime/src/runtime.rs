@@ -71,6 +71,14 @@ struct ActiveTransition {
     descendants: HashSet<String>,
 }
 
+#[derive(Clone, Debug)]
+struct LayoutFlip {
+    descendants: HashSet<String>,
+    progress: MotionChannelKey,
+    delta_x: f32,
+    delta_y: f32,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct PresenceValues {
     opacity: f32,
@@ -155,11 +163,19 @@ fn evaluate_binary(operator: UiBinaryOperator, left: Value, right: Value) -> Val
         UiBinaryOperator::Equal => Value::Bool(left == right),
         UiBinaryOperator::NotEqual => Value::Bool(left != right),
         UiBinaryOperator::Less => ordered_comparison(&left, &right, |a, b| a < b, |a, b| a < b),
-        UiBinaryOperator::LessOrEqual => ordered_comparison(&left, &right, |a, b| a <= b, |a, b| a <= b),
+        UiBinaryOperator::LessOrEqual => {
+            ordered_comparison(&left, &right, |a, b| a <= b, |a, b| a <= b)
+        }
         UiBinaryOperator::Greater => ordered_comparison(&left, &right, |a, b| a > b, |a, b| a > b),
-        UiBinaryOperator::GreaterOrEqual => ordered_comparison(&left, &right, |a, b| a >= b, |a, b| a >= b),
-        UiBinaryOperator::And => Value::Bool(left.as_bool().unwrap_or(false) && right.as_bool().unwrap_or(false)),
-        UiBinaryOperator::Or => Value::Bool(left.as_bool().unwrap_or(false) || right.as_bool().unwrap_or(false)),
+        UiBinaryOperator::GreaterOrEqual => {
+            ordered_comparison(&left, &right, |a, b| a >= b, |a, b| a >= b)
+        }
+        UiBinaryOperator::And => {
+            Value::Bool(left.as_bool().unwrap_or(false) && right.as_bool().unwrap_or(false))
+        }
+        UiBinaryOperator::Or => {
+            Value::Bool(left.as_bool().unwrap_or(false) || right.as_bool().unwrap_or(false))
+        }
     }
 }
 pub struct Runtime {
@@ -170,6 +186,7 @@ pub struct Runtime {
     focused_action: Option<String>,
     entering: HashMap<String, EnterPresence>,
     exiting: HashMap<String, ExitPresence>,
+    layout_flips: HashMap<String, LayoutFlip>,
     last_live_scene: RefCell<Option<Scene>>,
     last_live_accessibility: RefCell<Option<AccessibilityTree>>,
 }
@@ -202,6 +219,7 @@ impl Runtime {
             focused_action: None,
             entering: HashMap::new(),
             exiting: HashMap::new(),
+            layout_flips: HashMap::new(),
             last_live_scene: RefCell::new(None),
             last_live_accessibility: RefCell::new(None),
         })
@@ -237,11 +255,16 @@ impl Runtime {
             .retain(|_, presence| self.motion.is_key_active(&presence.progress));
         self.exiting
             .retain(|_, presence| self.motion.is_key_active(&presence.progress));
+        self.layout_flips
+            .retain(|_, flip| self.motion.is_key_active(&flip.progress));
         self.has_active_motion()
     }
 
     pub fn has_active_motion(&self) -> bool {
-        self.motion.is_active() || !self.entering.is_empty() || !self.exiting.is_empty()
+        self.motion.is_active()
+            || !self.entering.is_empty()
+            || !self.exiting.is_empty()
+            || !self.layout_flips.is_empty()
     }
 
     pub fn focused_action(&self) -> Option<&str> {
@@ -316,6 +339,8 @@ impl Runtime {
         let action = action.clone();
         let action_transaction = action.transaction().cloned().unwrap_or_default();
         let before_presence = self.active_transition_roots();
+        let before_layout_neighborhoods = self.layout_neighborhoods();
+        let before_layout_geometry = self.last_live_accessibility.borrow().clone();
         let before = self.motion_targets();
         let mut transaction = Transaction {
             revision: self.revision + 1,
@@ -395,6 +420,13 @@ impl Runtime {
 
         let after_presence = self.active_transition_roots();
         self.reconcile_presence(before_presence, after_presence, &transaction);
+        let after_layout_neighborhoods = self.layout_neighborhoods();
+        self.reconcile_layout_flips(
+            before_layout_neighborhoods,
+            after_layout_neighborhoods,
+            before_layout_geometry.as_ref(),
+            &transaction,
+        );
 
         Some(transaction)
     }
@@ -413,6 +445,7 @@ impl Runtime {
         )?;
         let mut accessibility = self.accessibility_from_layout(&taffy, &nodes, width, height)?;
         self.apply_enter_presence(&mut scene, &mut accessibility);
+        self.apply_layout_flips(&mut scene, &mut accessibility);
         *self.last_live_scene.borrow_mut() = Some(scene.clone());
         *self.last_live_accessibility.borrow_mut() = Some(accessibility.clone());
         self.append_exit_overlays(&mut scene);
@@ -435,6 +468,7 @@ impl Runtime {
         let mut accessibility = self.accessibility_from_layout(&taffy, &nodes, width, height)?;
         let mut empty_scene = Scene::default();
         self.apply_enter_presence(&mut empty_scene, &mut accessibility);
+        self.apply_layout_flips(&mut empty_scene, &mut accessibility);
         Ok(accessibility)
     }
 
@@ -569,6 +603,174 @@ impl Runtime {
                 }
             }
             _ => &[],
+        }
+    }
+
+    fn layout_neighborhoods(&self) -> HashMap<String, Vec<String>> {
+        let mut output = HashMap::new();
+        self.collect_layout_neighborhoods(&self.program.root.child, &mut output);
+        output
+    }
+
+    fn collect_layout_neighborhoods(
+        &self,
+        node: &UiNode,
+        output: &mut HashMap<String, Vec<String>>,
+    ) {
+        match node {
+            UiNode::Column { base, children } | UiNode::Row { base, children } => {
+                let mut rendered = Vec::new();
+                for child in children {
+                    self.collect_rendered_child_roots(child, &mut rendered);
+                }
+                output.insert(base.id.clone(), rendered);
+                for child in self.active_children(node) {
+                    self.collect_layout_neighborhoods(child, output);
+                }
+            }
+            UiNode::Conditional { .. } => {
+                for child in self.active_children(node) {
+                    self.collect_layout_neighborhoods(child, output);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_rendered_child_roots(&self, node: &UiNode, output: &mut Vec<String>) {
+        if matches!(node, UiNode::Conditional { .. }) {
+            for child in self.active_children(node) {
+                self.collect_rendered_child_roots(child, output);
+            }
+            return;
+        }
+        output.push(node.base().id.clone());
+    }
+
+    fn find_active_node_by_id<'a>(&'a self, node: &'a UiNode, id: &str) -> Option<&'a UiNode> {
+        if !matches!(node, UiNode::Conditional { .. }) && node.base().id == id {
+            return Some(node);
+        }
+        self.active_children(node)
+            .iter()
+            .find_map(|child| self.find_active_node_by_id(child, id))
+    }
+
+    fn reconcile_layout_flips(
+        &mut self,
+        before_neighborhoods: HashMap<String, Vec<String>>,
+        after_neighborhoods: HashMap<String, Vec<String>>,
+        before_geometry: Option<&AccessibilityTree>,
+        transaction: &Transaction,
+    ) {
+        let mut candidates = HashSet::new();
+        for (parent, before_children) in &before_neighborhoods {
+            let Some(after_children) = after_neighborhoods.get(parent) else {
+                continue;
+            };
+            if before_children == after_children {
+                continue;
+            }
+            let after_ids = after_children.iter().collect::<HashSet<_>>();
+            for id in before_children {
+                if after_ids.contains(id) {
+                    candidates.insert(id.clone());
+                }
+            }
+        }
+        if candidates.is_empty() {
+            return;
+        }
+
+        let Some(plan) = transaction
+            .animation
+            .as_ref()
+            .filter(|_| !transaction.disables_animations)
+        else {
+            for id in candidates {
+                if let Some(previous) = self.layout_flips.remove(&id) {
+                    settle_layout_flip_progress(&mut self.motion, &previous.progress);
+                }
+            }
+            return;
+        };
+        let Some(before_geometry) = before_geometry else {
+            return;
+        };
+        let Some(root) = before_geometry.node(&before_geometry.root_id) else {
+            return;
+        };
+        let Ok((taffy, nodes)) = self.build_layout_tree(root.bounds.width, root.bounds.height)
+        else {
+            return;
+        };
+        let Ok(after_geometry) =
+            self.accessibility_from_layout(&taffy, &nodes, root.bounds.width, root.bounds.height)
+        else {
+            return;
+        };
+
+        for id in candidates {
+            let Some(before_node) = before_geometry.node(&id) else {
+                continue;
+            };
+            let Some(after_node) = after_geometry.node(&id) else {
+                continue;
+            };
+            let before_center_x = before_node.bounds.x + before_node.bounds.width * 0.5;
+            let before_center_y = before_node.bounds.y + before_node.bounds.height * 0.5;
+            let after_center_x = after_node.bounds.x + after_node.bounds.width * 0.5;
+            let after_center_y = after_node.bounds.y + after_node.bounds.height * 0.5;
+            let delta_x = before_center_x - after_center_x;
+            let delta_y = before_center_y - after_center_y;
+
+            if delta_x.abs() < 0.01 && delta_y.abs() < 0.01 {
+                if let Some(previous) = self.layout_flips.remove(&id) {
+                    settle_layout_flip_progress(&mut self.motion, &previous.progress);
+                }
+                continue;
+            }
+
+            if let Some(previous) = self.layout_flips.remove(&id) {
+                settle_layout_flip_progress(&mut self.motion, &previous.progress);
+            }
+            let Some(node) = self.find_active_node_by_id(&self.program.root.child, &id) else {
+                continue;
+            };
+            let mut descendants = HashSet::new();
+            self.collect_active_descendant_ids(node, &mut descendants);
+            let progress = start_layout_flip_progress(&mut self.motion, &id, plan);
+            self.layout_flips.insert(
+                id,
+                LayoutFlip {
+                    descendants,
+                    progress,
+                    delta_x,
+                    delta_y,
+                },
+            );
+        }
+    }
+
+    fn apply_layout_flips(&self, scene: &mut Scene, accessibility: &mut AccessibilityTree) {
+        let mut flips = self.layout_flips.iter().collect::<Vec<_>>();
+        flips.sort_by(|(_, left), (_, right)| right.descendants.len().cmp(&left.descendants.len()));
+        let mut covered = HashSet::new();
+
+        for (id, flip) in flips {
+            if covered.contains(id) {
+                continue;
+            }
+            let progress = self.motion.value(&flip.progress).unwrap_or(1.0);
+            let remaining = 1.0 - progress;
+            let dx = flip.delta_x * remaining;
+            let dy = flip.delta_y * remaining;
+            if dx.abs() < 0.001 && dy.abs() < 0.001 {
+                continue;
+            }
+            apply_scene_translation(scene, &flip.descendants, dx, dy);
+            apply_accessibility_translation(accessibility, &flip.descendants, dx, dy);
+            covered.extend(flip.descendants.iter().cloned());
         }
     }
 
@@ -1179,6 +1381,65 @@ fn collect_motion_targets(
     }
 }
 
+fn start_layout_flip_progress(
+    motion: &mut MotionScheduler,
+    node_id: &str,
+    plan: &MotionExecutionPlan,
+) -> MotionChannelKey {
+    let key = MotionChannelKey {
+        node_id: format!("__layout-flip:{node_id}"),
+        property: MotionProperty::TranslationX,
+    };
+    // A FLIP retarget captures the current rendered geometry before replacing
+    // the old inverse projection. The new inverse delta is therefore already
+    // expressed from that presentation state and must start at fresh progress
+    // zero, matching the inherited LayoutTransition MotionValue(0) lifecycle.
+    motion.snap(&key, 0.0);
+    motion.retarget(key.clone(), 0.0, 1.0, plan);
+    key
+}
+
+fn settle_layout_flip_progress(motion: &mut MotionScheduler, progress: &MotionChannelKey) {
+    if let Some(value) = motion.value(progress) {
+        motion.snap(progress, value);
+    }
+}
+
+fn apply_scene_translation(scene: &mut Scene, descendants: &HashSet<String>, dx: f32, dy: f32) {
+    for item in &mut scene.rects {
+        if scene_item_belongs(&item.id, descendants) {
+            item.rect.x += dx;
+            item.rect.y += dy;
+        }
+    }
+    for item in &mut scene.texts {
+        if scene_item_belongs(&item.id, descendants) {
+            item.x += dx;
+            item.y += dy;
+        }
+    }
+    for item in &mut scene.actions {
+        if scene_item_belongs(&item.id, descendants) {
+            item.rect.x += dx;
+            item.rect.y += dy;
+        }
+    }
+}
+
+fn apply_accessibility_translation(
+    tree: &mut AccessibilityTree,
+    descendants: &HashSet<String>,
+    dx: f32,
+    dy: f32,
+) {
+    for node in &mut tree.nodes {
+        if descendants.contains(&node.id) {
+            node.bounds.x += dx;
+            node.bounds.y += dy;
+        }
+    }
+}
+
 fn default_transition_plan() -> MotionExecutionPlan {
     MotionExecutionPlan::Spring {
         omega: std::f32::consts::TAU / 0.55,
@@ -1524,6 +1785,209 @@ mod tests {
         );
         assert!(runtime.focus_action("expanded-action"));
         assert!(!runtime.focus_action("collapsed-action"));
+    }
+
+    const STRUCTURAL_FLIP: &str = r##"{
+      "version":1,
+      "sourceLanguage":"mun",
+      "entry":"StructuralFlip",
+      "states":[{"name":"visible","initial":true}],
+      "root":{"kind":"window","id":"root","title":"Structural FLIP","child":{
+        "kind":"column","id":"stack","layout":{"spacing":10},"children":[
+          {"kind":"action","id":"toggle","label":"Toggle","action":{"kind":"toggle-state","state":"visible","transaction":{"animation":{"kind":"timing","duration":0.2,"curve":[0.0,0.0,1.0,1.0],"delayMs":0.0,"repeatCount":1,"autoreverses":false},"disablesAnimations":false,"isContinuous":false}}},
+          {"kind":"conditional","id":"branch","condition":{"kind":"state","state":"visible"},"then":[
+            {"kind":"panel","id":"inserted","layout":{"width":{"kind":"literal","value":120},"height":{"kind":"literal","value":60}},"visual":{"background":"#6750A4"}}
+          ],"otherwise":[]},
+          {"kind":"action","id":"stable","label":"Stable","action":{"kind":"toggle-state","state":"visible"}}
+        ]
+      }}
+    }"##;
+
+    #[test]
+    fn animated_structural_mutation_flip_preserves_stable_sibling_presentation() {
+        let mut runtime =
+            Runtime::from_json(STRUCTURAL_FLIP).expect("valid structural FLIP program");
+        let initial = runtime.build_frame(320.0, 240.0).expect("initial frame");
+        let before_hit = initial
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action before mutation")
+            .rect;
+        let before_accessible = initial
+            .accessibility
+            .node("stable")
+            .expect("stable accessible node before mutation")
+            .bounds;
+        assert!((before_hit.y - before_accessible.y).abs() < 0.01);
+
+        let transaction = runtime
+            .activate_action("toggle")
+            .expect("toggle structural branch");
+        assert!(transaction.animation.is_some());
+        assert!(runtime.has_active_motion());
+
+        let first = runtime.build_frame(320.0, 240.0).expect("first FLIP frame");
+        let first_hit = first
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action during FLIP")
+            .rect;
+        let first_accessible = first
+            .accessibility
+            .node("stable")
+            .expect("stable accessible node during FLIP")
+            .bounds;
+        assert!((first_hit.y - before_hit.y).abs() < 0.01);
+        assert!((first_accessible.y - before_accessible.y).abs() < 0.01);
+
+        runtime.step(0.1);
+        let middle = runtime
+            .build_frame(320.0, 240.0)
+            .expect("middle FLIP frame");
+        let middle_hit = middle
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action mid-flight")
+            .rect;
+        assert!(middle_hit.y < before_hit.y);
+
+        runtime.step(0.2);
+        let final_frame = runtime
+            .build_frame(320.0, 240.0)
+            .expect("settled FLIP frame");
+        let final_hit = final_frame
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action after FLIP")
+            .rect;
+        let final_accessible = final_frame
+            .accessibility
+            .node("stable")
+            .expect("stable accessible node after FLIP")
+            .bounds;
+        assert!(final_hit.y < middle_hit.y);
+        assert!(final_hit.y < before_hit.y - 50.0);
+        assert!((final_hit.y - final_accessible.y).abs() < 0.01);
+    }
+
+    #[test]
+    fn interrupted_structural_flip_retargets_from_current_presentation_geometry() {
+        let mut runtime =
+            Runtime::from_json(STRUCTURAL_FLIP).expect("valid structural FLIP program");
+        let initial = runtime.build_frame(320.0, 240.0).expect("initial frame");
+        let initial_y = initial
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action initially")
+            .rect
+            .y;
+
+        runtime
+            .activate_action("toggle")
+            .expect("start removal FLIP");
+        runtime.step(0.08);
+        let interrupted = runtime
+            .build_frame(320.0, 240.0)
+            .expect("interrupted frame");
+        let interrupted_y = interrupted
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action during first FLIP")
+            .rect
+            .y;
+        assert!(interrupted_y < initial_y);
+
+        runtime
+            .activate_action("toggle")
+            .expect("reverse structural FLIP");
+        let retargeted = runtime.build_frame(320.0, 240.0).expect("retargeted frame");
+        let retargeted_y = retargeted
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action after retarget")
+            .rect
+            .y;
+        assert!(
+            (retargeted_y - interrupted_y).abs() < 0.01,
+            "retarget jumped: interrupted={interrupted_y}, retargeted={retargeted_y}, initial={initial_y}"
+        );
+
+        runtime.step(0.1);
+        let returning = runtime.build_frame(320.0, 240.0).expect("returning frame");
+        let returning_y = returning
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action while returning")
+            .rect
+            .y;
+        assert!(returning_y > interrupted_y && returning_y < initial_y);
+
+        runtime.step(0.2);
+        let settled = runtime
+            .build_frame(320.0, 240.0)
+            .expect("settled reverse frame");
+        let settled_y = settled
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action after reverse")
+            .rect
+            .y;
+        assert!((settled_y - initial_y).abs() < 0.01);
+    }
+
+    #[test]
+    fn structural_mutation_without_animation_snaps_instead_of_starting_flip() {
+        let mut value: Value = serde_json::from_str(STRUCTURAL_FLIP).expect("parse FLIP fixture");
+        value["root"]["child"]["children"][0]["action"]
+            .as_object_mut()
+            .expect("toggle action")
+            .remove("transaction");
+        let source = serde_json::to_string(&value).expect("serialize unanimated FLIP fixture");
+        let mut runtime = Runtime::from_json(&source).expect("valid unanimated FLIP program");
+        let initial = runtime.build_frame(320.0, 240.0).expect("initial frame");
+        let before_y = initial
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action before mutation")
+            .rect
+            .y;
+
+        let transaction = runtime
+            .activate_action("toggle")
+            .expect("toggle structural branch without animation");
+        assert!(transaction.animation.is_none());
+        assert!(!runtime.has_active_motion());
+
+        let snapped = runtime.build_frame(320.0, 240.0).expect("snapped frame");
+        let snapped_y = snapped
+            .scene
+            .actions
+            .iter()
+            .find(|item| item.id == "stable")
+            .expect("stable action after snap")
+            .rect
+            .y;
+        assert!(snapped_y < before_y - 50.0);
     }
 
     const TRANSITION_PRESENCE: &str = r#"{
