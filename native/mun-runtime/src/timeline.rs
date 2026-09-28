@@ -992,6 +992,124 @@ fn inherited_nonnegative_phase_time(value: f64) -> Result<f64, PhaseTimelineErro
     Ok(value)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StaggerOrigin {
+    First,
+    Last,
+    Center,
+    Index(isize),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StaggerError {
+    NonFiniteInterval,
+    NegativeInterval,
+    NonFiniteStart,
+    Easing(TimelineTrackError),
+}
+
+impl fmt::Display for StaggerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::NonFiniteInterval => "stagger interval must be finite",
+            Self::NegativeInterval => "stagger interval cannot be negative",
+            Self::NonFiniteStart => "stagger start must be finite",
+            Self::Easing(error) => return error.fmt(f),
+        };
+        f.write_str(message)
+    }
+}
+
+impl Error for StaggerError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Easing(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StaggerSchedule {
+    interval: f64,
+    start: f64,
+    origin: StaggerOrigin,
+    easing: Option<CompiledTimelineEasing>,
+}
+
+impl StaggerSchedule {
+    pub fn new(interval: f64) -> Result<Self, StaggerError> {
+        Self::with_options(interval, 0.0, StaggerOrigin::First, None)
+    }
+
+    pub fn with_options(
+        interval: f64,
+        start: f64,
+        origin: StaggerOrigin,
+        easing: Option<TimelineEasing>,
+    ) -> Result<Self, StaggerError> {
+        if !interval.is_finite() {
+            return Err(StaggerError::NonFiniteInterval);
+        }
+        if interval < 0.0 {
+            return Err(StaggerError::NegativeInterval);
+        }
+        if !start.is_finite() {
+            return Err(StaggerError::NonFiniteStart);
+        }
+        let easing = easing
+            .map(compile_timeline_easing)
+            .transpose()
+            .map_err(StaggerError::Easing)?;
+
+        Ok(Self {
+            interval,
+            start,
+            origin,
+            easing,
+        })
+    }
+
+    /// Resolve one item's delay from already-integer native collection
+    /// coordinates. Index and numeric origin are clamped to the resolved item
+    /// range, preserving the inherited stagger rank calculation.
+    pub fn delay(&self, index: isize, total: usize) -> f64 {
+        let count = total.max(1);
+        let last = count - 1;
+        let item = index.clamp(0, last as isize) as usize;
+
+        let rank = match self.origin {
+            StaggerOrigin::First => item as f64,
+            StaggerOrigin::Last => (last - item) as f64,
+            StaggerOrigin::Center => (item as f64 - last as f64 / 2.0).abs(),
+            StaggerOrigin::Index(origin) => {
+                let origin = origin.clamp(0, last as isize) as usize;
+                item.abs_diff(origin) as f64
+            }
+        };
+
+        let Some(easing) = &self.easing else {
+            return self.start + rank * self.interval;
+        };
+        if count <= 1 {
+            return self.start + rank * self.interval;
+        }
+
+        let max_rank = if self.origin == StaggerOrigin::Center {
+            (last as f64 / 2.0).max(0.5)
+        } else {
+            last as f64
+        };
+        let normalized = if max_rank <= EPSILON {
+            0.0
+        } else {
+            rank / max_rank
+        };
+        self.start
+            + evaluate_compiled_timeline_easing(easing, normalized) * max_rank * self.interval
+    }
+}
+
 fn validate_frame(frame: ScalarKeyframe) -> Result<(), TimelineTrackError> {
     if !frame.at.is_finite() {
         return Err(TimelineTrackError::NonFiniteTime);
@@ -1372,5 +1490,45 @@ mod tests {
             ScalarPhaseTimeline::new(None, vec![ScalarPhase::new("a", None)]),
             Err(PhaseTimelineError::MissingInitialValue)
         );
+    }
+
+    #[test]
+    fn stagger_schedule_preserves_first_last_center_and_numeric_origins() {
+        let first = StaggerSchedule::new(0.1).expect("valid stagger");
+        assert_eq!(first.delay(0, 3), 0.0);
+        assert_eq!(first.delay(1, 3), 0.1);
+        assert_eq!(first.delay(2, 3), 0.2);
+
+        let last = StaggerSchedule::with_options(0.1, 0.2, StaggerOrigin::Last, None)
+            .expect("valid stagger");
+        assert!((last.delay(0, 3) - 0.4).abs() < 1e-12);
+        assert!((last.delay(1, 3) - 0.3).abs() < 1e-12);
+        assert!((last.delay(2, 3) - 0.2).abs() < 1e-12);
+
+        let center = StaggerSchedule::with_options(0.1, 0.0, StaggerOrigin::Center, None)
+            .expect("valid stagger");
+        assert_eq!(center.delay(1, 3), 0.0);
+        assert_eq!(center.delay(0, 3), center.delay(2, 3));
+
+        let numeric = StaggerSchedule::with_options(0.1, 0.0, StaggerOrigin::Index(1), None)
+            .expect("valid stagger");
+        assert_eq!(numeric.delay(1, 3), 0.0);
+        assert_eq!(numeric.delay(-5, 3), 0.1);
+        assert_eq!(numeric.delay(99, 3), 0.1);
+    }
+
+    #[test]
+    fn stagger_schedule_applies_easing_to_normalized_rank() {
+        let eased = StaggerSchedule::with_options(
+            0.1,
+            0.0,
+            StaggerOrigin::First,
+            Some(TimelineEasing::CubicBezier([0.42, 0.0, 1.0, 1.0])),
+        )
+        .expect("valid eased stagger");
+
+        assert!(eased.delay(1, 3) < 0.1);
+        assert_eq!(eased.delay(0, 3), 0.0);
+        assert!((eased.delay(2, 3) - 0.2).abs() < 1e-12);
     }
 }
