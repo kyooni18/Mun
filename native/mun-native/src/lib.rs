@@ -16,7 +16,6 @@ use mun_runtime::{
     LogicalKey, Modifiers, PhysicalKey as MunPhysicalKey, PointerButton as MunPointerButton,
     PointerId, Runtime, RuntimeLoadError, Scene, ScrollDelta,
 };
-use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition},
@@ -112,6 +111,15 @@ impl Vertex {
     }
 }
 
+const INITIAL_RECT_VERTEX_BUFFER_BYTES: u64 = 4096;
+
+fn rect_vertex_buffer_capacity(required_bytes: u64) -> u64 {
+    required_bytes
+        .max(INITIAL_RECT_VERTEX_BUFFER_BYTES)
+        .checked_next_power_of_two()
+        .unwrap_or(required_bytes)
+}
+
 struct TextBatchRenderer {
     viewport: Viewport,
     renderer: TextRenderer,
@@ -140,6 +148,8 @@ struct GpuRenderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     rect_pipeline: wgpu::RenderPipeline,
+    rect_vertex_buffer: wgpu::Buffer,
+    rect_vertex_capacity: u64,
     font_system: FontSystem,
     swash_cache: SwashCache,
     cache: Cache,
@@ -206,6 +216,14 @@ impl GpuRenderer {
             cache: None,
         });
 
+        let rect_vertex_capacity = INITIAL_RECT_VERTEX_BUFFER_BYTES;
+        let rect_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Mün retained-scene vertices"),
+            size: rect_vertex_capacity,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&device);
@@ -217,6 +235,8 @@ impl GpuRenderer {
             surface,
             config,
             rect_pipeline,
+            rect_vertex_buffer,
+            rect_vertex_capacity,
             font_system,
             swash_cache,
             cache,
@@ -232,6 +252,23 @@ impl GpuRenderer {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
+    }
+
+    fn ensure_rect_vertex_capacity(&mut self, required_bytes: u64) {
+        if required_bytes <= self.rect_vertex_capacity {
+            return;
+        }
+
+        let next_capacity = rect_vertex_buffer_capacity(required_bytes);
+        let next_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Mün retained-scene vertices"),
+            size: next_capacity,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let previous = std::mem::replace(&mut self.rect_vertex_buffer, next_buffer);
+        previous.destroy();
+        self.rect_vertex_capacity = next_capacity;
     }
 
     fn ensure_text_batch(&mut self, slot: usize) {
@@ -268,14 +305,11 @@ impl GpuRenderer {
             physical_height,
             scale_factor,
         );
-        let vertex_buffer = (!vertices.is_empty()).then(|| {
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Mün scene vertices"),
-                    contents: bytemuck::cast_slice(&vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                })
-        });
+        if !vertices.is_empty() {
+            let bytes = bytemuck::cast_slice(&vertices);
+            self.ensure_rect_vertex_capacity(bytes.len() as u64);
+            self.queue.write_buffer(&self.rect_vertex_buffer, 0, bytes);
+        }
 
         let logical_width = physical_width / scale_factor;
         let logical_height = physical_height / scale_factor;
@@ -422,9 +456,9 @@ impl GpuRenderer {
                 multiview_mask: None,
             });
 
-            if let Some(vertex_buffer) = &vertex_buffer {
+            if !vertices.is_empty() {
                 pass.set_pipeline(&self.rect_pipeline);
-                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                pass.set_vertex_buffer(0, self.rect_vertex_buffer.slice(..));
                 pass.draw(0..vertices.len() as u32, 0..1);
             }
 
@@ -568,6 +602,22 @@ mod tests {
             2.0,
         );
         assert_eq!(delta, ScrollDelta::Pixels { x: 10.0, y: -5.0 });
+    }
+
+    #[test]
+    fn rect_vertex_buffer_capacity_reuses_small_buffers_and_grows_geometrically() {
+        assert_eq!(
+            rect_vertex_buffer_capacity(1),
+            INITIAL_RECT_VERTEX_BUFFER_BYTES
+        );
+        assert_eq!(
+            rect_vertex_buffer_capacity(INITIAL_RECT_VERTEX_BUFFER_BYTES),
+            INITIAL_RECT_VERTEX_BUFFER_BYTES
+        );
+        assert_eq!(
+            rect_vertex_buffer_capacity(INITIAL_RECT_VERTEX_BUFFER_BYTES + 1),
+            INITIAL_RECT_VERTEX_BUFFER_BYTES * 2
+        );
     }
 
     #[test]
