@@ -167,24 +167,14 @@ impl ScenePresentation {
     }
 
     pub fn resolved_transform(&self, transform: SceneTransformId) -> SceneTransform {
-        let mut current = transform;
-        let mut chain = Vec::new();
-        loop {
-            let node = self
-                .transforms
-                .get(current.0)
-                .expect("scene primitive referenced an unknown transform");
-            chain.push(node.local);
-            let Some(parent) = node.parent else {
-                break;
-            };
-            current = parent;
+        let node = self
+            .transforms
+            .get(transform.0)
+            .expect("scene primitive referenced an unknown transform");
+        match node.parent {
+            Some(parent) => self.resolved_transform(parent).concat(node.local),
+            None => node.local,
         }
-
-        chain
-            .into_iter()
-            .rev()
-            .fold(SceneTransform::IDENTITY, SceneTransform::concat)
     }
 
     pub fn transformed_rect(&self, primitive_id: &str, rect: Rect) -> Rect {
