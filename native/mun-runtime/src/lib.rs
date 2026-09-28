@@ -8,6 +8,7 @@ pub mod accessibility;
 pub mod input;
 pub mod ir;
 pub mod motion;
+pub mod retained;
 pub mod runtime;
 pub mod scene;
 pub mod timeline;
@@ -16,6 +17,9 @@ pub use accessibility::{AccessibilityBounds, AccessibilityNode, AccessibilityTre
 pub use input::{
     ButtonState, InputEvent, InputOutcome, InputPoint, KeyState, LogicalKey, Modifiers,
     PhysicalKey, PointerButton, PointerId, ScrollDelta,
+};
+pub use retained::{
+    RetainedNode, RetainedNodeKind, RetainedReconciliation, RetainedTree, RetainedTreeError,
 };
 pub use runtime::{
     Runtime, RuntimeFrame, RuntimeLoadError, SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,

@@ -17,6 +17,7 @@ use crate::{
         UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiProgram, UiTransition,
     },
     motion::{MotionChannelKey, MotionScheduler},
+    retained::{RetainedNodeKind, RetainedNodeSpec, RetainedReconciliation, RetainedTree},
     scene::{ActionHit, Color, Rect as SceneBounds, Scene, SceneRect, SceneText},
 };
 
@@ -26,10 +27,14 @@ pub const SEMANTIC_UI_IR_VERSION: u32 = 1;
 pub enum RuntimeLoadError {
     #[error("invalid Mün Semantic UI IR: {0}")]
     Parse(#[from] serde_json::Error),
-    #[error("unsupported Mün Semantic UI IR version {found}; runtime supports version {supported}")]
+    #[error(
+        "unsupported Mün Semantic UI IR version {found}; runtime supports version {supported}"
+    )]
     UnsupportedVersion { found: u32, supported: u32 },
     #[error("unsupported Mün Semantic UI IR source language '{found}'; expected 'mun'")]
     UnsupportedSourceLanguage { found: String },
+    #[error("duplicate Mün semantic node identity '{id}'")]
+    DuplicateNodeIdentity { id: String },
 }
 
 #[derive(Clone, Debug)]
@@ -191,6 +196,8 @@ pub struct Runtime {
     entering: HashMap<String, EnterPresence>,
     exiting: HashMap<String, ExitPresence>,
     layout_flips: HashMap<String, LayoutFlip>,
+    retained: RetainedTree,
+    last_reconciliation: RetainedReconciliation,
     last_live_scene: RefCell<Option<Scene>>,
     last_live_accessibility: RefCell<Option<AccessibilityTree>>,
 }
@@ -210,12 +217,13 @@ impl Runtime {
             });
         }
         validate_native_transitions(&program.root.child)?;
+        validate_node_identities(&program)?;
         let state = program
             .states
             .iter()
             .map(|item| (item.name.clone(), item.initial.clone()))
             .collect();
-        Ok(Self {
+        let mut runtime = Self {
             program,
             state,
             motion: MotionScheduler::default(),
@@ -225,13 +233,25 @@ impl Runtime {
             entering: HashMap::new(),
             exiting: HashMap::new(),
             layout_flips: HashMap::new(),
+            retained: RetainedTree::default(),
+            last_reconciliation: RetainedReconciliation::default(),
             last_live_scene: RefCell::new(None),
             last_live_accessibility: RefCell::new(None),
-        })
+        };
+        runtime.reconcile_retained_tree();
+        Ok(runtime)
     }
 
     pub fn title(&self) -> &str {
         &self.program.root.title
+    }
+
+    pub fn retained_tree(&self) -> &RetainedTree {
+        &self.retained
+    }
+
+    pub fn last_reconciliation(&self) -> &RetainedReconciliation {
+        &self.last_reconciliation
     }
 
     pub fn initial_window_size(&self) -> (f32, f32) {
@@ -455,6 +475,8 @@ impl Runtime {
                     .push(StateMutation { state, old, new });
             }
         }
+
+        self.reconcile_retained_tree();
 
         // State mutations can change the focused action's enabled semantics.
         // Never expose a disabled/stale action as keyboard or accessibility focus.
@@ -686,6 +708,48 @@ impl Runtime {
                 }
             }
             _ => &[],
+        }
+    }
+
+    fn reconcile_retained_tree(&mut self) {
+        let root_id = self.program.root.id.clone();
+        let child_id = self.program.root.child.base().id.clone();
+        let mut specs = vec![RetainedNodeSpec::new(
+            root_id.clone(),
+            RetainedNodeKind::Window,
+            None,
+            vec![child_id],
+        )];
+        self.collect_retained_specs(&self.program.root.child, Some(root_id), &mut specs);
+        self.last_reconciliation = self
+            .retained
+            .reconcile(specs)
+            .expect("validated semantic identities must reconcile");
+    }
+
+    fn collect_retained_specs(
+        &self,
+        node: &UiNode,
+        parent: Option<String>,
+        output: &mut Vec<RetainedNodeSpec>,
+    ) {
+        let kind = match node {
+            UiNode::Column { .. } => RetainedNodeKind::Column,
+            UiNode::Row { .. } => RetainedNodeKind::Row,
+            UiNode::Conditional { .. } => RetainedNodeKind::Conditional,
+            UiNode::Text { .. } => RetainedNodeKind::Text,
+            UiNode::Panel { .. } => RetainedNodeKind::Panel,
+            UiNode::Action { .. } => RetainedNodeKind::Action,
+        };
+        let active_children = self.active_children(node);
+        let children = active_children
+            .iter()
+            .map(|child| child.base().id.clone())
+            .collect();
+        let id = node.base().id.clone();
+        output.push(RetainedNodeSpec::new(id.clone(), kind, parent, children));
+        for child in active_children {
+            self.collect_retained_specs(child, Some(id.clone()), output);
         }
     }
 
@@ -1716,6 +1780,45 @@ fn snapshot_scene_subtree(scene: &Scene, descendants: &HashSet<String>) -> Scene
     }
 }
 
+fn validate_node_identities(program: &UiProgram) -> Result<(), RuntimeLoadError> {
+    let mut identities = HashSet::new();
+    if !identities.insert(program.root.id.clone()) {
+        return Err(RuntimeLoadError::DuplicateNodeIdentity {
+            id: program.root.id.clone(),
+        });
+    }
+    validate_node_identity(&program.root.child, &mut identities)
+}
+
+fn validate_node_identity(
+    node: &UiNode,
+    identities: &mut HashSet<String>,
+) -> Result<(), RuntimeLoadError> {
+    let id = node.base().id.clone();
+    if !identities.insert(id.clone()) {
+        return Err(RuntimeLoadError::DuplicateNodeIdentity { id });
+    }
+
+    match node {
+        UiNode::Column { children, .. } | UiNode::Row { children, .. } => {
+            for child in children {
+                validate_node_identity(child, identities)?;
+            }
+        }
+        UiNode::Conditional {
+            then_nodes,
+            otherwise,
+            ..
+        } => {
+            for child in then_nodes.iter().chain(otherwise) {
+                validate_node_identity(child, identities)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn validate_native_transitions(node: &UiNode) -> Result<(), RuntimeLoadError> {
     match node {
         UiNode::Column { children, .. } | UiNode::Row { children, .. } => {
@@ -1819,6 +1922,43 @@ mod tests {
         assert!(matches!(
             error,
             RuntimeLoadError::UnsupportedSourceLanguage { ref found } if found == "html"
+        ));
+    }
+
+    const DUPLICATE_NODE_IDENTITY: &str = r#"
+    {
+      "version": 1,
+      "sourceLanguage": "mun",
+      "entry": "DuplicateIdentity",
+      "states": [],
+      "root": {
+        "kind": "window",
+        "id": "root",
+        "title": "Duplicate",
+        "child": {
+          "kind": "row",
+          "id": "same",
+          "children": [
+            {
+              "kind": "text",
+              "id": "same",
+              "value": { "kind": "literal", "value": "duplicate" }
+            }
+          ]
+        }
+      }
+    }
+    "#;
+
+    #[test]
+    fn rejects_duplicate_semantic_node_identity() {
+        let error = match Runtime::from_json(DUPLICATE_NODE_IDENTITY) {
+            Ok(_) => panic!("duplicate semantic identity must fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            RuntimeLoadError::DuplicateNodeIdentity { ref id } if id == "same"
         ));
     }
 
@@ -1942,6 +2082,24 @@ mod tests {
     fn conditional_fragments_expose_only_the_active_branch() {
         let mut runtime =
             Runtime::from_json(CONDITIONAL_BRANCH).expect("valid conditional UI program");
+        let branch_instance = runtime
+            .retained_tree()
+            .node("branch")
+            .expect("retained conditional")
+            .instance_id;
+        assert!(!runtime
+            .retained_tree()
+            .node("branch")
+            .expect("retained conditional")
+            .has_layout_box());
+        assert_eq!(
+            runtime
+                .retained_tree()
+                .node("branch")
+                .expect("retained conditional")
+                .children,
+            vec!["collapsed-action"]
+        );
 
         let collapsed = runtime.build_frame(320.0, 200.0).expect("collapsed frame");
         assert_eq!(
@@ -1965,6 +2123,28 @@ mod tests {
             .activate_focused()
             .expect("collapsed action toggles state");
         assert_eq!(runtime.focused_action(), None);
+        assert_eq!(
+            runtime
+                .retained_tree()
+                .node("branch")
+                .expect("retained conditional")
+                .instance_id,
+            branch_instance
+        );
+        assert!(runtime.retained_tree().node("collapsed-action").is_none());
+        assert!(runtime.retained_tree().node("expanded-action").is_some());
+        assert_eq!(
+            runtime.last_reconciliation().inserted,
+            vec!["expanded-action"]
+        );
+        assert_eq!(
+            runtime.last_reconciliation().removed,
+            vec!["collapsed-action"]
+        );
+        assert_eq!(
+            runtime.last_reconciliation().children_changed,
+            vec!["branch"]
+        );
 
         let expanded = runtime.build_frame(320.0, 200.0).expect("expanded frame");
         assert_eq!(
@@ -2223,13 +2403,11 @@ mod tests {
             .build_frame(320.0, 200.0)
             .expect("exit overlay frame");
         assert!(removed.accessibility.node("transient").is_none());
-        assert!(
-            removed
-                .scene
-                .actions
-                .iter()
-                .all(|action| action.id != "transient")
-        );
+        assert!(removed
+            .scene
+            .actions
+            .iter()
+            .all(|action| action.id != "transient"));
         let outgoing = removed
             .scene
             .rects
@@ -2259,12 +2437,11 @@ mod tests {
 
         runtime.step(0.2);
         let gone = runtime.build_frame(320.0, 200.0).expect("exit complete");
-        assert!(
-            gone.scene
-                .rects
-                .iter()
-                .all(|item| item.id != "transient:background")
-        );
+        assert!(gone
+            .scene
+            .rects
+            .iter()
+            .all(|item| item.id != "transient:background"));
 
         runtime
             .activate_action("show")
@@ -2385,12 +2562,11 @@ mod tests {
         let gone = runtime
             .build_frame(320.0, 200.0)
             .expect("default transition settled");
-        assert!(
-            gone.scene
-                .rects
-                .iter()
-                .all(|item| item.id != "default-hide:background")
-        );
+        assert!(gone
+            .scene
+            .rects
+            .iter()
+            .all(|item| item.id != "default-hide:background"));
     }
 
     const CONDITIONAL_MOTION_REENTRY: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"MotionBranch","states":[{"name":"visible","initial":true},{"name":"wide","initial":false}],"root":{"kind":"window","id":"root","title":"Motion Branch","child":{"kind":"column","id":"content","children":[{"kind":"action","id":"toggle-wide","label":"Wide","action":{"kind":"toggle-state","state":"wide"}},{"kind":"action","id":"toggle-visible","label":"Visible","action":{"kind":"toggle-state","state":"visible"}},{"kind":"conditional","id":"branch","condition":{"kind":"state","state":"visible"},"then":[{"kind":"panel","id":"panel","layout":{"width":{"kind":"conditional","condition":{"kind":"state","state":"wide"},"then":{"kind":"literal","value":200},"otherwise":{"kind":"literal","value":100}},"height":{"kind":"literal","value":40}},"motion":[{"property":"width","propertyMask":512,"value":{"kind":"conditional","condition":{"kind":"state","state":"wide"},"then":{"kind":"literal","value":200},"otherwise":{"kind":"literal","value":100}},"plan":{"kind":"timing","duration":1.0,"curve":[0.0,0.0,1.0,1.0],"delayMs":0.0,"repeatCount":1,"autoreverses":false}}]}],"otherwise":[]}]}}}"#;
@@ -2417,14 +2593,12 @@ mod tests {
         runtime
             .activate_action("toggle-visible")
             .expect("hide branch");
-        assert!(
-            runtime
-                .build_frame(480.0, 320.0)
-                .expect("hidden frame")
-                .accessibility
-                .node("panel")
-                .is_none()
-        );
+        assert!(runtime
+            .build_frame(480.0, 320.0)
+            .expect("hidden frame")
+            .accessibility
+            .node("panel")
+            .is_none());
 
         runtime
             .activate_action("toggle-visible")
