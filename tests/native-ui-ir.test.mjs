@@ -688,6 +688,94 @@ export default App()`, "invalid-identity-key.mun"),
   )
 })
 
+
+test("static .id scopes component-owned @State independently of sibling position", () => {
+  const counter = `struct Counter: View {
+  @State var enabled: boolean = false
+
+  var body: some View {
+    Button("Toggle") { enabled.toggle() }
+  }
+}`
+
+  const before = `import { Button, Text, VStack } from "@mun/core"
+${counter}
+struct App: View {
+  var body: some View {
+    VStack() {
+      Counter().id("primary-counter")
+      Text("Decoration")
+    }
+  }
+}
+export default App()`
+
+  const after = `import { Button, Text, VStack } from "@mun/core"
+${counter}
+struct App: View {
+  var body: some View {
+    VStack() {
+      Text("Decoration")
+      Counter().id("primary-counter")
+    }
+  }
+}
+export default App()`
+
+  const beforeProgram = compileMunUiProgram(before, "keyed-state-before.mun")
+  const afterProgram = compileMunUiProgram(after, "keyed-state-after.mun")
+  const beforeState = beforeProgram.states.find(state => state.name.endsWith("/enabled"))
+  const afterState = afterProgram.states.find(state => state.name.endsWith("/enabled"))
+  assert.ok(beforeState)
+  assert.ok(afterState)
+  assert.equal(beforeState.name, afterState.name)
+  assert.equal(
+    beforeState.name,
+    "@component/entry/App/body/content/key/primary-counter/component/Counter/enabled",
+  )
+
+  const beforeRoot = beforeProgram.root.child
+  const afterRoot = afterProgram.root.child
+  assert.equal(beforeRoot.kind, "column")
+  assert.equal(afterRoot.kind, "column")
+  if (beforeRoot.kind !== "column" || afterRoot.kind !== "column") return
+
+  const beforeCounter = beforeRoot.children[0]
+  const afterCounter = afterRoot.children[1]
+  assert.equal(beforeCounter?.identityKey?.kind, "literal")
+  assert.equal(afterCounter?.identityKey?.kind, "literal")
+  assert.notEqual(beforeCounter?.id, afterCounter?.id)
+})
+
+test("dynamic .id rejects stateful native subtrees until runtime state scopes can follow the key", () => {
+  const source = `import { Button, State, VStack } from "@mun/core"
+
+struct Counter: View {
+  @State var enabled: boolean = false
+
+  var body: some View {
+    Button("Toggle") { enabled.toggle() }
+  }
+}
+
+struct App: View {
+  @State var identity: string = "primary"
+
+  var body: some View {
+    VStack() {
+      Counter().id(identity.value)
+    }
+  }
+}
+
+export default App()`
+
+  assert.throws(
+    () => compileMunUiProgram(source, "dynamic-keyed-state.mun"),
+    /Stateful native View 'Counter' cannot use a dynamic \.id\(_:\) identity until runtime-owned state scopes are available/,
+  )
+})
+
 test("structural identities do not renumber unrelated component state or nodes", () => {
   const baselineSource = `import { Button, Text, VStack } from "@mun/core"
 

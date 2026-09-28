@@ -863,6 +863,22 @@ function expressionIsDynamic(value: MunUiExpression | undefined): value is MunUi
   return !!value && value.kind !== "literal"
 }
 
+function semanticIdentityKey(modifier: ModifierCall, bindings: UiBindings): MunUiExpression {
+  const source = modifierRaw(modifier, "value", 0)
+  if (!source) throw new SyntaxError("id requires a semantic identity value")
+  const identityKey = lowerValueExpression(source, bindings)
+  if (
+    identityKey.kind === "literal"
+    && (
+      (typeof identityKey.value !== "string" && typeof identityKey.value !== "number")
+      || (typeof identityKey.value === "number" && !Number.isFinite(identityKey.value))
+    )
+  ) {
+    throw new SyntaxError("Mün semantic identity keys must resolve to a string or finite number")
+  }
+  return identityKey
+}
+
 function applyModifiers(
   node: MunUiNode,
   modifiers: readonly ModifierCall[],
@@ -879,19 +895,7 @@ function applyModifiers(
 
   for (const modifier of modifiers) {
     if (modifier.name === "id") {
-      const source = modifierRaw(modifier, "value", 0)
-      if (!source) throw new SyntaxError("id requires a semantic identity value")
-      const identityKey = lowerValueExpression(source, bindings)
-      if (
-        identityKey.kind === "literal"
-        && (
-          (typeof identityKey.value !== "string" && typeof identityKey.value !== "number")
-          || (typeof identityKey.value === "number" && !Number.isFinite(identityKey.value))
-        )
-      ) {
-        throw new SyntaxError("Mün semantic identity keys must resolve to a string or finite number")
-      }
-      parts = { ...parts, identityKey }
+      parts = { ...parts, identityKey: semanticIdentityKey(modifier, bindings) }
       continue
     }
 
@@ -1042,9 +1046,36 @@ function collectStructDeclarations(
 
 type UiIdentitySegment = string | number
 type UiIdentityPath = readonly UiIdentitySegment[]
+type UiStateIdentityPath = UiIdentityPath | null
 
 function identityPathKey(path: UiIdentityPath): string {
   return path.map(segment => typeof segment === "number" ? `#${segment}` : segment).join("/")
+}
+
+function childIdentityPath(path: UiStateIdentityPath, ...segments: UiIdentitySegment[]): UiStateIdentityPath {
+  return path ? [...path, ...segments] : null
+}
+
+function keyedStateIdentityPath(path: UiStateIdentityPath, key: string | number): UiStateIdentityPath {
+  if (!path) return null
+  const parent = path.at(-2) === "child" ? path.slice(0, -2) : path
+  return [...parent, "key", key]
+}
+
+function stateIdentityPathForModifiers(
+  path: UiStateIdentityPath,
+  modifiers: readonly ModifierCall[],
+  bindings: UiBindings,
+): UiStateIdentityPath {
+  let current = path
+  for (const modifier of modifiers) {
+    if (modifier.name !== "id") continue
+    const identityKey = semanticIdentityKey(modifier, bindings)
+    if (identityKey.kind !== "literal") return null
+    if (typeof identityKey.value !== "string" && typeof identityKey.value !== "number") return null
+    current = keyedStateIdentityPath(current, identityKey.value)
+  }
+  return current
 }
 
 class UiLowerer {
@@ -1074,10 +1105,15 @@ class UiLowerer {
   bindLocalStates(
     declaration: MunStructDeclaration,
     bindings: Map<string, MunUiExpression>,
-    instancePath: UiIdentityPath,
+    instancePath: UiStateIdentityPath,
   ): void {
     const fields = declaration.fields.filter(field => field.kind === "state")
     if (fields.length === 0) return
+    if (!instancePath) {
+      throw new SyntaxError(
+        `Stateful native View '${declaration.name}' cannot use a dynamic .id(_:) identity until runtime-owned state scopes are available`,
+      )
+    }
 
     const instanceId = identityPathKey(instancePath)
     for (const field of fields) {
@@ -1129,18 +1165,30 @@ class UiLowerer {
     node: MunBuilderNode,
     bindings: UiBindings = emptyBindings,
     path: UiIdentityPath,
+    statePath: UiStateIdentityPath = path,
   ): MunUiNode {
     if (node.kind === "raw") {
       const chain = splitViewChain(node.source)
-      return applyModifiers(this.lower(chain.base, bindings, path), chain.modifiers, bindings)
+      const scopedStatePath = stateIdentityPathForModifiers(statePath, chain.modifiers, bindings)
+      return applyModifiers(this.lower(chain.base, bindings, path, scopedStatePath), chain.modifiers, bindings)
     }
-    if (node.kind === "conditional") return this.lowerConditional(node, bindings, path)
-    return this.lowerCall(node, bindings, path)
+    if (node.kind === "conditional") return this.lowerConditional(node, bindings, path, statePath)
+    return this.lowerCall(node, bindings, path, statePath)
   }
 
-  lowerProgram(program: MunBuilderProgram, bindings: UiBindings, path: UiIdentityPath): MunUiNode[] {
+  lowerProgram(
+    program: MunBuilderProgram,
+    bindings: UiBindings,
+    path: UiIdentityPath,
+    statePath: UiStateIdentityPath = path,
+  ): MunUiNode[] {
     return program.statements.map((statement, index) =>
-      this.lower(statement, bindings, [...path, "child", index])
+      this.lower(
+        statement,
+        bindings,
+        [...path, "child", index],
+        childIdentityPath(statePath, "child", index),
+      )
     )
   }
 
@@ -1148,24 +1196,52 @@ class UiLowerer {
     node: MunConditionalExpression,
     bindings: UiBindings,
     path: UiIdentityPath,
+    statePath: UiStateIdentityPath,
   ): MunUiNode {
     const otherwise = node.otherwise
     return {
       kind: "conditional",
       id: this.id("conditional", path),
       condition: lowerValueExpression(node.condition.source, bindings),
-      then: this.lowerProgram(node.then, bindings, [...path, "then"]),
+      then: this.lowerProgram(
+        node.then,
+        bindings,
+        [...path, "then"],
+        childIdentityPath(statePath, "then"),
+      ),
       otherwise: !otherwise
         ? []
         : otherwise.kind === "program"
-          ? this.lowerProgram(otherwise, bindings, [...path, "otherwise"])
-          : [this.lowerConditional(otherwise, bindings, [...path, "otherwise"])],
+          ? this.lowerProgram(
+              otherwise,
+              bindings,
+              [...path, "otherwise"],
+              childIdentityPath(statePath, "otherwise"),
+            )
+          : [this.lowerConditional(
+              otherwise,
+              bindings,
+              [...path, "otherwise"],
+              childIdentityPath(statePath, "otherwise"),
+            )],
     }
   }
 
-  children(call: MunCallExpression, bindings: UiBindings, path: UiIdentityPath): MunUiNode[] {
+  children(
+    call: MunCallExpression,
+    bindings: UiBindings,
+    path: UiIdentityPath,
+    statePath: UiStateIdentityPath,
+  ): MunUiNode[] {
     const body = call.trailing?.body
-    return body ? this.lowerProgram(body, bindings, [...path, "content"]) : []
+    return body
+      ? this.lowerProgram(
+          body,
+          bindings,
+          [...path, "content"],
+          childIdentityPath(statePath, "content"),
+        )
+      : []
   }
 
   lowerComponent(
@@ -1173,6 +1249,7 @@ class UiLowerer {
     declaration: MunStructDeclaration,
     callerBindings: UiBindings,
     path: UiIdentityPath,
+    statePath: UiStateIdentityPath,
   ): MunUiNode {
     if (this.#componentStack.includes(declaration.name)) {
       throw new SyntaxError(
@@ -1326,7 +1403,7 @@ class UiLowerer {
         )
       }
     }
-    const instancePath: UiIdentityPath = [...path, "component", declaration.name]
+    const instancePath = childIdentityPath(statePath, "component", declaration.name)
     this.bindLocalStates(declaration, fieldBindings, instancePath)
 
     const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
@@ -1336,13 +1413,23 @@ class UiLowerer {
 
     this.#componentStack.push(declaration.name)
     try {
-      return this.lower(program.statements[0], fieldBindings, [...instancePath, "body"])
+      return this.lower(
+        program.statements[0],
+        fieldBindings,
+        [...path, "component", declaration.name, "body"],
+        childIdentityPath(instancePath, "body"),
+      )
     } finally {
       this.#componentStack.pop()
     }
   }
 
-  lowerCall(call: MunCallExpression, bindings: UiBindings, path: UiIdentityPath): MunUiNode {
+  lowerCall(
+    call: MunCallExpression,
+    bindings: UiBindings,
+    path: UiIdentityPath,
+    statePath: UiStateIdentityPath,
+  ): MunUiNode {
     validateCanonicalBuiltinCall(call, bindings, this.#stateTypes)
     if (call.callee === "VStack" || call.callee === "Column") {
       const spacing = numberValue(rawArgument(call, "spacing", 0), 0, bindings)
@@ -1352,7 +1439,7 @@ class UiLowerer {
         id: this.id("column", path),
         layout: { spacing, ...(alignment ? { alignment } : {}) },
         accessibility: { role: "group" },
-        children: this.children(call, bindings, path),
+        children: this.children(call, bindings, path, statePath),
       }
     }
 
@@ -1364,7 +1451,7 @@ class UiLowerer {
         id: this.id("row", path),
         layout: { spacing, ...(alignment ? { alignment } : {}) },
         accessibility: { role: "group" },
-        children: this.children(call, bindings, path),
+        children: this.children(call, bindings, path, statePath),
       }
     }
 
@@ -1410,7 +1497,7 @@ class UiLowerer {
 
     if (call.callee === "Window") {
       const title = stringValue(rawArgument(call, "title", 0), "Mün", bindings) ?? "Mün"
-      const children = this.children(call, bindings, path)
+      const children = this.children(call, bindings, path, statePath)
       if (children.length !== 1) throw new SyntaxError("Window requires exactly one root content view")
       return {
         kind: "window",
@@ -1426,7 +1513,7 @@ class UiLowerer {
     }
 
     const declaration = this.#structs.get(call.callee)
-    if (declaration) return this.lowerComponent(call, declaration, bindings, path)
+    if (declaration) return this.lowerComponent(call, declaration, bindings, path, statePath)
 
     throw new SyntaxError(`View '${call.callee}' is not part of the native Mün semantic component graph`)
   }
