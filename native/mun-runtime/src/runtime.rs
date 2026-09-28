@@ -18,7 +18,10 @@ use crate::{
     },
     layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize},
     motion::{MotionChannelKey, MotionScheduler},
-    retained::{RetainedNodeKind, RetainedNodeSpec, RetainedReconciliation, RetainedTree},
+    retained::{
+        RetainedIdentityKey, RetainedNodeKind, RetainedNodeSpec, RetainedReconciliation,
+        RetainedTree,
+    },
     scene::{ActionHit, Color, Rect as SceneBounds, Scene, SceneRect, SceneText},
 };
 
@@ -869,12 +872,15 @@ impl Runtime {
     fn reconcile_retained_tree(&mut self) {
         let root_id = self.program.root.id.clone();
         let child_id = self.program.root.child.base().id.clone();
-        let mut specs = vec![RetainedNodeSpec::new(
+        let mut root_spec = RetainedNodeSpec::new(
             root_id.clone(),
             RetainedNodeKind::Window,
             None,
             vec![child_id],
-        )];
+        );
+        root_spec.identity_key =
+            self.retained_identity_key(self.program.root.identity_key.as_ref());
+        let mut specs = vec![root_spec];
         self.collect_retained_specs(&self.program.root.child, Some(root_id), &mut specs);
         self.last_reconciliation = self
             .retained
@@ -901,11 +907,25 @@ impl Runtime {
             .iter()
             .map(|child| child.base().id.clone())
             .collect();
-        let id = node.base().id.clone();
-        output.push(RetainedNodeSpec::new(id.clone(), kind, parent, children));
+        let base = node.base();
+        let id = base.id.clone();
+        let mut spec = RetainedNodeSpec::new(id.clone(), kind, parent, children);
+        spec.identity_key = self.retained_identity_key(base.identity_key.as_ref());
+        output.push(spec);
         for child in active_children {
             self.collect_retained_specs(child, Some(id.clone()), output);
         }
+    }
+
+    fn retained_identity_key(
+        &self,
+        expression: Option<&UiExpression>,
+    ) -> Option<RetainedIdentityKey> {
+        expression.map(|expression| {
+            RetainedIdentityKey::from_value(&self.eval(expression)).expect(
+                "Mün semantic identity key must evaluate to a string or finite number",
+            )
+        })
     }
 
     fn layout_neighborhoods(&self) -> HashMap<String, Vec<String>> {
@@ -2104,6 +2124,224 @@ mod tests {
             error,
             RuntimeLoadError::DuplicateNodeIdentity { ref id } if id == "same"
         ));
+    }
+
+    const DYNAMIC_IDENTITY_KEY: &str = r#"
+    {
+      "version": 1,
+      "sourceLanguage": "mun",
+      "entry": "DynamicIdentityKey",
+      "states": [{ "name": "selection", "initial": "alpha" }],
+      "root": {
+        "kind": "window",
+        "id": "root",
+        "title": "Dynamic Identity",
+        "child": {
+          "kind": "column",
+          "id": "stack",
+          "children": [
+            {
+              "kind": "column",
+              "id": "keyed",
+              "identityKey": { "kind": "state", "state": "selection" },
+              "children": [
+                {
+                  "kind": "text",
+                  "id": "keyed-child",
+                  "value": { "kind": "literal", "value": "Child" }
+                }
+              ]
+            },
+            {
+              "kind": "action",
+              "id": "change",
+              "label": "Change",
+              "action": {
+                "kind": "set-state",
+                "state": "selection",
+                "value": { "kind": "literal", "value": "beta" }
+              }
+            },
+            {
+              "kind": "text",
+              "id": "stable-sibling",
+              "value": { "kind": "literal", "value": "Stable" }
+            }
+          ]
+        }
+      }
+    }
+    "#;
+
+    #[test]
+    fn dynamic_identity_key_replaces_only_the_keyed_retained_subtree() {
+        let mut runtime =
+            Runtime::from_json(DYNAMIC_IDENTITY_KEY).expect("valid dynamic identity program");
+        let keyed_instance = runtime
+            .retained_tree()
+            .node("keyed")
+            .expect("keyed retained node")
+            .instance_id;
+        let child_instance = runtime
+            .retained_tree()
+            .node("keyed-child")
+            .expect("keyed child")
+            .instance_id;
+        let action_instance = runtime
+            .retained_tree()
+            .node("change")
+            .expect("change action")
+            .instance_id;
+        let sibling_instance = runtime
+            .retained_tree()
+            .node("stable-sibling")
+            .expect("stable sibling")
+            .instance_id;
+
+        runtime
+            .activate_action("change")
+            .expect("identity-changing action");
+
+        assert_ne!(
+            runtime
+                .retained_tree()
+                .node("keyed")
+                .expect("keyed retained node")
+                .instance_id,
+            keyed_instance
+        );
+        assert_ne!(
+            runtime
+                .retained_tree()
+                .node("keyed-child")
+                .expect("keyed child")
+                .instance_id,
+            child_instance
+        );
+        assert_eq!(
+            runtime
+                .retained_tree()
+                .node("change")
+                .expect("change action")
+                .instance_id,
+            action_instance
+        );
+        assert_eq!(
+            runtime
+                .retained_tree()
+                .node("stable-sibling")
+                .expect("stable sibling")
+                .instance_id,
+            sibling_instance
+        );
+        assert_eq!(
+            runtime.last_reconciliation().replaced,
+            vec!["keyed", "keyed-child"]
+        );
+    }
+
+
+    const DYNAMIC_ROOT_IDENTITY_KEY: &str = r#"
+    {
+      "version": 1,
+      "sourceLanguage": "mun",
+      "entry": "DynamicRootIdentityKey",
+      "states": [{ "name": "selection", "initial": "alpha" }],
+      "root": {
+        "kind": "window",
+        "id": "root",
+        "identityKey": { "kind": "state", "state": "selection" },
+        "title": "Dynamic Root Identity",
+        "child": {
+          "kind": "column",
+          "id": "stack",
+          "children": [
+            {
+              "kind": "action",
+              "id": "change",
+              "label": "Change",
+              "action": {
+                "kind": "set-state",
+                "state": "selection",
+                "value": { "kind": "literal", "value": "beta" }
+              }
+            },
+            {
+              "kind": "text",
+              "id": "leaf",
+              "value": { "kind": "literal", "value": "Leaf" }
+            }
+          ]
+        }
+      }
+    }
+    "#;
+
+    #[test]
+    fn dynamic_root_identity_key_replaces_the_entire_retained_tree() {
+        let mut runtime = Runtime::from_json(DYNAMIC_ROOT_IDENTITY_KEY)
+            .expect("valid dynamic root identity program");
+        let root_instance = runtime
+            .retained_tree()
+            .node("root")
+            .expect("root retained node")
+            .instance_id;
+        let stack_instance = runtime
+            .retained_tree()
+            .node("stack")
+            .expect("stack retained node")
+            .instance_id;
+        let action_instance = runtime
+            .retained_tree()
+            .node("change")
+            .expect("change action")
+            .instance_id;
+        let leaf_instance = runtime
+            .retained_tree()
+            .node("leaf")
+            .expect("leaf retained node")
+            .instance_id;
+
+        runtime
+            .activate_action("change")
+            .expect("root identity-changing action");
+
+        assert_ne!(
+            runtime
+                .retained_tree()
+                .node("root")
+                .expect("root retained node")
+                .instance_id,
+            root_instance
+        );
+        assert_ne!(
+            runtime
+                .retained_tree()
+                .node("stack")
+                .expect("stack retained node")
+                .instance_id,
+            stack_instance
+        );
+        assert_ne!(
+            runtime
+                .retained_tree()
+                .node("change")
+                .expect("change action")
+                .instance_id,
+            action_instance
+        );
+        assert_ne!(
+            runtime
+                .retained_tree()
+                .node("leaf")
+                .expect("leaf retained node")
+                .instance_id,
+            leaf_instance
+        );
+        assert_eq!(
+            runtime.last_reconciliation().replaced,
+            vec!["root", "stack", "change", "leaf"]
+        );
     }
 
     const STRETCH_INTRINSIC_LAYOUT: &str = r#"
