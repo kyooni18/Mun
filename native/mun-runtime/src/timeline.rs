@@ -737,6 +737,261 @@ impl ScalarTimelinePlayer {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScalarPhase {
+    pub name: String,
+    pub value: Option<f64>,
+    /// Time spent transitioning from the previous phase into this phase.
+    /// `None` uses the phase timeline's default duration.
+    pub duration: Option<f64>,
+    pub hold: f64,
+    /// Easing for the transition arriving at this phase.
+    pub easing: Option<TimelineEasing>,
+}
+
+impl ScalarPhase {
+    pub fn new(name: impl Into<String>, value: Option<f64>) -> Self {
+        Self {
+            name: name.into(),
+            value,
+            duration: None,
+            hold: 0.0,
+            easing: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PhaseTimelineError {
+    Empty,
+    NonFiniteDefaultDuration,
+    NegativeDefaultDuration,
+    MissingInitialValue,
+    NonFiniteTiming,
+    Track(TimelineTrackError),
+}
+
+impl fmt::Display for PhaseTimelineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::Empty => "phase timeline requires at least one phase",
+            Self::NonFiniteDefaultDuration => "phase default duration must be finite",
+            Self::NegativeDefaultDuration => "phase default duration cannot be negative",
+            Self::MissingInitialValue => {
+                "initial phase requires a scalar value or an explicit initial fallback"
+            }
+            Self::NonFiniteTiming => "phase duration/hold produced a non-finite timeline time",
+            Self::Track(error) => return error.fmt(f),
+        };
+        f.write_str(message)
+    }
+}
+
+impl Error for PhaseTimelineError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Track(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<TimelineTrackError> for PhaseTimelineError {
+    fn from(value: TimelineTrackError) -> Self {
+        Self::Track(value)
+    }
+}
+
+/// Scalar renderer-neutral subset of the inherited `PhaseTimeline`.
+///
+/// The source runtime supports multiple structured targets. This primitive
+/// recovers only phase timing/choreography for one scalar channel and delegates
+/// actual interpolation/playback to `ScalarKeyframeTrack`/`ScalarTimelinePlayer`.
+/// Later phases may omit a value to hold the previous one. The first phase may
+/// omit it only when an explicit runtime initial value is supplied.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScalarPhaseTimeline {
+    names: Vec<String>,
+    arrivals: Vec<f64>,
+    track: ScalarKeyframeTrack,
+}
+
+impl ScalarPhaseTimeline {
+    pub fn new(
+        initial_value: Option<f64>,
+        phases: Vec<ScalarPhase>,
+    ) -> Result<Self, PhaseTimelineError> {
+        Self::with_options(
+            initial_value,
+            phases,
+            0.2,
+            TimelineEasing::CubicBezier([0.22, 1.0, 0.36, 1.0]),
+        )
+    }
+
+    pub fn with_options(
+        initial_value: Option<f64>,
+        phases: Vec<ScalarPhase>,
+        default_duration: f64,
+        default_easing: TimelineEasing,
+    ) -> Result<Self, PhaseTimelineError> {
+        if phases.is_empty() {
+            return Err(PhaseTimelineError::Empty);
+        }
+        if !default_duration.is_finite() {
+            return Err(PhaseTimelineError::NonFiniteDefaultDuration);
+        }
+        if default_duration < 0.0 {
+            return Err(PhaseTimelineError::NegativeDefaultDuration);
+        }
+        if let Some(initial) = initial_value {
+            if !initial.is_finite() {
+                return Err(PhaseTimelineError::Track(
+                    TimelineTrackError::NonFiniteValue,
+                ));
+            }
+        }
+
+        let names = phases
+            .iter()
+            .map(|phase| phase.name.clone())
+            .collect::<Vec<_>>();
+        let mut arrivals = vec![0.0; phases.len()];
+        let mut current = phases[0]
+            .value
+            .or(initial_value)
+            .ok_or(PhaseTimelineError::MissingInitialValue)?;
+        let next_easing = phases
+            .get(1)
+            .and_then(|phase| phase.easing)
+            .unwrap_or(default_easing);
+        let mut frames = vec![ScalarKeyframe {
+            at: 0.0,
+            value: current,
+            easing: next_easing,
+        }];
+
+        let mut time = 0.0;
+        let first_hold = inherited_nonnegative_phase_time(phases[0].hold)?;
+        if first_hold > 0.0 {
+            time += first_hold;
+            if !time.is_finite() {
+                return Err(PhaseTimelineError::NonFiniteTiming);
+            }
+            frames.push(ScalarKeyframe {
+                at: time,
+                value: current,
+                easing: next_easing,
+            });
+        }
+
+        for index in 1..phases.len() {
+            let phase = &phases[index];
+            let transition = match phase.duration {
+                None => default_duration,
+                Some(duration) => inherited_nonnegative_phase_time(duration)?,
+            };
+            let phase_easing = phase.easing.unwrap_or(default_easing);
+            if let Some(last) = frames.last_mut() {
+                last.easing = phase_easing;
+            }
+
+            time += transition;
+            if !time.is_finite() {
+                return Err(PhaseTimelineError::NonFiniteTiming);
+            }
+            arrivals[index] = time;
+
+            if let Some(value) = phase.value {
+                current = value;
+            }
+            let following_easing = phases
+                .get(index + 1)
+                .and_then(|following| following.easing)
+                .unwrap_or(default_easing);
+            frames.push(ScalarKeyframe {
+                at: time,
+                value: current,
+                easing: following_easing,
+            });
+
+            let hold = inherited_nonnegative_phase_time(phase.hold)?;
+            if hold > 0.0 {
+                time += hold;
+                if !time.is_finite() {
+                    return Err(PhaseTimelineError::NonFiniteTiming);
+                }
+                frames.push(ScalarKeyframe {
+                    at: time,
+                    value: current,
+                    easing: following_easing,
+                });
+            }
+        }
+
+        Ok(Self {
+            names,
+            arrivals,
+            track: ScalarKeyframeTrack::new(frames)?,
+        })
+    }
+
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    pub fn arrivals(&self) -> &[f64] {
+        &self.arrivals
+    }
+
+    pub fn track(&self) -> &ScalarKeyframeTrack {
+        &self.track
+    }
+
+    pub fn duration(&self) -> f64 {
+        self.track.duration()
+    }
+
+    pub fn phase_at(&self, time_seconds: f64) -> &str {
+        let time = if time_seconds.is_nan() {
+            0.0
+        } else {
+            time_seconds.clamp(0.0, self.duration())
+        };
+        let mut index = 0;
+        for arrival in self.arrivals.iter().skip(1) {
+            if *arrival <= time + EPSILON {
+                index += 1;
+            } else {
+                break;
+            }
+        }
+        &self.names[index]
+    }
+
+    pub fn sample(&self, time_seconds: f64, velocity_scale: f64) -> TimelineValueSample {
+        self.track.sample(time_seconds, velocity_scale)
+    }
+
+    pub fn player(
+        &self,
+        iterations: Option<u64>,
+        direction: TimelineDirection,
+    ) -> ScalarTimelinePlayer {
+        ScalarTimelinePlayer::new(self.track.clone(), iterations, direction)
+    }
+}
+
+fn inherited_nonnegative_phase_time(value: f64) -> Result<f64, PhaseTimelineError> {
+    if value.is_nan() || value <= 0.0 {
+        return Ok(0.0);
+    }
+    if !value.is_finite() {
+        return Err(PhaseTimelineError::NonFiniteTiming);
+    }
+    Ok(value)
+}
+
 fn validate_frame(frame: ScalarKeyframe) -> Result<(), TimelineTrackError> {
     if !frame.at.is_finite() {
         return Err(TimelineTrackError::NonFiniteTime);
@@ -1045,6 +1300,77 @@ mod tests {
         assert_eq!(
             TimelineClipTiming::new(0.0, 0.0, TimelineFill::None, 1.0),
             Err(TimelineClipError::NonPositiveSpeed)
+        );
+    }
+
+    #[test]
+    fn scalar_phase_timeline_matches_named_choreography_and_arrival_boundaries() {
+        let phases = ScalarPhaseTimeline::with_options(
+            None,
+            vec![
+                ScalarPhase::new("idle", Some(1.0)),
+                ScalarPhase {
+                    name: "pressed".into(),
+                    value: Some(0.94),
+                    duration: Some(0.1),
+                    hold: 0.05,
+                    easing: Some(TimelineEasing::Linear),
+                },
+                ScalarPhase {
+                    name: "release".into(),
+                    value: Some(1.0),
+                    duration: Some(0.2),
+                    hold: 0.0,
+                    easing: Some(TimelineEasing::Linear),
+                },
+            ],
+            0.2,
+            TimelineEasing::CubicBezier([0.22, 1.0, 0.36, 1.0]),
+        )
+        .expect("valid scalar phase timeline");
+
+        assert!((phases.duration() - 0.35).abs() < 1e-12);
+        assert!((phases.sample(0.1, 1.0).value - 0.94).abs() < 1e-12);
+        assert_eq!(phases.phase_at(0.099), "idle");
+        assert_eq!(phases.phase_at(0.1), "pressed");
+        assert_eq!(phases.phase_at(0.14), "pressed");
+        assert_eq!(phases.phase_at(0.35), "release");
+    }
+
+    #[test]
+    fn scalar_phase_timeline_preserves_final_hold_and_missing_value_carry_forward() {
+        let phases = ScalarPhaseTimeline::with_options(
+            Some(3.0),
+            vec![
+                ScalarPhase::new("a", None),
+                ScalarPhase {
+                    name: "b".into(),
+                    value: Some(10.0),
+                    duration: Some(0.2),
+                    hold: 0.3,
+                    easing: Some(TimelineEasing::Linear),
+                },
+                ScalarPhase {
+                    name: "c".into(),
+                    value: None,
+                    duration: Some(0.1),
+                    hold: 0.0,
+                    easing: Some(TimelineEasing::Linear),
+                },
+            ],
+            0.2,
+            TimelineEasing::Linear,
+        )
+        .expect("valid scalar phase timeline");
+
+        assert!((phases.duration() - 0.6).abs() < 1e-12);
+        assert_eq!(phases.sample(0.4, 1.0).value, 10.0);
+        assert_eq!(phases.sample(0.6, 1.0).value, 10.0);
+        assert_eq!(phases.phase_at(0.599), "b");
+        assert_eq!(phases.phase_at(0.6), "c");
+        assert_eq!(
+            ScalarPhaseTimeline::new(None, vec![ScalarPhase::new("a", None)]),
+            Err(PhaseTimelineError::MissingInitialValue)
         );
     }
 }
