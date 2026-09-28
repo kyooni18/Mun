@@ -5,6 +5,7 @@
 //! window-system, and accessibility adapters live outside these semantics.
 
 pub mod accessibility;
+pub mod gesture;
 pub mod input;
 pub mod ir;
 pub mod motion;
@@ -14,6 +15,10 @@ pub mod scene;
 pub mod timeline;
 
 pub use accessibility::{AccessibilityBounds, AccessibilityNode, AccessibilityTree};
+pub use gesture::{
+    DragAxis, DragRecognizer, DragRecognizerConfig, DragState, GestureAxisRelease, GesturePhase,
+    VelocityTracker, VelocityTrackerConfig, constrain_with_rubber_band, rubber_band_distance,
+};
 pub use input::{
     ButtonState, InputEvent, InputOutcome, InputPoint, KeyState, LogicalKey, Modifiers,
     PhysicalKey, PointerButton, PointerId, ScrollDelta,
