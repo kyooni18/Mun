@@ -9,6 +9,7 @@ use glyphon::{
     Attrs, Buffer, Cache, Color as GlyphColor, Family, FontSystem, Metrics, Resolution, Shaping,
     SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
 };
+use mun_runtime::accessibility::AccessibilityAction as MunAccessibilityAction;
 use mun_runtime::scene::{ScenePresentation, SceneTransform};
 use mun_runtime::{
     ButtonState as MunButtonState, Color, InputEvent, InputPoint, KeyState as MunKeyState,
@@ -802,25 +803,15 @@ impl WindowState {
         let Some(id) = self.accessibility.semantic_id_for(request.target_node) else {
             return;
         };
-        match request.action {
-            Action::Click => {
-                if self.runtime.focus_action(&id) {
-                    self.runtime.activate_action(&id);
-                    self.window.request_redraw();
-                }
-            }
-            Action::Focus => {
-                if self.runtime.focus_action(&id) {
-                    self.window.request_redraw();
-                }
-            }
-            Action::Blur => {
-                if self.runtime.focused_action() == Some(id.as_str()) {
-                    self.runtime.clear_focus();
-                    self.window.request_redraw();
-                }
-            }
-            _ => {}
+        let action = match request.action {
+            Action::Click => MunAccessibilityAction::Activate,
+            Action::Focus => MunAccessibilityAction::Focus,
+            Action::Blur => MunAccessibilityAction::Blur,
+            _ => return,
+        };
+        let outcome = self.runtime.handle_accessibility_action(&id, action);
+        if outcome.needs_redraw {
+            self.window.request_redraw();
         }
     }
 
