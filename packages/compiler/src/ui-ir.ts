@@ -48,6 +48,7 @@ interface ModifierCall {
 }
 
 interface MutableNodeParts {
+  identityKey?: MunUiExpression
   layout?: MunUiLayout
   visual?: MunUiVisual
   motion?: MunUiNode["motion"]
@@ -859,6 +860,7 @@ function applyModifiers(
   bindings: UiBindings = emptyBindings,
 ): MunUiNode {
   let parts: MutableNodeParts = {
+    identityKey: node.identityKey,
     layout: node.layout,
     visual: node.visual,
     motion: node.motion,
@@ -867,6 +869,23 @@ function applyModifiers(
   let pendingAnimation: { readonly plan: MunMotionExecutionPlan; readonly trigger?: MunUiExpression } | undefined
 
   for (const modifier of modifiers) {
+    if (modifier.name === "id") {
+      const source = modifierRaw(modifier, "value", 0)
+      if (!source) throw new SyntaxError("id requires a semantic identity value")
+      const identityKey = lowerValueExpression(source, bindings)
+      if (
+        identityKey.kind === "literal"
+        && (
+          (typeof identityKey.value !== "string" && typeof identityKey.value !== "number")
+          || (typeof identityKey.value === "number" && !Number.isFinite(identityKey.value))
+        )
+      ) {
+        throw new SyntaxError("Mün semantic identity keys must resolve to a string or finite number")
+      }
+      parts = { ...parts, identityKey }
+      continue
+    }
+
     if (modifier.name === "frame") {
       parts = {
         ...parts,
@@ -993,6 +1012,7 @@ function applyModifiers(
 
   return {
     ...node,
+    ...(parts.identityKey ? { identityKey: parts.identityKey } : {}),
     ...(parts.layout ? { layout: parts.layout } : {}),
     ...(parts.visual ? { visual: parts.visual } : {}),
     ...(parts.motion ? { motion: parts.motion } : {}),

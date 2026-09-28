@@ -187,11 +187,16 @@ export type MunUiAction =
 
 interface MunUiNodeBase {
   /**
-   * Semantic retained identity shared by reconciliation, motion channels, input/focus,
-   * accessibility projection, layout snapshots, and future matched-geometry routing.
-   * Backends must treat it as opaque and must not derive identity from render objects.
+   * Compiler-derived structural anchor for this semantic node. It is stable across
+   * unrelated lowering changes and is never derived from a renderer object.
    */
   readonly id: MunUiNodeId
+  /**
+   * Source-level .id(_:) identity boundary. When present, retained runtimes compose
+   * this value with the parent identity rather than replacing the structural anchor.
+   * The expression must resolve to a string or finite number.
+   */
+  readonly identityKey?: MunUiExpression
   readonly layout?: MunUiLayout
   readonly visual?: MunUiVisual
   /**

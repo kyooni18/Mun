@@ -616,6 +616,48 @@ export default App()`
   }
 })
 
+test("source .id(_:) lowers as a semantic identity boundary without replacing the structural anchor", () => {
+  const source = `import { State, Text, VStack } from "@mun/core"
+struct App: View {
+  @State var selection: string = "alpha"
+
+  var body: some View {
+    VStack() {
+      Text("Static").id("hero")
+      Text("Dynamic").id(selection.value)
+    }
+  }
+}
+export default App()`
+
+  const program = compileMunUiProgram(source, "identity-key.mun")
+  const root = program.root.child
+  assert.equal(root.kind, "column")
+  if (root.kind !== "column") return
+
+  const staticNode = root.children[0]
+  const dynamicNode = root.children[1]
+  assert.equal(staticNode?.kind, "text")
+  assert.equal(dynamicNode?.kind, "text")
+  if (staticNode?.kind !== "text" || dynamicNode?.kind !== "text") return
+
+  assert.equal(staticNode.id, "@node/entry/App/body/content/child/#0/kind/text")
+  assert.deepEqual(staticNode.identityKey, { kind: "literal", value: "hero" })
+  assert.equal(dynamicNode.id, "@node/entry/App/body/content/child/#1/kind/text")
+  assert.deepEqual(dynamicNode.identityKey, { kind: "state", state: "@component/entry/App/selection" })
+
+  assert.throws(
+    () => compileMunUiProgram(`import { Text } from "@mun/core"
+struct App: View {
+  var body: some View {
+    Text("Bad").id(true)
+  }
+}
+export default App()`, "invalid-identity-key.mun"),
+    /semantic identity keys must resolve to a string or finite number/,
+  )
+})
+
 test("structural identities do not renumber unrelated component state or nodes", () => {
   const baselineSource = `import { Button, Text, VStack } from "@mun/core"
 
