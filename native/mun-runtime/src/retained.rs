@@ -203,14 +203,21 @@ impl RetainedTree {
         let mut next_nodes = HashMap::with_capacity(specs.len());
         let mut next_order = Vec::with_capacity(specs.len());
         let mut diff = RetainedReconciliation::default();
+        let mut identity_resets = HashSet::with_capacity(specs.len());
 
         for spec in specs {
             let id = spec.id.clone();
             next_order.push(id.clone());
+            let ancestor_reset = spec
+                .parent
+                .as_ref()
+                .is_some_and(|parent| identity_resets.contains(parent));
 
             let node = match previous_nodes.get(&id) {
                 Some(previous)
-                    if previous.kind == spec.kind && previous.identity_key == spec.identity_key =>
+                    if !ancestor_reset
+                        && previous.kind == spec.kind
+                        && previous.identity_key == spec.identity_key =>
                 {
                     diff.retained.push(id.clone());
                     if previous.parent != spec.parent {
@@ -230,6 +237,7 @@ impl RetainedTree {
                 }
                 Some(_) => {
                     diff.replaced.push(id.clone());
+                    identity_resets.insert(id.clone());
                     RetainedNode {
                         id: id.clone(),
                         kind: spec.kind,
@@ -241,6 +249,7 @@ impl RetainedTree {
                 }
                 None => {
                     diff.inserted.push(id.clone());
+                    identity_resets.insert(id.clone());
                     RetainedNode {
                         id: id.clone(),
                         kind: spec.kind,
@@ -423,6 +432,77 @@ mod tests {
         );
         assert_eq!(diff.replaced, vec!["node"]);
         assert_eq!(tree.revision(), revision + 1);
+    }
+
+    #[test]
+    fn changed_parent_identity_key_replaces_descendants_but_not_siblings() {
+        let mut tree = RetainedTree::default();
+        let mut keyed_parent = spec(
+            "keyed-parent",
+            RetainedNodeKind::Column,
+            Some("root"),
+            &["child"],
+        );
+        keyed_parent.identity_key = Some(RetainedIdentityKey::String("alpha".to_owned()));
+        tree.reconcile(vec![
+            spec(
+                "root",
+                RetainedNodeKind::Window,
+                None,
+                &["keyed-parent", "stable-sibling"],
+            ),
+            keyed_parent,
+            spec("child", RetainedNodeKind::Text, Some("keyed-parent"), &[]),
+            spec("stable-sibling", RetainedNodeKind::Text, Some("root"), &[]),
+        ])
+        .expect("initial keyed subtree");
+
+        let parent_instance = tree.node("keyed-parent").expect("keyed parent").instance_id;
+        let child_instance = tree.node("child").expect("child").instance_id;
+        let sibling_instance = tree
+            .node("stable-sibling")
+            .expect("stable sibling")
+            .instance_id;
+
+        let mut changed_parent = spec(
+            "keyed-parent",
+            RetainedNodeKind::Column,
+            Some("root"),
+            &["child"],
+        );
+        changed_parent.identity_key = Some(RetainedIdentityKey::String("beta".to_owned()));
+        let diff = tree
+            .reconcile(vec![
+                spec(
+                    "root",
+                    RetainedNodeKind::Window,
+                    None,
+                    &["keyed-parent", "stable-sibling"],
+                ),
+                changed_parent,
+                spec("child", RetainedNodeKind::Text, Some("keyed-parent"), &[]),
+                spec("stable-sibling", RetainedNodeKind::Text, Some("root"), &[]),
+            ])
+            .expect("changed keyed subtree");
+
+        assert_ne!(
+            tree.node("keyed-parent").expect("keyed parent").instance_id,
+            parent_instance
+        );
+        assert_ne!(
+            tree.node("child").expect("child").instance_id,
+            child_instance
+        );
+        assert_eq!(
+            tree.node("stable-sibling")
+                .expect("stable sibling")
+                .instance_id,
+            sibling_instance
+        );
+        assert_eq!(diff.replaced, vec!["keyed-parent", "child"]);
+        assert_eq!(diff.retained, vec!["root", "stable-sibling"]);
+        assert!(diff.inserted.is_empty());
+        assert!(diff.removed.is_empty());
     }
 
     #[test]
