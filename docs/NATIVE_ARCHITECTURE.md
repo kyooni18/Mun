@@ -152,6 +152,14 @@ Native presentation now distinguishes layout geometry from scene-space transform
 `examples/NativeDemo.mun` exercises width, opacity, and x/y translation from one state-triggered spring. Width changes presentation layout; opacity and translation are projected after layout from independent property channels.
 
 
+## Retained scene transform boundary
+
+The retained scene now has a renderer-neutral `ScenePresentation` layer for presentation transforms that must not mutate Taffy geometry. A transform node carries independent x/y scale and translation and may inherit from a parent transform; retained primitive IDs bind to those nodes. This is deliberately below Semantic UI IR and above wgpu/glyphon. The compiler does not emit GPU matrices, Taffy remains the logical layout source, and the renderer only realizes the transform it is given. The same presentation object can inverse-map action geometry for transform-aware hit testing.
+
+The wgpu backend can realize non-uniform scale for rectangles and text without rewriting semantic sizes. Rect vertices are projected through the resolved scene transform while their local rounded-rectangle geometry remains logical. glyphon 0.12 exposes only a scalar `TextArea::scale`, so the backend does not approximate `scaleX/scaleY` with an averaged font size. Instead it shapes text at its logical metrics, rasterizes each transform batch at the largest requested axis scale, and uses the wgpu render-pass viewport for independent x/y presentation scale and translation. Font/cache/atlas state and transform-batch renderers remain persistent across frames.
+
+This establishes the renderer capability required by full size-projecting FLIP, matched geometry, future gesture transforms, and future scroll transforms, but the runtime has not yet migrated structural FLIP onto `ScenePresentation`; current structural FLIP remains positional. Negative/mirrored text scales are not currently supported, and a collapsed text axis draws nothing rather than inventing a substitute transform. General retained clipping is also not implemented yet. Existing subtree opacity is per-primitive alpha multiplication and must not be described as true offscreen group compositing when overlapping descendants would require an intermediate layer.
+
 ## Native lifecycle presence
 
 `Transition` is a canonical core semantic value and its descriptor now crosses the same compiler/IR boundary as other native UI semantics. Native presence supports ordered `opacity`, uniform `scale`, and directional `move` effects for insertion and removal. The lifecycle is driven by a single normalized channel in the existing motion scheduler; it does not create widget-local timers or renderer-owned animation state.
