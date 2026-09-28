@@ -9,6 +9,7 @@ use glyphon::{
     Attrs, Buffer, Cache, Color as GlyphColor, Family, FontSystem, Metrics, Resolution, Shaping,
     SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
 };
+use mun_runtime::scene::{ScenePresentation, SceneTransform};
 use mun_runtime::{
     ButtonState as MunButtonState, Color, InputEvent, InputPoint, KeyState as MunKeyState,
     LogicalKey, Modifiers, PhysicalKey as MunPhysicalKey, PointerButton as MunPointerButton,
@@ -110,6 +111,28 @@ impl Vertex {
     }
 }
 
+struct TextBatchRenderer {
+    viewport: Viewport,
+    renderer: TextRenderer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TextTransformPlan {
+    raster_scale: f32,
+    virtual_width: u32,
+    virtual_height: u32,
+    viewport_x: f32,
+    viewport_y: f32,
+    viewport_width: f32,
+    viewport_height: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PreparedTextBatch {
+    slot: usize,
+    plan: TextTransformPlan,
+}
+
 struct GpuRenderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -118,9 +141,9 @@ struct GpuRenderer {
     rect_pipeline: wgpu::RenderPipeline,
     font_system: FontSystem,
     swash_cache: SwashCache,
-    viewport: Viewport,
+    cache: Cache,
     atlas: TextAtlas,
-    text_renderer: TextRenderer,
+    text_batches: Vec<TextBatchRenderer>,
 }
 
 impl GpuRenderer {
@@ -185,10 +208,7 @@ impl GpuRenderer {
         let font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&device);
-        let viewport = Viewport::new(&device, &cache);
-        let mut atlas = TextAtlas::new(&device, &queue, &cache, config.format);
-        let text_renderer =
-            TextRenderer::new(&mut atlas, &device, wgpu::MultisampleState::default(), None);
+        let atlas = TextAtlas::new(&device, &queue, &cache, config.format);
 
         Self {
             device,
@@ -198,9 +218,9 @@ impl GpuRenderer {
             rect_pipeline,
             font_system,
             swash_cache,
-            viewport,
+            cache,
             atlas,
-            text_renderer,
+            text_batches: Vec::new(),
         }
     }
 
@@ -213,18 +233,40 @@ impl GpuRenderer {
         self.surface.configure(&self.device, &self.config);
     }
 
+    fn ensure_text_batch(&mut self, slot: usize) {
+        while self.text_batches.len() <= slot {
+            let viewport = Viewport::new(&self.device, &self.cache);
+            let renderer = TextRenderer::new(
+                &mut self.atlas,
+                &self.device,
+                wgpu::MultisampleState::default(),
+                None,
+            );
+            self.text_batches
+                .push(TextBatchRenderer { viewport, renderer });
+        }
+    }
+
     fn render(&mut self, scene: &Scene, scale_factor: f32) {
+        self.render_presented(scene, &ScenePresentation::default(), scale_factor);
+    }
+
+    fn render_presented(
+        &mut self,
+        scene: &Scene,
+        presentation: &ScenePresentation,
+        scale_factor: f32,
+    ) {
         let physical_width = self.config.width.max(1) as f32;
         let physical_height = self.config.height.max(1) as f32;
-        self.viewport.update(
-            &self.queue,
-            Resolution {
-                width: self.config.width.max(1),
-                height: self.config.height.max(1),
-            },
-        );
 
-        let vertices = scene_vertices(scene, physical_width, physical_height, scale_factor);
+        let vertices = scene_vertices(
+            scene,
+            presentation,
+            physical_width,
+            physical_height,
+            scale_factor,
+        );
         let vertex_buffer = (!vertices.is_empty()).then(|| {
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -234,16 +276,15 @@ impl GpuRenderer {
                 })
         });
 
+        let logical_width = physical_width / scale_factor;
+        let logical_height = physical_height / scale_factor;
         let mut text_buffers = Vec::with_capacity(scene.texts.len());
         for text in &scene.texts {
             let mut buffer = Buffer::new(
                 &mut self.font_system,
                 Metrics::new(text.font_size, text.font_size * 1.25),
             );
-            buffer.set_size(
-                Some(self.config.width as f32 / scale_factor),
-                Some(self.config.height as f32 / scale_factor),
-            );
+            buffer.set_size(Some(logical_width), Some(logical_height));
             buffer.set_text(
                 &text.text,
                 &Attrs::new().family(Family::SansSerif),
@@ -254,42 +295,85 @@ impl GpuRenderer {
             text_buffers.push(buffer);
         }
 
-        let text_areas: Vec<_> = text_buffers
-            .iter()
-            .zip(&scene.texts)
-            .map(|(buffer, text)| {
-                let rgba = text
-                    .color
-                    .0
-                    .map(|value| (value.clamp(0.0, 1.0) * 255.0).round() as u8);
-                TextArea {
-                    buffer,
-                    left: text.x * scale_factor,
-                    top: text.y * scale_factor,
-                    scale: scale_factor,
-                    bounds: TextBounds {
-                        left: 0,
-                        top: 0,
-                        right: self.config.width as i32,
-                        bottom: self.config.height as i32,
-                    },
-                    default_color: GlyphColor::rgba(rgba[0], rgba[1], rgba[2], rgba[3]),
-                    custom_glyphs: &[],
-                }
-            })
-            .collect();
+        let mut groups = Vec::new();
+        let mut start = 0;
+        while start < scene.texts.len() {
+            let transform = presentation.transform_for(&scene.texts[start].id);
+            let mut end = start + 1;
+            while end < scene.texts.len()
+                && presentation.transform_for(&scene.texts[end].id) == transform
+            {
+                end += 1;
+            }
+            groups.push((start, end, transform));
+            start = end;
+        }
 
-        self.text_renderer
-            .prepare(
-                &self.device,
-                &self.queue,
-                &mut self.font_system,
-                &mut self.atlas,
-                &self.viewport,
-                text_areas,
-                &mut self.swash_cache,
-            )
-            .expect("prepare Mün text");
+        let mut prepared_batches = Vec::with_capacity(groups.len());
+        for (start, end, transform) in groups {
+            let Some(plan) =
+                text_transform_plan(transform, physical_width, physical_height, scale_factor)
+                    .expect("Mün text transforms require finite, non-negative scales")
+            else {
+                continue;
+            };
+
+            let slot = prepared_batches.len();
+            self.ensure_text_batch(slot);
+
+            let device = &self.device;
+            let queue = &self.queue;
+            let font_system = &mut self.font_system;
+            let atlas = &mut self.atlas;
+            let swash_cache = &mut self.swash_cache;
+            let batch = &mut self.text_batches[slot];
+
+            batch.viewport.update(
+                queue,
+                Resolution {
+                    width: plan.virtual_width,
+                    height: plan.virtual_height,
+                },
+            );
+
+            let text_areas = text_buffers[start..end]
+                .iter()
+                .zip(&scene.texts[start..end])
+                .map(|(buffer, text)| {
+                    let rgba = text
+                        .color
+                        .0
+                        .map(|value| (value.clamp(0.0, 1.0) * 255.0).round() as u8);
+                    TextArea {
+                        buffer,
+                        left: text.x * plan.raster_scale,
+                        top: text.y * plan.raster_scale,
+                        scale: plan.raster_scale,
+                        bounds: TextBounds {
+                            left: 0,
+                            top: 0,
+                            right: plan.virtual_width.min(i32::MAX as u32) as i32,
+                            bottom: plan.virtual_height.min(i32::MAX as u32) as i32,
+                        },
+                        default_color: GlyphColor::rgba(rgba[0], rgba[1], rgba[2], rgba[3]),
+                        custom_glyphs: &[],
+                    }
+                });
+
+            batch
+                .renderer
+                .prepare(
+                    device,
+                    queue,
+                    font_system,
+                    atlas,
+                    &batch.viewport,
+                    text_areas,
+                    swash_cache,
+                )
+                .expect("prepare Mün text");
+            prepared_batches.push(PreparedTextBatch { slot, plan });
+        }
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
@@ -342,9 +426,22 @@ impl GpuRenderer {
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.draw(0..vertices.len() as u32, 0..1);
             }
-            self.text_renderer
-                .render(&self.atlas, &self.viewport, &mut pass)
-                .expect("render Mün text");
+
+            for prepared in prepared_batches {
+                let batch = &self.text_batches[prepared.slot];
+                pass.set_viewport(
+                    prepared.plan.viewport_x,
+                    prepared.plan.viewport_y,
+                    prepared.plan.viewport_width,
+                    prepared.plan.viewport_height,
+                    0.0,
+                    1.0,
+                );
+                batch
+                    .renderer
+                    .render(&self.atlas, &batch.viewport, &mut pass)
+                    .expect("render Mün text");
+            }
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -353,17 +450,73 @@ impl GpuRenderer {
     }
 }
 
-fn scene_vertices(scene: &Scene, width: f32, height: f32, scale: f32) -> Vec<Vertex> {
+fn text_transform_plan(
+    transform: SceneTransform,
+    physical_width: f32,
+    physical_height: f32,
+    device_scale: f32,
+) -> Result<Option<TextTransformPlan>, &'static str> {
+    if !physical_width.is_finite()
+        || !physical_height.is_finite()
+        || !device_scale.is_finite()
+        || physical_width <= 0.0
+        || physical_height <= 0.0
+        || device_scale <= 0.0
+        || !transform.scale_x.is_finite()
+        || !transform.scale_y.is_finite()
+        || !transform.translation_x.is_finite()
+        || !transform.translation_y.is_finite()
+        || transform.scale_x < 0.0
+        || transform.scale_y < 0.0
+    {
+        return Err("invalid text transform");
+    }
+
+    if transform.scale_x <= f32::EPSILON || transform.scale_y <= f32::EPSILON {
+        return Ok(None);
+    }
+
+    let max_axis_scale = transform.scale_x.max(transform.scale_y).max(1.0);
+    let raster_scale = device_scale * max_axis_scale;
+    let logical_width = physical_width / device_scale;
+    let logical_height = physical_height / device_scale;
+    let virtual_width = (logical_width * raster_scale)
+        .ceil()
+        .clamp(1.0, i32::MAX as f32) as u32;
+    let virtual_height = (logical_height * raster_scale)
+        .ceil()
+        .clamp(1.0, i32::MAX as f32) as u32;
+
+    Ok(Some(TextTransformPlan {
+        raster_scale,
+        virtual_width,
+        virtual_height,
+        viewport_x: transform.translation_x * device_scale,
+        viewport_y: transform.translation_y * device_scale,
+        viewport_width: physical_width * transform.scale_x,
+        viewport_height: physical_height * transform.scale_y,
+    }))
+}
+
+fn scene_vertices(
+    scene: &Scene,
+    presentation: &ScenePresentation,
+    width: f32,
+    height: f32,
+    scale: f32,
+) -> Vec<Vertex> {
     let mut vertices = Vec::with_capacity(scene.rects.len() * 6);
     for item in &scene.rects {
-        let left = item.rect.x * scale;
-        let top = item.rect.y * scale;
-        let right = (item.rect.x + item.rect.width) * scale;
-        let bottom = (item.rect.y + item.rect.height) * scale;
-        let x0 = left / width * 2.0 - 1.0;
-        let x1 = right / width * 2.0 - 1.0;
-        let y0 = 1.0 - top / height * 2.0;
-        let y1 = 1.0 - bottom / height * 2.0;
+        let transform = presentation.transform_for(&item.id);
+        let (left, top) = transform.transform_point(item.rect.x, item.rect.y);
+        let (right, bottom) = transform.transform_point(
+            item.rect.x + item.rect.width,
+            item.rect.y + item.rect.height,
+        );
+        let x0 = left * scale / width * 2.0 - 1.0;
+        let x1 = right * scale / width * 2.0 - 1.0;
+        let y0 = 1.0 - top * scale / height * 2.0;
+        let y1 = 1.0 - bottom * scale / height * 2.0;
         let color = item.color.0;
         let rect_size = [item.rect.width, item.rect.height];
         let radius = item.corner_radius.max(0.0);
@@ -433,13 +586,87 @@ mod tests {
             ..Default::default()
         };
 
-        let vertices = scene_vertices(&scene, 200.0, 120.0, 2.0);
+        let vertices = scene_vertices(&scene, &ScenePresentation::default(), 200.0, 120.0, 2.0);
 
         assert_eq!(vertices.len(), 6);
         assert_eq!(vertices[0].local_position, [0.0, 0.0]);
         assert_eq!(vertices[2].local_position, [40.0, 20.0]);
         assert_eq!(vertices[0].rect_size, [40.0, 20.0]);
         assert_eq!(vertices[0].corner_radius, 6.0);
+    }
+
+    #[test]
+    fn scene_vertices_apply_non_uniform_presentation_transform() {
+        let scene = Scene {
+            rects: vec![SceneRect {
+                id: "box".into(),
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 40.0,
+                    height: 20.0,
+                },
+                color: Color([1.0, 1.0, 1.0, 1.0]),
+                corner_radius: 4.0,
+            }],
+            ..Default::default()
+        };
+        let mut presentation = ScenePresentation::default();
+        let transform = presentation.push_transform(
+            None,
+            SceneTransform {
+                scale_x: 0.5,
+                scale_y: 2.0,
+                translation_x: 5.0,
+                translation_y: -10.0,
+            },
+        );
+        presentation.bind("box", transform);
+
+        let vertices = scene_vertices(&scene, &presentation, 200.0, 120.0, 2.0);
+
+        assert!((vertices[0].position[0] - -0.8).abs() < 0.0001);
+        assert!(vertices[0].position[1].abs() < 0.0001);
+        assert!((vertices[2].position[0] - -0.4).abs() < 0.0001);
+        assert!((vertices[2].position[1] - -1.3333334).abs() < 0.0001);
+        assert_eq!(vertices[2].local_position, [40.0, 20.0]);
+        assert_eq!(vertices[0].rect_size, [40.0, 20.0]);
+        assert_eq!(vertices[0].corner_radius, 4.0);
+    }
+
+    #[test]
+    fn non_uniform_text_plan_rasterizes_at_largest_axis() {
+        let plan = text_transform_plan(
+            SceneTransform {
+                scale_x: 2.0,
+                scale_y: 0.5,
+                translation_x: 3.0,
+                translation_y: -4.0,
+            },
+            200.0,
+            120.0,
+            2.0,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(plan.raster_scale, 4.0);
+        assert_eq!(plan.virtual_width, 400);
+        assert_eq!(plan.virtual_height, 240);
+        assert_eq!(plan.viewport_x, 6.0);
+        assert_eq!(plan.viewport_y, -8.0);
+        assert_eq!(plan.viewport_width, 400.0);
+        assert_eq!(plan.viewport_height, 60.0);
+    }
+
+    #[test]
+    fn text_plan_skips_collapsed_axes_and_rejects_mirroring() {
+        assert!(
+            text_transform_plan(SceneTransform::scale(0.0, 1.0), 200.0, 120.0, 2.0)
+                .unwrap()
+                .is_none()
+        );
+        assert!(text_transform_plan(SceneTransform::scale(-1.0, 1.0), 200.0, 120.0, 2.0).is_err());
     }
 }
 
