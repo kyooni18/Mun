@@ -347,11 +347,34 @@ impl Runtime {
                 if let Some(id) = target {
                     if self.focus_action(&id) {
                         outcome.handled = true;
-                        outcome.activated = self.activate_action(&id).is_some();
+                        outcome.pressed_changed = self.input.capture_primary(pointer, id);
                     }
-                } else if self.focused_action.is_some() {
-                    self.clear_focus();
-                    outcome.handled = true;
+                } else {
+                    outcome.pressed_changed = self.input.clear_primary_capture(pointer);
+                    if self.focused_action.is_some() {
+                        self.clear_focus();
+                        outcome.handled = true;
+                    }
+                }
+            }
+            InputEvent::PointerButton {
+                pointer,
+                button: PointerButton::Primary,
+                state: ButtonState::Released,
+            } => {
+                let Some(captured) = self.input.take_primary_capture(pointer) else {
+                    return Ok(outcome);
+                };
+                outcome.handled = true;
+                outcome.pressed_changed = true;
+
+                if let Some(position) = self.input.pointer_position(pointer) {
+                    let scene = self.build_scene(width, height)?;
+                    let released_over_capture =
+                        scene.action_at(position.x, position.y) == Some(captured.as_str());
+                    if released_over_capture && self.focus_action(&captured) {
+                        outcome.activated = self.activate_action(&captured).is_some();
+                    }
                 }
             }
             InputEvent::PointerButton { .. } => {}
@@ -384,16 +407,19 @@ impl Runtime {
             },
             InputEvent::Key { .. } | InputEvent::TextInput { .. } | InputEvent::Scroll { .. } => {}
             InputEvent::Cancel { pointer } => {
-                self.input.cancel_pointer(pointer);
+                outcome.pressed_changed = self.input.cancel_pointer(pointer);
+                outcome.handled = outcome.pressed_changed;
             }
             InputEvent::WindowFocusChanged(false) => {
-                self.input.cancel_pointer(None);
+                outcome.pressed_changed = self.input.cancel_pointer(None);
+                outcome.handled = outcome.pressed_changed;
             }
             InputEvent::WindowFocusChanged(true) => {}
         }
 
         outcome.focus_changed = self.focused_action != focus_before;
         outcome.needs_redraw = outcome.focus_changed
+            || outcome.pressed_changed
             || outcome.activated
             || (outcome.handled && focus_before.is_some());
         Ok(outcome)
@@ -401,6 +427,10 @@ impl Runtime {
 
     pub fn focused_action(&self) -> Option<&str> {
         self.focused_action.as_deref()
+    }
+
+    pub fn primary_pressed_action(&self, pointer: crate::input::PointerId) -> Option<&str> {
+        self.input.primary_capture(pointer)
     }
 
     pub fn clear_focus(&mut self) {
@@ -2286,8 +2316,31 @@ mod tests {
                 200.0,
             )
             .expect("pointer press");
-        assert!(outcome.activated);
+        assert!(!outcome.activated);
+        assert!(outcome.pressed_changed);
         assert_eq!(runtime.focused_action(), Some("first"));
+        assert_eq!(
+            runtime.primary_pressed_action(crate::input::PointerId::MOUSE),
+            Some("first")
+        );
+
+        let outcome = runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer: crate::input::PointerId::MOUSE,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Released,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer release");
+        assert!(outcome.activated);
+        assert!(outcome.pressed_changed);
+        assert_eq!(
+            runtime.primary_pressed_action(crate::input::PointerId::MOUSE),
+            None
+        );
 
         runtime
             .handle_input(
@@ -2312,6 +2365,119 @@ mod tests {
             .expect("background press");
         assert!(outcome.focus_changed);
         assert_eq!(runtime.focused_action(), None);
+    }
+
+    #[test]
+    fn pointer_capture_activates_only_when_released_over_the_pressed_action() {
+        let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
+        let scene = runtime.build_scene(320.0, 200.0).expect("input scene");
+        let first = scene
+            .actions
+            .iter()
+            .find(|action| action.id == "first")
+            .expect("first action");
+        let point = crate::input::InputPoint::new(
+            first.rect.x + first.rect.width * 0.5,
+            first.rect.y + first.rect.height * 0.5,
+        );
+        let pointer = crate::input::PointerId(9);
+
+        runtime
+            .handle_input(
+                InputEvent::PointerMoved {
+                    pointer,
+                    position: point,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer move");
+        runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Pressed,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer press");
+        assert_eq!(runtime.primary_pressed_action(pointer), Some("first"));
+
+        runtime
+            .handle_input(
+                InputEvent::PointerMoved {
+                    pointer,
+                    position: crate::input::InputPoint::new(-20.0, -20.0),
+                },
+                320.0,
+                200.0,
+            )
+            .expect("drag outside");
+        let outcome = runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Released,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("release outside");
+        assert!(outcome.handled);
+        assert!(!outcome.activated);
+        assert!(outcome.pressed_changed);
+        assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(false)));
+        assert_eq!(runtime.primary_pressed_action(pointer), None);
+    }
+
+    #[test]
+    fn pointer_cancel_clears_capture_without_activation() {
+        let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
+        let scene = runtime.build_scene(320.0, 200.0).expect("input scene");
+        let first = scene
+            .actions
+            .iter()
+            .find(|action| action.id == "first")
+            .expect("first action");
+        let point = crate::input::InputPoint::new(
+            first.rect.x + first.rect.width * 0.5,
+            first.rect.y + first.rect.height * 0.5,
+        );
+        let pointer = crate::input::PointerId(11);
+
+        runtime
+            .handle_input(
+                InputEvent::PointerMoved {
+                    pointer,
+                    position: point,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer move");
+        runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Pressed,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer press");
+
+        let outcome = runtime
+            .handle_input(InputEvent::Cancel { pointer: Some(pointer) }, 320.0, 200.0)
+            .expect("pointer cancel");
+        assert!(outcome.handled);
+        assert!(outcome.pressed_changed);
+        assert!(!outcome.activated);
+        assert_eq!(runtime.primary_pressed_action(pointer), None);
+        assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(false)));
     }
 
     #[test]

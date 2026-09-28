@@ -132,12 +132,14 @@ pub struct InputOutcome {
     pub handled: bool,
     pub needs_redraw: bool,
     pub focus_changed: bool,
+    pub pressed_changed: bool,
     pub activated: bool,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct InputState {
     pointer_positions: HashMap<PointerId, InputPoint>,
+    primary_captures: HashMap<PointerId, String>,
     modifiers: Modifiers,
 }
 
@@ -150,6 +152,22 @@ impl InputState {
         self.pointer_positions.get(&pointer).copied()
     }
 
+    pub(crate) fn primary_capture(&self, pointer: PointerId) -> Option<&str> {
+        self.primary_captures.get(&pointer).map(String::as_str)
+    }
+
+    pub(crate) fn capture_primary(&mut self, pointer: PointerId, action: String) -> bool {
+        self.primary_captures.insert(pointer, action).is_none()
+    }
+
+    pub(crate) fn take_primary_capture(&mut self, pointer: PointerId) -> Option<String> {
+        self.primary_captures.remove(&pointer)
+    }
+
+    pub(crate) fn clear_primary_capture(&mut self, pointer: PointerId) -> bool {
+        self.primary_captures.remove(&pointer).is_some()
+    }
+
     pub(crate) fn set_modifiers(&mut self, modifiers: Modifiers) {
         self.modifiers = modifiers;
     }
@@ -158,11 +176,15 @@ impl InputState {
         self.modifiers
     }
 
-    pub(crate) fn cancel_pointer(&mut self, pointer: Option<PointerId>) {
+    pub(crate) fn cancel_pointer(&mut self, pointer: Option<PointerId>) -> bool {
         if let Some(pointer) = pointer {
             self.pointer_positions.remove(&pointer);
+            self.primary_captures.remove(&pointer).is_some()
         } else {
             self.pointer_positions.clear();
+            let had_capture = !self.primary_captures.is_empty();
+            self.primary_captures.clear();
+            had_capture
         }
     }
 }
