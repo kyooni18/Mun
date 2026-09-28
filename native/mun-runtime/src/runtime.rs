@@ -455,6 +455,32 @@ impl Runtime {
         self.input.retain_primary_captures(&valid_actions);
     }
 
+    fn reset_replaced_runtime_state(&mut self) -> HashSet<String> {
+        let replaced = self
+            .last_reconciliation
+            .replaced
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
+        if replaced.is_empty() {
+            return replaced;
+        }
+
+        self.motion
+            .remove_nodes(replaced.iter().map(String::as_str));
+        self.input.remove_captures_for_actions(&replaced);
+        if self
+            .focused_action
+            .as_ref()
+            .is_some_and(|action| replaced.contains(action))
+        {
+            self.focused_action = None;
+            self.input.clear_keyboard_capture();
+        }
+
+        replaced
+    }
+
     fn reconcile_focus(&mut self, previous_order: &[String]) {
         let Some(focused) = self.focused_action.clone() else {
             return;
@@ -584,6 +610,7 @@ impl Runtime {
         }
 
         self.reconcile_retained_tree();
+        let replaced_nodes = self.reset_replaced_runtime_state();
 
         // State mutations can remove or disable the focused semantic node.
         // Reconcile by stable identity first, then by deterministic traversal position.
@@ -593,6 +620,9 @@ impl Runtime {
         self.revision = transaction.revision;
         let after = self.motion_targets();
         for (key, next) in after {
+            if replaced_nodes.contains(&key.node_id) {
+                continue;
+            }
             let Some(previous) = before.get(&key) else {
                 // Re-entering conditional content must not revive an old presentation
                 // value from a motion channel that outlived the inactive branch.
@@ -2146,9 +2176,14 @@ mod tests {
               "identityKey": { "kind": "state", "state": "selection" },
               "children": [
                 {
-                  "kind": "text",
+                  "kind": "action",
                   "id": "keyed-child",
-                  "value": { "kind": "literal", "value": "Child" }
+                  "label": "Keyed Child",
+                  "action": {
+                    "kind": "set-state",
+                    "state": "selection",
+                    "value": { "kind": "literal", "value": "alpha" }
+                  }
                 }
               ]
             },
@@ -2240,6 +2275,52 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn semantic_identity_replacement_clears_transient_runtime_state() {
+        let mut runtime =
+            Runtime::from_json(DYNAMIC_IDENTITY_KEY).expect("valid dynamic identity program");
+        assert!(runtime.focus_action("keyed-child"));
+
+        let pointer = crate::input::PointerId(77);
+        runtime
+            .input
+            .capture_primary(pointer, "keyed-child".to_owned());
+        runtime.input.capture_keyboard("keyed-child".to_owned());
+
+        let replaced_motion = MotionChannelKey {
+            node_id: "keyed-child".to_owned(),
+            property: MotionProperty::Opacity,
+        };
+        let stable_motion = MotionChannelKey {
+            node_id: "change".to_owned(),
+            property: MotionProperty::Opacity,
+        };
+        let plan = MotionExecutionPlan::Timing {
+            duration: 0.4,
+            curve: [0.42, 0.0, 0.58, 1.0],
+            delay_ms: 0.0,
+            repeat_count: serde_json::json!(1),
+            autoreverses: false,
+        };
+        runtime
+            .motion
+            .retarget(replaced_motion.clone(), 0.25, 1.0, &plan);
+        runtime
+            .motion
+            .retarget(stable_motion.clone(), 0.5, 1.0, &plan);
+
+        runtime
+            .activate_action("change")
+            .expect("identity-changing action");
+
+        assert_eq!(runtime.focused_action(), None);
+        assert_eq!(runtime.primary_pressed_action(pointer), None);
+        assert_eq!(runtime.keyboard_pressed_action(), None);
+        assert!(runtime.motion.value(&replaced_motion).is_none());
+        assert!(!runtime.motion.is_key_active(&replaced_motion));
+        assert!(runtime.motion.value(&stable_motion).is_some());
+    }
 
     const DYNAMIC_ROOT_IDENTITY_KEY: &str = r#"
     {

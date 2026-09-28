@@ -254,3 +254,26 @@ impl InputState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semantic_replacement_drops_only_matching_action_captures() {
+        let mut input = InputState::default();
+        let replaced_pointer = PointerId(1);
+        let stable_pointer = PointerId(2);
+        input.capture_primary(replaced_pointer, "replaced".to_owned());
+        input.capture_primary(stable_pointer, "stable".to_owned());
+        input.capture_keyboard("replaced".to_owned());
+
+        let replaced = HashSet::from(["replaced".to_owned()]);
+        assert!(input.remove_captures_for_actions(&replaced));
+
+        assert_eq!(input.primary_capture(replaced_pointer), None);
+        assert_eq!(input.primary_capture(stable_pointer), Some("stable"));
+        assert_eq!(input.keyboard_capture(), None);
+        assert!(!input.remove_captures_for_actions(&replaced));
+    }
+}
