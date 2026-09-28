@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[path = "kinetics.rs"]
 pub mod kinetics;
@@ -294,6 +294,55 @@ impl MotionScheduler {
             }
             MotionChannel::Kinetic(channel) => channel.snap(target),
         }
+    }
+
+    /// Remove all renderer-neutral channels owned by semantic node identities.
+    ///
+    /// Retained identity replacement uses this to prevent presentation velocity,
+    /// delayed handoffs, or settled values from leaking into a new runtime
+    /// instance that happens to reuse the same structural node ID.
+    pub fn remove_nodes<'a>(&mut self, node_ids: impl IntoIterator<Item = &'a str>) -> usize {
+        let node_ids = node_ids.into_iter().collect::<HashSet<_>>();
+        if node_ids.is_empty() || self.channels.is_empty() {
+            return 0;
+        }
+
+        let old_channels = std::mem::take(&mut self.channels);
+        let old_indices = std::mem::take(&mut self.indices);
+        let old_pending = std::mem::take(&mut self.pending);
+        let mut keep = vec![true; old_channels.len()];
+        let mut retained_keys = Vec::with_capacity(old_indices.len());
+
+        for (key, old_index) in old_indices {
+            if node_ids.contains(key.node_id.as_str()) {
+                keep[old_index] = false;
+            } else {
+                retained_keys.push((key, old_index));
+            }
+        }
+
+        let removed = keep.iter().filter(|keep| !**keep).count();
+        let mut remap = vec![None; old_channels.len()];
+        for (old_index, channel) in old_channels.into_iter().enumerate() {
+            if keep[old_index] {
+                let new_index = self.channels.len();
+                remap[old_index] = Some(new_index);
+                self.channels.push(channel);
+            }
+        }
+
+        for (key, old_index) in retained_keys {
+            if let Some(new_index) = remap[old_index] {
+                self.indices.insert(key, new_index);
+            }
+        }
+        for (old_index, pending) in old_pending {
+            if let Some(new_index) = remap.get(old_index).and_then(|index| *index) {
+                self.pending.insert(new_index, pending);
+            }
+        }
+
+        removed
     }
 
     pub fn step(&mut self, dt_seconds: f32) -> bool {
@@ -718,6 +767,46 @@ mod tests {
             &spring(),
         );
         assert_eq!(scheduler.velocity(&key).unwrap(), velocity_before);
+    }
+
+    #[test]
+    fn removing_replaced_node_channels_compacts_indices_and_preserves_pending_handoffs() {
+        let replaced = MotionChannelKey {
+            node_id: "replaced".into(),
+            property: MotionProperty::Width,
+        };
+        let stable = MotionChannelKey {
+            node_id: "stable".into(),
+            property: MotionProperty::Opacity,
+        };
+        let mut scheduler = MotionScheduler::default();
+
+        scheduler.retarget(replaced.clone(), 0.0, 10.0, &timing());
+        scheduler.retarget(stable.clone(), 0.0, 5.0, &timing());
+
+        let mut delayed = timing();
+        if let MotionExecutionPlan::Timing { delay_ms, .. } = &mut delayed {
+            *delay_ms = 100.0;
+        }
+        scheduler.retarget(stable.clone(), 0.0, 20.0, &delayed);
+        assert!(scheduler.pending.contains_key(&1));
+
+        let removed = scheduler.remove_nodes(["replaced"]);
+
+        assert_eq!(removed, 1);
+        assert!(scheduler.value(&replaced).is_none());
+        assert!(scheduler.velocity(&replaced).is_none());
+        assert!(!scheduler.is_key_active(&replaced));
+        assert_eq!(scheduler.indices.get(&stable), Some(&0));
+        assert!(scheduler.pending.contains_key(&0));
+        assert_eq!(scheduler.pending.len(), 1);
+        assert!(scheduler.value(&stable).is_some());
+
+        scheduler.step(0.05);
+        assert!(scheduler.pending.contains_key(&0));
+        scheduler.step(0.06);
+        assert!(!scheduler.pending.contains_key(&0));
+        assert!(scheduler.value(&stable).is_some());
     }
 
     #[test]
