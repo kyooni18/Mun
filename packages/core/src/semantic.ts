@@ -508,10 +508,11 @@ function normalizeArguments(
       if (!propertyArgument || !previousProperty || previous.label === argument.label) return undefined
     }
     // A JavaScript host represents an omitted optional middle argument with
-    // an explicit `undefined` placeholder. It is not a source-level
-    // positional spelling, so allow it to pass a declaration label check and
-    // let the initializer's default-value builder normalize it.
-    if (argument.label === undefined && parameter.labelRequired && argument.value !== undefined) return undefined
+    // an explicit `undefined` placeholder. Compiler-side source arguments may
+    // also lack a runtime value, so only the normalized `undefined` type marks
+    // that placeholder; real source arguments must still satisfy labels.
+    const omittedPlaceholder = argument.value === undefined && argument.type === "undefined"
+    if (argument.label === undefined && parameter.labelRequired && !omittedPlaceholder) return undefined
     if (argument.label !== undefined) {
       if (index < lastLabeledIndex) return undefined
       sawLabel = true
