@@ -466,8 +466,20 @@ impl Runtime {
             return replaced;
         }
 
+        let mut motion_nodes = replaced.clone();
+        for id in &replaced {
+            if let Some(presence) = self.entering.remove(id) {
+                motion_nodes.insert(presence.progress.node_id);
+            }
+            if let Some(presence) = self.exiting.remove(id) {
+                motion_nodes.insert(presence.progress.node_id);
+            }
+            if let Some(flip) = self.layout_flips.remove(id) {
+                motion_nodes.insert(flip.progress.node_id);
+            }
+        }
         self.motion
-            .remove_nodes(replaced.iter().map(String::as_str));
+            .remove_nodes(motion_nodes.iter().map(String::as_str));
         self.input.remove_captures_for_actions(&replaced);
         if self
             .focused_action
@@ -2309,6 +2321,57 @@ mod tests {
         runtime
             .motion
             .retarget(stable_motion.clone(), 0.5, 1.0, &plan);
+        let enter_progress = MotionChannelKey {
+            node_id: "__presence:enter:keyed-child".to_owned(),
+            property: MotionProperty::Opacity,
+        };
+        let exit_progress = MotionChannelKey {
+            node_id: "__presence:exit:keyed-child".to_owned(),
+            property: MotionProperty::Opacity,
+        };
+        let flip_progress = MotionChannelKey {
+            node_id: "__layout-flip:keyed-child".to_owned(),
+            property: MotionProperty::TranslationX,
+        };
+        runtime
+            .motion
+            .retarget(enter_progress.clone(), 0.0, 1.0, &plan);
+        runtime
+            .motion
+            .retarget(exit_progress.clone(), 1.0, 0.0, &plan);
+        runtime
+            .motion
+            .retarget(flip_progress.clone(), 0.0, 1.0, &plan);
+        runtime.entering.insert(
+            "keyed-child".to_owned(),
+            EnterPresence {
+                effects: vec![TransitionEffect::Opacity],
+                progress: enter_progress.clone(),
+            },
+        );
+        runtime.exiting.insert(
+            "keyed-child".to_owned(),
+            ExitPresence {
+                scene: Scene::default(),
+                root_bounds: AccessibilityBounds {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+                effects: vec![TransitionEffect::Opacity],
+                progress: exit_progress.clone(),
+            },
+        );
+        runtime.layout_flips.insert(
+            "keyed-child".to_owned(),
+            LayoutFlip {
+                descendants: HashSet::from(["keyed-child".to_owned()]),
+                progress: flip_progress.clone(),
+                delta_x: 10.0,
+                delta_y: 0.0,
+            },
+        );
 
         runtime
             .activate_action("change")
@@ -2320,6 +2383,12 @@ mod tests {
         assert!(runtime.motion.value(&replaced_motion).is_none());
         assert!(!runtime.motion.is_key_active(&replaced_motion));
         assert!(runtime.motion.value(&stable_motion).is_some());
+        assert!(!runtime.entering.contains_key("keyed-child"));
+        assert!(!runtime.exiting.contains_key("keyed-child"));
+        assert!(!runtime.layout_flips.contains_key("keyed-child"));
+        assert!(runtime.motion.value(&enter_progress).is_none());
+        assert!(runtime.motion.value(&exit_progress).is_none());
+        assert!(runtime.motion.value(&flip_progress).is_none());
     }
 
     const DYNAMIC_ROOT_IDENTITY_KEY: &str = r#"
