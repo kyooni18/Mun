@@ -1,6 +1,6 @@
 mod accessibility;
 
-use std::{error::Error, fmt, sync::Arc, time::Instant};
+use std::{collections::HashMap, error::Error, fmt, sync::Arc, time::Instant};
 
 use accessibility::{AccessibilityHost, NativeEvent};
 use accesskit::{Action, ActionRequest};
@@ -120,6 +120,82 @@ fn rect_vertex_buffer_capacity(required_bytes: u64) -> u64 {
         .unwrap_or(required_bytes)
 }
 
+struct CachedTextBuffer {
+    buffer: Buffer,
+    text: String,
+    font_size: f32,
+    logical_width: f32,
+    logical_height: f32,
+}
+
+impl CachedTextBuffer {
+    fn new(
+        font_system: &mut FontSystem,
+        text: &str,
+        font_size: f32,
+        logical_width: f32,
+        logical_height: f32,
+    ) -> Self {
+        let mut buffer = Buffer::new(font_system, Metrics::new(font_size, font_size * 1.25));
+        buffer.set_size(Some(logical_width), Some(logical_height));
+        buffer.set_text(
+            text,
+            &Attrs::new().family(Family::SansSerif),
+            Shaping::Advanced,
+            None,
+        );
+        buffer.shape_until_scroll(font_system, false);
+        Self {
+            buffer,
+            text: text.to_owned(),
+            font_size,
+            logical_width,
+            logical_height,
+        }
+    }
+
+    fn update(
+        &mut self,
+        font_system: &mut FontSystem,
+        text: &str,
+        font_size: f32,
+        logical_width: f32,
+        logical_height: f32,
+    ) -> bool {
+        let mut dirty = false;
+        if self.font_size.to_bits() != font_size.to_bits() {
+            self.buffer
+                .set_metrics(Metrics::new(font_size, font_size * 1.25));
+            self.font_size = font_size;
+            dirty = true;
+        }
+        if self.logical_width.to_bits() != logical_width.to_bits()
+            || self.logical_height.to_bits() != logical_height.to_bits()
+        {
+            self.buffer
+                .set_size(Some(logical_width), Some(logical_height));
+            self.logical_width = logical_width;
+            self.logical_height = logical_height;
+            dirty = true;
+        }
+        if self.text != text {
+            self.buffer.set_text(
+                text,
+                &Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+                None,
+            );
+            self.text.clear();
+            self.text.push_str(text);
+            dirty = true;
+        }
+        if dirty {
+            self.buffer.shape_until_scroll(font_system, false);
+        }
+        dirty
+    }
+}
+
 struct TextBatchRenderer {
     viewport: Viewport,
     renderer: TextRenderer,
@@ -155,6 +231,7 @@ struct GpuRenderer {
     cache: Cache,
     atlas: TextAtlas,
     text_batches: Vec<TextBatchRenderer>,
+    text_buffers: HashMap<String, CachedTextBuffer>,
 }
 
 impl GpuRenderer {
@@ -242,6 +319,7 @@ impl GpuRenderer {
             cache,
             atlas,
             text_batches: Vec::new(),
+            text_buffers: HashMap::new(),
         }
     }
 
@@ -313,21 +391,30 @@ impl GpuRenderer {
 
         let logical_width = physical_width / scale_factor;
         let logical_height = physical_height / scale_factor;
-        let mut text_buffers = Vec::with_capacity(scene.texts.len());
         for text in &scene.texts {
-            let mut buffer = Buffer::new(
-                &mut self.font_system,
-                Metrics::new(text.font_size, text.font_size * 1.25),
-            );
-            buffer.set_size(Some(logical_width), Some(logical_height));
-            buffer.set_text(
-                &text.text,
-                &Attrs::new().family(Family::SansSerif),
-                Shaping::Advanced,
-                None,
-            );
-            buffer.shape_until_scroll(&mut self.font_system, false);
-            text_buffers.push(buffer);
+            match self.text_buffers.get_mut(&text.id) {
+                Some(cached) => {
+                    cached.update(
+                        &mut self.font_system,
+                        &text.text,
+                        text.font_size,
+                        logical_width,
+                        logical_height,
+                    );
+                }
+                None => {
+                    self.text_buffers.insert(
+                        text.id.clone(),
+                        CachedTextBuffer::new(
+                            &mut self.font_system,
+                            &text.text,
+                            text.font_size,
+                            logical_width,
+                            logical_height,
+                        ),
+                    );
+                }
+            }
         }
 
         let mut groups = Vec::new();
@@ -371,29 +458,30 @@ impl GpuRenderer {
                 },
             );
 
-            let text_areas = text_buffers[start..end]
-                .iter()
-                .zip(&scene.texts[start..end])
-                .map(|(buffer, text)| {
-                    let rgba = text
-                        .color
-                        .0
-                        .map(|value| (value.clamp(0.0, 1.0) * 255.0).round() as u8);
-                    TextArea {
-                        buffer,
-                        left: text.x * plan.raster_scale,
-                        top: text.y * plan.raster_scale,
-                        scale: plan.raster_scale,
-                        bounds: TextBounds {
-                            left: 0,
-                            top: 0,
-                            right: plan.virtual_width.min(i32::MAX as u32) as i32,
-                            bottom: plan.virtual_height.min(i32::MAX as u32) as i32,
-                        },
-                        default_color: GlyphColor::rgba(rgba[0], rgba[1], rgba[2], rgba[3]),
-                        custom_glyphs: &[],
-                    }
-                });
+            let text_buffers = &self.text_buffers;
+            let text_areas = scene.texts[start..end].iter().map(|text| {
+                let cached = text_buffers
+                    .get(&text.id)
+                    .expect("Mün retained text buffer must exist before preparation");
+                let rgba = text
+                    .color
+                    .0
+                    .map(|value| (value.clamp(0.0, 1.0) * 255.0).round() as u8);
+                TextArea {
+                    buffer: &cached.buffer,
+                    left: text.x * plan.raster_scale,
+                    top: text.y * plan.raster_scale,
+                    scale: plan.raster_scale,
+                    bounds: TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: plan.virtual_width.min(i32::MAX as u32) as i32,
+                        bottom: plan.virtual_height.min(i32::MAX as u32) as i32,
+                    },
+                    default_color: GlyphColor::rgba(rgba[0], rgba[1], rgba[2], rgba[3]),
+                    custom_glyphs: &[],
+                }
+            });
 
             batch
                 .renderer
@@ -618,6 +706,18 @@ mod tests {
             rect_vertex_buffer_capacity(INITIAL_RECT_VERTEX_BUFFER_BYTES + 1),
             INITIAL_RECT_VERTEX_BUFFER_BYTES * 2
         );
+    }
+
+    #[test]
+    fn retained_text_buffer_reshapes_only_when_layout_inputs_change() {
+        let mut font_system = FontSystem::new();
+        let mut cached = CachedTextBuffer::new(&mut font_system, "Hello", 16.0, 320.0, 200.0);
+
+        assert!(!cached.update(&mut font_system, "Hello", 16.0, 320.0, 200.0));
+        assert!(cached.update(&mut font_system, "World", 16.0, 320.0, 200.0));
+        assert!(!cached.update(&mut font_system, "World", 16.0, 320.0, 200.0));
+        assert!(cached.update(&mut font_system, "World", 18.0, 320.0, 200.0));
+        assert!(cached.update(&mut font_system, "World", 18.0, 640.0, 200.0));
     }
 
     #[test]
