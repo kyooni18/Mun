@@ -18,10 +18,11 @@ pub mod timeline;
 
 pub use accessibility::{AccessibilityBounds, AccessibilityNode, AccessibilityTree};
 pub use gesture::{
-    DragAxis, DragAxisConstraint, DragRecognizer, DragRecognizerConfig, DragReleaseOptions,
-    DragReleasePlan, DragSettleSpec, DragState, GestureAxisRelease, GesturePhase, VelocityTracker,
-    VelocityTrackerConfig, constrain_with_rubber_band, constrained_drag_axis_value, nearest_snap,
-    plan_drag_axis_release, rubber_band_distance,
+    DragAxis, DragAxisConstraint, DragCancelPlan, DragRecognizer, DragRecognizerConfig,
+    DragReleaseOptions, DragReleasePlan, DragSettleSpec, DragState, GestureAxisRelease,
+    GesturePhase, VelocityTracker, VelocityTrackerConfig, constrain_with_rubber_band,
+    constrained_drag_axis_value, nearest_snap, plan_drag_axis_cancel, plan_drag_axis_release,
+    rubber_band_distance,
 };
 pub use input::{
     ButtonState, InputEvent, InputOutcome, InputPoint, KeyState, LogicalKey, Modifiers,

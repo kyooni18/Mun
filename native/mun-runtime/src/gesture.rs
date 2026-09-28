@@ -346,6 +346,60 @@ impl Default for DragReleaseOptions {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DragCancelPlan {
+    /// Cancel without settling: leave the current motion value untouched.
+    Preserve { current: f32 },
+    /// Settled cancellation while already inside bounds: keep the value and
+    /// explicitly zero the motion channel velocity.
+    Stop { position: f32 },
+    /// Settled cancellation outside bounds: spring back to the nearest bound
+    /// with the inherited cancellation spring.
+    Settle {
+        current: f32,
+        target: f32,
+        response: f32,
+        damping_ratio: f32,
+    },
+}
+
+pub fn plan_drag_axis_cancel(
+    current: f32,
+    constraint: DragAxisConstraint,
+    settle: bool,
+) -> Result<DragCancelPlan, KineticSpecError> {
+    let current = finite_f32_or(current, 0.0);
+    let min = if constraint.min.is_finite() {
+        constraint.min
+    } else {
+        f32::NEG_INFINITY
+    };
+    let max = if constraint.max.is_finite() {
+        constraint.max
+    } else {
+        f32::INFINITY
+    };
+    if min > max {
+        return Err(KineticSpecError::InvalidBounds);
+    }
+
+    if !settle {
+        return Ok(DragCancelPlan::Preserve { current });
+    }
+
+    let target = current.clamp(min, max);
+    if target == current {
+        Ok(DragCancelPlan::Stop { position: current })
+    } else {
+        Ok(DragCancelPlan::Settle {
+            current,
+            target,
+            response: 0.25,
+            damping_ratio: 0.9,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DragReleasePlan {
     Hold {
         position: f32,
@@ -780,6 +834,71 @@ mod tests {
         assert_eq!(cancelled.phase, GesturePhase::Cancelled);
         assert_eq!(cancelled.velocity, point(0.0, 0.0));
         assert!(!drag.is_active());
+    }
+
+    #[test]
+    fn drag_cancel_without_settle_preserves_current_value() {
+        assert_eq!(
+            plan_drag_axis_cancel(
+                120.0,
+                DragAxisConstraint {
+                    min: 0.0,
+                    max: 100.0,
+                    ..Default::default()
+                },
+                false,
+            )
+            .unwrap(),
+            DragCancelPlan::Preserve { current: 120.0 }
+        );
+    }
+
+    #[test]
+    fn settled_drag_cancel_stops_inside_bounds_and_springs_outside() {
+        let constraint = DragAxisConstraint {
+            min: 0.0,
+            max: 100.0,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            plan_drag_axis_cancel(40.0, constraint, true).unwrap(),
+            DragCancelPlan::Stop { position: 40.0 }
+        );
+        assert_eq!(
+            plan_drag_axis_cancel(120.0, constraint, true).unwrap(),
+            DragCancelPlan::Settle {
+                current: 120.0,
+                target: 100.0,
+                response: 0.25,
+                damping_ratio: 0.9,
+            }
+        );
+        assert_eq!(
+            plan_drag_axis_cancel(-20.0, constraint, true).unwrap(),
+            DragCancelPlan::Settle {
+                current: -20.0,
+                target: 0.0,
+                response: 0.25,
+                damping_ratio: 0.9,
+            }
+        );
+    }
+
+    #[test]
+    fn drag_cancel_rejects_invalid_bounds_before_motion_handoff() {
+        assert_eq!(
+            plan_drag_axis_cancel(
+                0.0,
+                DragAxisConstraint {
+                    min: 1.0,
+                    max: -1.0,
+                    ..Default::default()
+                },
+                true,
+            ),
+            Err(KineticSpecError::InvalidBounds)
+        );
     }
 
     #[test]
