@@ -12,6 +12,19 @@ impl Rect {
     pub fn contains(self, x: f32, y: f32) -> bool {
         x >= self.x && y >= self.y && x <= self.x + self.width && y <= self.y + self.height
     }
+
+    pub fn intersection(self, other: Self) -> Self {
+        let left = self.x.max(other.x);
+        let top = self.y.max(other.y);
+        let right = (self.x + self.width).min(other.x + other.width);
+        let bottom = (self.y + self.height).min(other.y + other.height);
+        Self {
+            x: left,
+            y: top,
+            width: (right - left).max(0.0),
+            height: (bottom - top).max(0.0),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -117,16 +130,28 @@ pub struct SceneTransformNode {
     pub local: SceneTransform,
 }
 
-/// Renderer-neutral presentation transforms layered over retained scene geometry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SceneClipId(usize);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SceneClipNode {
+    pub parent: Option<SceneClipId>,
+    pub rect: Rect,
+    pub transform: Option<SceneTransformId>,
+}
+
+/// Renderer-neutral presentation transforms and clips layered over retained scene geometry.
 ///
 /// Primitive geometry remains in Taffy's logical scene space. Bindings associate
-/// primitive IDs with transform nodes, and transform nodes can inherit from a
-/// parent so subtree motion can be represented without baking presentation
-/// scale/translation into every rectangle or text metric.
+/// primitive IDs with transform/clip nodes; those nodes can inherit so subtree
+/// presentation can be represented without baking scale, translation, or clipping
+/// into semantic layout geometry or text metrics.
 #[derive(Clone, Debug, Default)]
 pub struct ScenePresentation {
     transforms: Vec<SceneTransformNode>,
     bindings: HashMap<String, SceneTransformId>,
+    clips: Vec<SceneClipNode>,
+    clip_bindings: HashMap<String, SceneClipId>,
 }
 
 impl ScenePresentation {
@@ -181,12 +206,78 @@ impl ScenePresentation {
         self.transform_for(primitive_id).transform_rect(rect)
     }
 
+    pub fn push_clip(
+        &mut self,
+        parent: Option<SceneClipId>,
+        rect: Rect,
+        transform: Option<SceneTransformId>,
+    ) -> SceneClipId {
+        if let Some(parent) = parent {
+            assert!(
+                parent.0 < self.clips.len(),
+                "scene clip parent must already exist"
+            );
+        }
+        if let Some(transform) = transform {
+            assert!(
+                transform.0 < self.transforms.len(),
+                "scene clip cannot reference an unknown transform"
+            );
+        }
+        let id = SceneClipId(self.clips.len());
+        self.clips.push(SceneClipNode {
+            parent,
+            rect,
+            transform,
+        });
+        id
+    }
+
+    pub fn bind_clip(&mut self, primitive_id: impl Into<String>, clip: SceneClipId) {
+        assert!(
+            clip.0 < self.clips.len(),
+            "scene primitive cannot bind an unknown clip"
+        );
+        self.clip_bindings.insert(primitive_id.into(), clip);
+    }
+
+    pub fn unbind_clip(&mut self, primitive_id: &str) {
+        self.clip_bindings.remove(primitive_id);
+    }
+
+    pub fn clip_for(&self, primitive_id: &str) -> Option<Rect> {
+        self.clip_bindings
+            .get(primitive_id)
+            .copied()
+            .map(|id| self.resolved_clip(id))
+    }
+
+    pub fn resolved_clip(&self, clip: SceneClipId) -> Rect {
+        let node = self
+            .clips
+            .get(clip.0)
+            .expect("scene primitive referenced an unknown clip");
+        let rect = node
+            .transform
+            .map(|transform| self.resolved_transform(transform).transform_rect(node.rect))
+            .unwrap_or(node.rect);
+        match node.parent {
+            Some(parent) => self.resolved_clip(parent).intersection(rect),
+            None => rect,
+        }
+    }
+
     pub fn action_at<'a>(&self, scene: &'a Scene, x: f32, y: f32) -> Option<&'a str> {
         scene
             .actions
             .iter()
             .rev()
             .find(|action| {
+                if let Some(clip) = self.clip_for(&action.id) {
+                    if clip.width <= 0.0 || clip.height <= 0.0 || !clip.contains(x, y) {
+                        return false;
+                    }
+                }
                 let transform = self.transform_for(&action.id);
                 let Some(inverse) = transform.inverse() else {
                     return false;
@@ -198,7 +289,7 @@ impl ScenePresentation {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty()
+        self.bindings.is_empty() && self.clip_bindings.is_empty()
     }
 }
 
@@ -332,6 +423,43 @@ mod tests {
     }
 
     #[test]
+    fn nested_scene_clips_intersect_in_presentation_space() {
+        let mut presentation = ScenePresentation::default();
+        let shifted = presentation.push_transform(None, SceneTransform::translation(10.0, 5.0));
+        let parent = presentation.push_clip(
+            None,
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 50.0,
+                height: 50.0,
+            },
+            None,
+        );
+        let child = presentation.push_clip(
+            Some(parent),
+            Rect {
+                x: 10.0,
+                y: 10.0,
+                width: 40.0,
+                height: 40.0,
+            },
+            Some(shifted),
+        );
+        presentation.bind_clip("label", child);
+
+        assert_eq!(
+            presentation.clip_for("label"),
+            Some(Rect {
+                x: 20.0,
+                y: 15.0,
+                width: 30.0,
+                height: 35.0,
+            })
+        );
+    }
+
+    #[test]
     fn transformed_action_hit_testing_uses_presentation_geometry() {
         let scene = Scene {
             actions: vec![ActionHit {
@@ -359,5 +487,19 @@ mod tests {
 
         assert_eq!(presentation.action_at(&scene, 45.0, 15.5), Some("button"));
         assert_eq!(presentation.action_at(&scene, 4.0, 15.5), None);
+
+        let clip = presentation.push_clip(
+            None,
+            Rect {
+                x: 40.0,
+                y: 14.0,
+                width: 15.0,
+                height: 4.0,
+            },
+            None,
+        );
+        presentation.bind_clip("button", clip);
+        assert_eq!(presentation.action_at(&scene, 45.0, 15.5), Some("button"));
+        assert_eq!(presentation.action_at(&scene, 30.0, 15.5), None);
     }
 }
