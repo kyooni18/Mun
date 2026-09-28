@@ -9,14 +9,18 @@ use glyphon::{
     Attrs, Buffer, Cache, Color as GlyphColor, Family, FontSystem, Metrics, Resolution, Shaping,
     SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
 };
-use mun_runtime::{Color, Runtime, RuntimeLoadError, Scene};
+use mun_runtime::{
+    ButtonState as MunButtonState, Color, InputEvent, InputPoint, KeyState as MunKeyState,
+    LogicalKey, Modifiers, PhysicalKey as MunPhysicalKey, PointerButton as MunPointerButton,
+    PointerId, Runtime, RuntimeLoadError, Scene, ScrollDelta,
+};
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition},
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::{Key, NamedKey},
+    keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey as WinitPhysicalKey},
     window::{Window, WindowId},
 };
 
@@ -388,6 +392,31 @@ mod tests {
     use mun_runtime::{Rect, scene::SceneRect};
 
     #[test]
+    fn platform_key_mapping_stays_inside_the_native_adapter() {
+        assert_eq!(
+            input_logical_key(&Key::Named(NamedKey::Tab)),
+            LogicalKey::Tab
+        );
+        assert_eq!(
+            input_logical_key(&Key::Character("x".into())),
+            LogicalKey::Character("x".into())
+        );
+        assert_eq!(
+            input_physical_key(WinitPhysicalKey::Code(KeyCode::Enter)),
+            MunPhysicalKey::Enter
+        );
+    }
+
+    #[test]
+    fn platform_scroll_pixels_are_normalized_to_logical_points() {
+        let delta = input_scroll_delta(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(20.0, -10.0)),
+            2.0,
+        );
+        assert_eq!(delta, ScrollDelta::Pixels { x: 10.0, y: -5.0 });
+    }
+
+    #[test]
     fn scene_vertices_preserve_rounded_rect_geometry() {
         let scene = Scene {
             rects: vec![SceneRect {
@@ -414,12 +443,85 @@ mod tests {
     }
 }
 
+fn input_button_state(state: ElementState) -> MunButtonState {
+    match state {
+        ElementState::Pressed => MunButtonState::Pressed,
+        ElementState::Released => MunButtonState::Released,
+    }
+}
+
+fn input_mouse_button(button: MouseButton) -> MunPointerButton {
+    match button {
+        MouseButton::Left => MunPointerButton::Primary,
+        MouseButton::Right => MunPointerButton::Secondary,
+        MouseButton::Middle => MunPointerButton::Middle,
+        MouseButton::Back => MunPointerButton::Back,
+        MouseButton::Forward => MunPointerButton::Forward,
+        MouseButton::Other(button) => MunPointerButton::Other(button),
+    }
+}
+
+fn input_logical_key(key: &Key) -> LogicalKey {
+    match key {
+        Key::Named(NamedKey::Tab) => LogicalKey::Tab,
+        Key::Named(NamedKey::Enter) => LogicalKey::Enter,
+        Key::Named(NamedKey::Space) => LogicalKey::Space,
+        Key::Named(NamedKey::Escape) => LogicalKey::Escape,
+        Key::Named(NamedKey::ArrowUp) => LogicalKey::ArrowUp,
+        Key::Named(NamedKey::ArrowDown) => LogicalKey::ArrowDown,
+        Key::Named(NamedKey::ArrowLeft) => LogicalKey::ArrowLeft,
+        Key::Named(NamedKey::ArrowRight) => LogicalKey::ArrowRight,
+        Key::Named(NamedKey::Home) => LogicalKey::Home,
+        Key::Named(NamedKey::End) => LogicalKey::End,
+        Key::Named(NamedKey::Backspace) => LogicalKey::Backspace,
+        Key::Named(NamedKey::Delete) => LogicalKey::Delete,
+        Key::Character(value) => LogicalKey::Character(value.to_string()),
+        _ => LogicalKey::Unidentified,
+    }
+}
+
+fn input_physical_key(key: WinitPhysicalKey) -> MunPhysicalKey {
+    match key {
+        WinitPhysicalKey::Code(KeyCode::Tab) => MunPhysicalKey::Tab,
+        WinitPhysicalKey::Code(KeyCode::Enter) => MunPhysicalKey::Enter,
+        WinitPhysicalKey::Code(KeyCode::Space) => MunPhysicalKey::Space,
+        WinitPhysicalKey::Code(KeyCode::Escape) => MunPhysicalKey::Escape,
+        WinitPhysicalKey::Code(KeyCode::ArrowUp) => MunPhysicalKey::ArrowUp,
+        WinitPhysicalKey::Code(KeyCode::ArrowDown) => MunPhysicalKey::ArrowDown,
+        WinitPhysicalKey::Code(KeyCode::ArrowLeft) => MunPhysicalKey::ArrowLeft,
+        WinitPhysicalKey::Code(KeyCode::ArrowRight) => MunPhysicalKey::ArrowRight,
+        WinitPhysicalKey::Code(KeyCode::Home) => MunPhysicalKey::Home,
+        WinitPhysicalKey::Code(KeyCode::End) => MunPhysicalKey::End,
+        WinitPhysicalKey::Code(KeyCode::Backspace) => MunPhysicalKey::Backspace,
+        WinitPhysicalKey::Code(KeyCode::Delete) => MunPhysicalKey::Delete,
+        WinitPhysicalKey::Code(_) => MunPhysicalKey::Other,
+        WinitPhysicalKey::Unidentified(_) => MunPhysicalKey::Unidentified,
+    }
+}
+
+fn input_modifiers(state: ModifiersState) -> Modifiers {
+    Modifiers {
+        shift: state.shift_key(),
+        control: state.control_key(),
+        alt: state.alt_key(),
+        meta: state.super_key(),
+    }
+}
+
+fn input_scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> ScrollDelta {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => ScrollDelta::Lines { x, y },
+        MouseScrollDelta::PixelDelta(position) => ScrollDelta::Pixels {
+            x: (position.x / scale_factor) as f32,
+            y: (position.y / scale_factor) as f32,
+        },
+    }
+}
+
 struct WindowState {
     runtime: Runtime,
     renderer: GpuRenderer,
     accessibility: AccessibilityHost,
-    cursor: (f32, f32),
-    shift_down: bool,
     last_frame: Instant,
     window: Arc<Window>,
 }
@@ -445,8 +547,6 @@ impl WindowState {
             runtime,
             renderer,
             accessibility,
-            cursor: (0.0, 0.0),
-            shift_down: false,
             last_frame: Instant::now(),
             window,
         }
@@ -460,28 +560,13 @@ impl WindowState {
         )
     }
 
-    fn scene(&self) -> Scene {
+    fn dispatch_input(&mut self, event: InputEvent) {
         let (width, height) = self.logical_size();
-        self.runtime
-            .build_scene(width, height)
-            .expect("build Mün scene")
-    }
-
-    fn activate_at_cursor(&mut self) {
-        let scene = self.scene();
-        if let Some(id) = scene
-            .action_at(self.cursor.0, self.cursor.1)
-            .map(str::to_owned)
-        {
-            if self.runtime.focus_action(&id) {
-                self.runtime.activate_action(&id);
-                self.window.request_redraw();
-            }
-        }
-    }
-
-    fn focus_next_action(&mut self, backwards: bool) {
-        if self.runtime.focus_next_action(backwards).is_some() {
+        let outcome = self
+            .runtime
+            .handle_input(event, width, height)
+            .expect("route Mün semantic input");
+        if outcome.needs_redraw {
             self.window.request_redraw();
         }
     }
@@ -594,32 +679,58 @@ impl ApplicationHandler<NativeEvent> for Application {
             }
             WindowEvent::ScaleFactorChanged { .. } => state.window.request_redraw(),
             WindowEvent::ModifiersChanged(modifiers) => {
-                state.shift_down = modifiers.state().shift_key();
+                state.dispatch_input(InputEvent::ModifiersChanged(input_modifiers(
+                    modifiers.state(),
+                )));
             }
             WindowEvent::CursorMoved {
                 position: PhysicalPosition { x, y },
                 ..
             } => {
                 let scale = state.window.scale_factor();
-                state.cursor = ((x / scale) as f32, (y / scale) as f32);
+                state.dispatch_input(InputEvent::PointerMoved {
+                    pointer: PointerId::MOUSE,
+                    position: InputPoint::new((x / scale) as f32, (y / scale) as f32),
+                });
+            }
+            WindowEvent::CursorLeft { .. } => {
+                state.dispatch_input(InputEvent::Cancel {
+                    pointer: Some(PointerId::MOUSE),
+                });
             }
             WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Left,
+                state: button_state,
+                button,
                 ..
-            } => state.activate_at_cursor(),
-            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                match event.logical_key {
-                    Key::Named(NamedKey::Tab) => state.focus_next_action(state.shift_down),
-                    Key::Named(NamedKey::Enter) | Key::Named(NamedKey::Space) => {
-                        if state.runtime.focused_action().is_none() {
-                            state.focus_next_action(false);
-                        }
-                        state.runtime.activate_focused();
-                        state.window.request_redraw();
-                    }
-                    _ => {}
-                }
+            } => {
+                state.dispatch_input(InputEvent::PointerButton {
+                    pointer: PointerId::MOUSE,
+                    button: input_mouse_button(button),
+                    state: input_button_state(button_state),
+                });
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                state.dispatch_input(InputEvent::Scroll {
+                    pointer: Some(PointerId::MOUSE),
+                    delta: input_scroll_delta(delta, state.window.scale_factor()),
+                });
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                state.dispatch_input(InputEvent::Key {
+                    logical: input_logical_key(&event.logical_key),
+                    physical: input_physical_key(event.physical_key),
+                    state: match event.state {
+                        ElementState::Pressed => MunKeyState::Pressed,
+                        ElementState::Released => MunKeyState::Released,
+                    },
+                    repeat: event.repeat,
+                });
+            }
+            WindowEvent::Ime(Ime::Commit(text)) => {
+                state.dispatch_input(InputEvent::TextInput { text });
+            }
+            WindowEvent::Focused(focused) => {
+                state.dispatch_input(InputEvent::WindowFocusChanged(focused));
             }
             WindowEvent::RedrawRequested => state.redraw(),
             _ => {}
