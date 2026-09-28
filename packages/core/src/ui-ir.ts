@@ -2,6 +2,12 @@
 
 export type MunUiScalar = string | number | boolean | null
 
+/** Stable program-local identity for semantic state storage. */
+export type MunUiStateId = string
+
+/** Stable program-local identity for retained semantic nodes across runtime reconciliation. */
+export type MunUiNodeId = string
+
 export type MunUiBinaryOperator =
   | "add"
   | "subtract"
@@ -19,7 +25,7 @@ export type MunUiBinaryOperator =
 
 export type MunUiExpression =
   | { readonly kind: "literal"; readonly value: MunUiScalar }
-  | { readonly kind: "state"; readonly state: string }
+  | { readonly kind: "state"; readonly state: MunUiStateId }
   | { readonly kind: "not"; readonly value: MunUiExpression }
   | { readonly kind: "stringify"; readonly value: MunUiExpression }
   | {
@@ -36,7 +42,12 @@ export type MunUiExpression =
     }
 
 export interface MunUiState {
-  readonly name: string
+  /**
+   * State identity is semantic storage identity, not a diagnostic label. Component-owned
+   * state must derive from the component's structural instance identity rather than
+   * compiler encounter order.
+   */
+  readonly name: MunUiStateId
   readonly initial: MunUiScalar
 }
 
@@ -171,11 +182,16 @@ export interface MunUiTransaction {
 }
 
 export type MunUiAction =
-  | { readonly kind: "toggle-state"; readonly state: string; readonly transaction?: MunUiTransaction }
-  | { readonly kind: "set-state"; readonly state: string; readonly value: MunUiExpression; readonly transaction?: MunUiTransaction }
+  | { readonly kind: "toggle-state"; readonly state: MunUiStateId; readonly transaction?: MunUiTransaction }
+  | { readonly kind: "set-state"; readonly state: MunUiStateId; readonly value: MunUiExpression; readonly transaction?: MunUiTransaction }
 
 interface MunUiNodeBase {
-  readonly id: string
+  /**
+   * Semantic retained identity shared by reconciliation, motion channels, input/focus,
+   * accessibility projection, layout snapshots, and future matched-geometry routing.
+   * Backends must treat it as opaque and must not derive identity from render objects.
+   */
+  readonly id: MunUiNodeId
   readonly layout?: MunUiLayout
   readonly visual?: MunUiVisual
   /**

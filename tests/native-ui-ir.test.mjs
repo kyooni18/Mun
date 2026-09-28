@@ -24,7 +24,7 @@ test("native UI IR keeps semantic controls and precompiles inherited spring moti
   const panel = column.children.find(node => node.kind === "panel")
   assert.ok(action && action.kind === "action")
   assert.equal(action.accessibility?.role, "button")
-  assert.match(program.states[0].name, /^@component\/NativeDemo-\d+\/expanded$/)
+  assert.equal(program.states[0].name, "@component/entry/NativeDemo/expanded")
   assert.deepEqual(action.action, { kind: "toggle-state", state: program.states[0].name })
 
   assert.ok(panel && panel.kind === "panel")
@@ -539,7 +539,7 @@ export default App()`
   const program = compileMunUiProgram(source, "entry-state-contract.mun")
   assert.equal(program.states.length, 1)
   const state = program.states[0]
-  assert.match(state.name, /^@component\/App-\d+\/enabled$/)
+  assert.equal(state.name, "@component/entry/App/enabled")
   assert.equal(state.initial, false)
 
   const column = program.root.child
@@ -588,8 +588,14 @@ export default App()`
   assert.equal(program.states.length, 2)
   assert.deepEqual(program.states.map(state => state.initial), [false, true])
   assert.notEqual(program.states[0].name, program.states[1].name)
-  assert.match(program.states[0].name, /^@component\/Counter-\d+\/enabled$/)
-  assert.match(program.states[1].name, /^@component\/Counter-\d+\/enabled$/)
+  assert.equal(
+    program.states[0].name,
+    "@component/entry/App/body/content/child/#0/component/Counter/enabled",
+  )
+  assert.equal(
+    program.states[1].name,
+    "@component/entry/App/body/content/child/#1/component/Counter/enabled",
+  )
 
   const root = program.root.child
   assert.equal(root.kind, "column")
@@ -608,6 +614,94 @@ export default App()`
     assert.equal(action.action.state, program.states[index].name)
     assert.deepEqual(conditional.condition, { kind: "state", state: program.states[index].name })
   }
+})
+
+test("structural identities do not renumber unrelated component state or nodes", () => {
+  const baselineSource = `import { Button, Text, VStack } from "@mun/core"
+
+struct Decoration: View {
+  var body: some View {
+    VStack() {
+      Text("One")
+    }
+  }
+}
+
+struct Counter: View {
+  @State var enabled: boolean = false
+
+  var body: some View {
+    Button("Toggle") { enabled.toggle() }
+  }
+}
+
+struct App: View {
+  var body: some View {
+    VStack() {
+      Decoration()
+      Counter()
+    }
+  }
+}
+
+export default App()`
+
+  const changedSource = `import { Button, Text, VStack } from "@mun/core"
+
+struct Decoration: View {
+  @State var pulse: boolean = false
+
+  var body: some View {
+    VStack() {
+      Text("One")
+      Text("Two")
+    }
+  }
+}
+
+struct Counter: View {
+  @State var enabled: boolean = false
+
+  var body: some View {
+    Button("Toggle") { enabled.toggle() }
+  }
+}
+
+struct App: View {
+  var body: some View {
+    VStack() {
+      Decoration()
+      Counter()
+    }
+  }
+}
+
+export default App()`
+
+  const baseline = compileMunUiProgram(baselineSource, "identity-baseline.mun")
+  const changed = compileMunUiProgram(changedSource, "identity-changed.mun")
+  const baselineCounterState = baseline.states.find(state => state.name.endsWith("/enabled"))
+  const changedCounterState = changed.states.find(state => state.name.endsWith("/enabled"))
+  assert.ok(baselineCounterState)
+  assert.ok(changedCounterState)
+  assert.equal(baselineCounterState.name, changedCounterState.name)
+
+  const baselineRoot = baseline.root.child
+  const changedRoot = changed.root.child
+  assert.equal(baselineRoot.kind, "column")
+  assert.equal(changedRoot.kind, "column")
+  if (baselineRoot.kind !== "column" || changedRoot.kind !== "column") return
+
+  const baselineCounter = baselineRoot.children[1]
+  const changedCounter = changedRoot.children[1]
+  assert.equal(baselineCounter?.kind, "action")
+  assert.equal(changedCounter?.kind, "action")
+  if (baselineCounter?.kind !== "action" || changedCounter?.kind !== "action") return
+  assert.equal(baselineCounter.id, changedCounter.id)
+  assert.equal(
+    baselineCounter.id,
+    "@node/entry/App/body/content/child/#1/component/Counter/body/kind/action",
+  )
 })
 
 test("custom View @Binding aliases parent-owned State without copying storage", () => {

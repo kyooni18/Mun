@@ -1011,9 +1011,14 @@ function collectStructDeclarations(
   return output
 }
 
+type UiIdentitySegment = string | number
+type UiIdentityPath = readonly UiIdentitySegment[]
+
+function identityPathKey(path: UiIdentityPath): string {
+  return path.map(segment => typeof segment === "number" ? `#${segment}` : segment).join("/")
+}
+
 class UiLowerer {
-  #nextNodeId = 0
-  #nextComponentId = 0
   readonly #structs: ReadonlyMap<string, MunStructDeclaration>
   readonly #semanticViews = new Map<string, MunSemanticView>()
   readonly #componentStack: string[] = []
@@ -1033,18 +1038,19 @@ class UiLowerer {
     return this.#states
   }
 
-  id(prefix: string): string {
-    const value = `${prefix}-${this.#nextNodeId}`
-    this.#nextNodeId += 1
-    return value
+  id(prefix: string, path: UiIdentityPath): string {
+    return `@node/${identityPathKey([...path, "kind", prefix])}`
   }
 
-  bindLocalStates(declaration: MunStructDeclaration, bindings: Map<string, MunUiExpression>): void {
+  bindLocalStates(
+    declaration: MunStructDeclaration,
+    bindings: Map<string, MunUiExpression>,
+    instancePath: UiIdentityPath,
+  ): void {
     const fields = declaration.fields.filter(field => field.kind === "state")
     if (fields.length === 0) return
 
-    const instanceId = `${declaration.name}-${this.#nextComponentId}`
-    this.#nextComponentId += 1
+    const instanceId = identityPathKey(instancePath)
     for (const field of fields) {
       if (field.initializer === undefined) {
         throw new SyntaxError(
@@ -1081,51 +1087,63 @@ class UiLowerer {
         bindings.set(field.name, lowerValueExpression(field.initializer, bindings))
       }
     }
-    this.bindLocalStates(declaration, bindings)
+    const instancePath: UiIdentityPath = ["entry", declaration.name]
+    this.bindLocalStates(declaration, bindings, instancePath)
     const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
     if (program.statements.length !== 1) {
       throw new SyntaxError(`Native custom View '${declaration.name}' body must contain one root view`)
     }
-    return this.lower(program.statements[0], bindings)
+    return this.lower(program.statements[0], bindings, [...instancePath, "body"])
   }
 
-  lower(node: MunBuilderNode, bindings: UiBindings = emptyBindings): MunUiNode {
+  lower(
+    node: MunBuilderNode,
+    bindings: UiBindings = emptyBindings,
+    path: UiIdentityPath,
+  ): MunUiNode {
     if (node.kind === "raw") {
       const chain = splitViewChain(node.source)
-      return applyModifiers(this.lower(chain.base, bindings), chain.modifiers, bindings)
+      return applyModifiers(this.lower(chain.base, bindings, path), chain.modifiers, bindings)
     }
-    if (node.kind === "conditional") return this.lowerConditional(node, bindings)
-    return this.lowerCall(node, bindings)
+    if (node.kind === "conditional") return this.lowerConditional(node, bindings, path)
+    return this.lowerCall(node, bindings, path)
   }
 
-  lowerProgram(program: MunBuilderProgram, bindings: UiBindings): MunUiNode[] {
-    return program.statements.map(statement => this.lower(statement, bindings))
+  lowerProgram(program: MunBuilderProgram, bindings: UiBindings, path: UiIdentityPath): MunUiNode[] {
+    return program.statements.map((statement, index) =>
+      this.lower(statement, bindings, [...path, "child", index])
+    )
   }
 
-  lowerConditional(node: MunConditionalExpression, bindings: UiBindings): MunUiNode {
+  lowerConditional(
+    node: MunConditionalExpression,
+    bindings: UiBindings,
+    path: UiIdentityPath,
+  ): MunUiNode {
     const otherwise = node.otherwise
     return {
       kind: "conditional",
-      id: this.id("conditional"),
+      id: this.id("conditional", path),
       condition: lowerValueExpression(node.condition.source, bindings),
-      then: this.lowerProgram(node.then, bindings),
+      then: this.lowerProgram(node.then, bindings, [...path, "then"]),
       otherwise: !otherwise
         ? []
         : otherwise.kind === "program"
-          ? this.lowerProgram(otherwise, bindings)
-          : [this.lowerConditional(otherwise, bindings)],
+          ? this.lowerProgram(otherwise, bindings, [...path, "otherwise"])
+          : [this.lowerConditional(otherwise, bindings, [...path, "otherwise"])],
     }
   }
 
-  children(call: MunCallExpression, bindings: UiBindings): MunUiNode[] {
+  children(call: MunCallExpression, bindings: UiBindings, path: UiIdentityPath): MunUiNode[] {
     const body = call.trailing?.body
-    return body ? this.lowerProgram(body, bindings) : []
+    return body ? this.lowerProgram(body, bindings, [...path, "content"]) : []
   }
 
   lowerComponent(
     call: MunCallExpression,
     declaration: MunStructDeclaration,
     callerBindings: UiBindings,
+    path: UiIdentityPath,
   ): MunUiNode {
     if (this.#componentStack.includes(declaration.name)) {
       throw new SyntaxError(
@@ -1279,7 +1297,8 @@ class UiLowerer {
         )
       }
     }
-    this.bindLocalStates(declaration, fieldBindings)
+    const instancePath: UiIdentityPath = [...path, "component", declaration.name]
+    this.bindLocalStates(declaration, fieldBindings, instancePath)
 
     const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
     if (program.statements.length !== 1) {
@@ -1288,23 +1307,23 @@ class UiLowerer {
 
     this.#componentStack.push(declaration.name)
     try {
-      return this.lower(program.statements[0], fieldBindings)
+      return this.lower(program.statements[0], fieldBindings, [...instancePath, "body"])
     } finally {
       this.#componentStack.pop()
     }
   }
 
-  lowerCall(call: MunCallExpression, bindings: UiBindings): MunUiNode {
+  lowerCall(call: MunCallExpression, bindings: UiBindings, path: UiIdentityPath): MunUiNode {
     validateCanonicalBuiltinCall(call, bindings, this.#stateTypes)
     if (call.callee === "VStack" || call.callee === "Column") {
       const spacing = numberValue(rawArgument(call, "spacing", 0), 0, bindings)
       const alignment = normalizedAlignment(rawArgument(call, "alignment", 1))
       return {
         kind: "column",
-        id: this.id("column"),
+        id: this.id("column", path),
         layout: { spacing, ...(alignment ? { alignment } : {}) },
         accessibility: { role: "group" },
-        children: this.children(call, bindings),
+        children: this.children(call, bindings, path),
       }
     }
 
@@ -1313,10 +1332,10 @@ class UiLowerer {
       const alignment = normalizedAlignment(rawArgument(call, "alignment", 1))
       return {
         kind: "row",
-        id: this.id("row"),
+        id: this.id("row", path),
         layout: { spacing, ...(alignment ? { alignment } : {}) },
         accessibility: { role: "group" },
-        children: this.children(call, bindings),
+        children: this.children(call, bindings, path),
       }
     }
 
@@ -1326,7 +1345,7 @@ class UiLowerer {
       const value = lowerValueExpression(source, bindings)
       return {
         kind: "text",
-        id: this.id("text"),
+        id: this.id("text", path),
         value,
         accessibility: {
           role: "text",
@@ -1342,7 +1361,7 @@ class UiLowerer {
       if (!call.trailing) throw new SyntaxError(`${call.callee} requires an action closure`)
       return {
         kind: "action",
-        id: this.id("action"),
+        id: this.id("action", path),
         label,
         action: actionFromClosure(call.trailing.bodySource, bindings),
         accessibility: { role: "button", label },
@@ -1355,18 +1374,18 @@ class UiLowerer {
         : undefined
       return {
         kind: "panel",
-        id: this.id("panel"),
+        id: this.id("panel", path),
         ...(cornerRadius !== undefined ? { visual: { cornerRadius } } : {}),
       }
     }
 
     if (call.callee === "Window") {
       const title = stringValue(rawArgument(call, "title", 0), "Mün", bindings) ?? "Mün"
-      const children = this.children(call, bindings)
+      const children = this.children(call, bindings, path)
       if (children.length !== 1) throw new SyntaxError("Window requires exactly one root content view")
       return {
         kind: "window",
-        id: this.id("window"),
+        id: this.id("window", path),
         title,
         layout: {
           width: lowerValueExpression(rawArgument(call, "width", 1) ?? "640", bindings),
@@ -1378,7 +1397,7 @@ class UiLowerer {
     }
 
     const declaration = this.#structs.get(call.callee)
-    if (declaration) return this.lowerComponent(call, declaration, bindings)
+    if (declaration) return this.lowerComponent(call, declaration, bindings, path)
 
     throw new SyntaxError(`View '${call.callee}' is not part of the native Mün semantic component graph`)
   }
