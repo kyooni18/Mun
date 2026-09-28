@@ -475,6 +475,164 @@ impl ScalarKeyframeTrack {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TimelineFill {
+    None,
+    Forwards,
+    Backwards,
+    Both,
+}
+
+impl TimelineFill {
+    fn fills_before(self) -> bool {
+        matches!(self, Self::Backwards | Self::Both)
+    }
+
+    fn fills_after(self) -> bool {
+        matches!(self, Self::Forwards | Self::Both)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TimelineClipError {
+    NonFiniteStart,
+    NegativeStart,
+    NonFiniteSpeed,
+    NonPositiveSpeed,
+    NonFiniteChildDuration,
+    NegativeChildDuration,
+}
+
+impl fmt::Display for TimelineClipError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::NonFiniteStart => "timeline clip start must be finite",
+            Self::NegativeStart => "timeline clip start cannot be negative",
+            Self::NonFiniteSpeed => "timeline clip speed must be finite",
+            Self::NonPositiveSpeed => "timeline clip speed must be greater than zero",
+            Self::NonFiniteChildDuration => "timeline clip child duration must be finite",
+            Self::NegativeChildDuration => "timeline clip child duration cannot be negative",
+        };
+        f.write_str(message)
+    }
+}
+
+impl Error for TimelineClipError {}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TimelineClipSample {
+    pub child_time: f64,
+    pub velocity_scale: f64,
+}
+
+/// Renderer-neutral parent-to-child time mapping recovered from inherited
+/// `TimelineClip` semantics. Target ownership and child track storage remain
+/// separate; this type only decides whether/where a child timeline samples.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TimelineClipTiming {
+    at: f64,
+    speed: f64,
+    fill: TimelineFill,
+    child_duration: f64,
+}
+
+impl TimelineClipTiming {
+    pub fn new(
+        at: f64,
+        speed: f64,
+        fill: TimelineFill,
+        child_duration: f64,
+    ) -> Result<Self, TimelineClipError> {
+        if !at.is_finite() {
+            return Err(TimelineClipError::NonFiniteStart);
+        }
+        if at < 0.0 {
+            return Err(TimelineClipError::NegativeStart);
+        }
+        if !speed.is_finite() {
+            return Err(TimelineClipError::NonFiniteSpeed);
+        }
+        if speed <= 0.0 {
+            return Err(TimelineClipError::NonPositiveSpeed);
+        }
+        if !child_duration.is_finite() {
+            return Err(TimelineClipError::NonFiniteChildDuration);
+        }
+        if child_duration < 0.0 {
+            return Err(TimelineClipError::NegativeChildDuration);
+        }
+
+        Ok(Self {
+            at,
+            speed,
+            fill,
+            child_duration,
+        })
+    }
+
+    pub fn at(&self) -> f64 {
+        self.at
+    }
+
+    pub fn speed(&self) -> f64 {
+        self.speed
+    }
+
+    pub fn fill(&self) -> TimelineFill {
+        self.fill
+    }
+
+    pub fn child_duration(&self) -> f64 {
+        self.child_duration
+    }
+
+    pub fn duration(&self) -> f64 {
+        self.child_duration / self.speed
+    }
+
+    pub fn end(&self) -> f64 {
+        self.at + self.duration()
+    }
+
+    /// Map parent timeline time into the child timeline.
+    ///
+    /// Fill samples clamp to the child endpoint with zero velocity. Active
+    /// samples scale both child time and inherited real-time velocity by
+    /// `speed`, exactly matching the existing timeline runtime.
+    pub fn map(&self, parent_time: f64, velocity_scale: f64) -> Option<TimelineClipSample> {
+        let parent_time = if parent_time.is_finite() {
+            parent_time
+        } else {
+            0.0
+        };
+        let velocity_scale = if velocity_scale.is_finite() {
+            velocity_scale
+        } else {
+            0.0
+        };
+
+        if parent_time < self.at {
+            return self.fill.fills_before().then_some(TimelineClipSample {
+                child_time: 0.0,
+                velocity_scale: 0.0,
+            });
+        }
+
+        let end = self.end();
+        if parent_time > end {
+            return self.fill.fills_after().then_some(TimelineClipSample {
+                child_time: self.child_duration,
+                velocity_scale: 0.0,
+            });
+        }
+
+        Some(TimelineClipSample {
+            child_time: ((parent_time - self.at) * self.speed).clamp(0.0, self.child_duration),
+            velocity_scale: velocity_scale * self.speed,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScalarTimelineStep {
     pub mapping: TimelineMapping,
@@ -811,5 +969,82 @@ mod tests {
         assert!(end.finished);
         assert_eq!(end.sample.value, 10.0);
         assert_eq!(end.sample.velocity, 0.0);
+    }
+
+    #[test]
+    fn timeline_clip_maps_offset_speed_and_velocity_scale() {
+        let clip = TimelineClipTiming::new(1.0, 2.0, TimelineFill::None, 2.0).expect("valid clip");
+        assert_eq!(clip.duration(), 1.0);
+        assert_eq!(clip.end(), 2.0);
+
+        assert_eq!(
+            clip.map(1.25, 3.0),
+            Some(TimelineClipSample {
+                child_time: 0.5,
+                velocity_scale: 6.0,
+            })
+        );
+        assert_eq!(
+            clip.map(2.0, -2.0),
+            Some(TimelineClipSample {
+                child_time: 2.0,
+                velocity_scale: -4.0,
+            })
+        );
+    }
+
+    #[test]
+    fn timeline_clip_fill_applies_only_outside_active_interval() {
+        let none = TimelineClipTiming::new(1.0, 1.0, TimelineFill::None, 1.0).expect("valid clip");
+        assert_eq!(none.map(0.5, 4.0), None);
+        assert_eq!(none.map(2.5, 4.0), None);
+
+        let backwards =
+            TimelineClipTiming::new(1.0, 1.0, TimelineFill::Backwards, 1.0).expect("valid clip");
+        assert_eq!(
+            backwards.map(0.5, 4.0),
+            Some(TimelineClipSample {
+                child_time: 0.0,
+                velocity_scale: 0.0,
+            })
+        );
+        assert_eq!(backwards.map(2.5, 4.0), None);
+
+        let forwards =
+            TimelineClipTiming::new(1.0, 1.0, TimelineFill::Forwards, 1.0).expect("valid clip");
+        assert_eq!(forwards.map(0.5, 4.0), None);
+        assert_eq!(
+            forwards.map(2.5, 4.0),
+            Some(TimelineClipSample {
+                child_time: 1.0,
+                velocity_scale: 0.0,
+            })
+        );
+
+        let both = TimelineClipTiming::new(1.0, 1.0, TimelineFill::Both, 1.0).expect("valid clip");
+        assert_eq!(both.map(0.5, 4.0).unwrap().velocity_scale, 0.0);
+        assert_eq!(both.map(2.5, 4.0).unwrap().velocity_scale, 0.0);
+        assert_eq!(
+            both.map(1.0, 4.0),
+            Some(TimelineClipSample {
+                child_time: 0.0,
+                velocity_scale: 4.0,
+            })
+        );
+        assert_eq!(
+            both.map(2.0, 4.0),
+            Some(TimelineClipSample {
+                child_time: 1.0,
+                velocity_scale: 4.0,
+            })
+        );
+    }
+
+    #[test]
+    fn timeline_clip_rejects_non_positive_speed() {
+        assert_eq!(
+            TimelineClipTiming::new(0.0, 0.0, TimelineFill::None, 1.0),
+            Err(TimelineClipError::NonPositiveSpeed)
+        );
     }
 }
