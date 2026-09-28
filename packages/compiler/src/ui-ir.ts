@@ -1125,10 +1125,35 @@ function childIdentityPath(path: UiStateIdentityPath, ...segments: UiIdentitySeg
   return path ? [...path, ...segments] : null
 }
 
-function keyedStateIdentityPath(path: UiStateIdentityPath, key: string | number): UiStateIdentityPath {
-  if (!path) return null
+function encodedIdentityKeySegment(key: string | number): string {
+  return typeof key === "number"
+    ? `n:${Object.is(key, -0) ? "0" : String(key)}`
+    : `s:${encodeURIComponent(key)}`
+}
+
+function keyedIdentityPath(path: UiIdentityPath, key: string | number): UiIdentityPath {
   const parent = path.at(-2) === "child" ? path.slice(0, -2) : path
-  return [...parent, "key", key]
+  return [...parent, "key", encodedIdentityKeySegment(key)]
+}
+
+function keyedStateIdentityPath(path: UiStateIdentityPath, key: string | number): UiStateIdentityPath {
+  return path ? keyedIdentityPath(path, key) : null
+}
+
+function nodeIdentityPathForModifiers(
+  path: UiIdentityPath,
+  modifiers: readonly ModifierCall[],
+  bindings: UiBindings,
+): UiIdentityPath {
+  let current = path
+  for (const modifier of modifiers) {
+    if (modifier.name !== "id") continue
+    const identityKey = semanticIdentityKey(modifier, bindings)
+    if (identityKey.kind !== "literal") continue
+    if (typeof identityKey.value !== "string" && typeof identityKey.value !== "number") continue
+    current = keyedIdentityPath(current, identityKey.value)
+  }
+  return current
 }
 
 function stateIdentityPathForModifiers(
@@ -1261,8 +1286,9 @@ class UiLowerer {
   ): MunUiNode {
     if (node.kind === "raw") {
       const chain = splitViewChain(node.source)
+      const scopedPath = nodeIdentityPathForModifiers(path, chain.modifiers, bindings)
       const scopedStatePath = stateIdentityPathForModifiers(statePath, chain.modifiers, bindings)
-      return applyModifiers(this.lower(chain.base, bindings, path, scopedStatePath), chain.modifiers, bindings)
+      return applyModifiers(this.lower(chain.base, bindings, scopedPath, scopedStatePath), chain.modifiers, bindings)
     }
     if (node.kind === "conditional") return this.lowerConditional(node, bindings, path, statePath)
     return this.lowerCall(node, bindings, path, statePath)

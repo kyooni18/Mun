@@ -723,7 +723,7 @@ export default App()`
   }
 })
 
-test("source .id(_:) lowers as a semantic identity boundary without replacing the structural anchor", () => {
+test("source .id(_:) keys literal structural identity while preserving dynamic runtime identity", () => {
   const source = `import { State, Text, VStack } from "@mun/core"
 struct App: View {
   @State var selection: string = "alpha"
@@ -748,7 +748,7 @@ export default App()`
   assert.equal(dynamicNode?.kind, "text")
   if (staticNode?.kind !== "text" || dynamicNode?.kind !== "text") return
 
-  assert.equal(staticNode.id, "@node/entry/App/body/content/child/#0/kind/text")
+  assert.equal(staticNode.id, "@node/entry/App/body/content/key/s:hero/kind/text")
   assert.deepEqual(staticNode.identityKey, { kind: "literal", value: "hero" })
   assert.equal(dynamicNode.id, "@node/entry/App/body/content/child/#1/kind/text")
   assert.deepEqual(dynamicNode.identityKey, { kind: "state", state: "@component/entry/App/selection" })
@@ -763,6 +763,32 @@ struct App: View {
 export default App()`, "invalid-identity-key.mun"),
     /semantic identity keys must resolve to a string or finite number/,
   )
+})
+
+
+test("literal semantic identity keys are type-safe and separator-safe", () => {
+  const source = `import { Text, VStack } from "@mun/core"
+struct App: View {
+  var body: some View {
+    VStack() {
+      Text("String").id("1")
+      Text("Number").id(1)
+      Text("Slash").id("a/b")
+    }
+  }
+}
+export default App()`
+
+  const program = compileMunUiProgram(source, "identity-key-encoding.mun")
+  const root = program.root.child
+  assert.equal(root.kind, "column")
+  if (root.kind !== "column") return
+
+  const ids = root.children.map(node => node.id)
+  assert.equal(new Set(ids).size, 3)
+  assert.match(ids[0], /\/key\/s:1\/kind\/text$/)
+  assert.match(ids[1], /\/key\/n:1\/kind\/text$/)
+  assert.match(ids[2], /\/key\/s:a%2Fb\/kind\/text$/)
 })
 
 
@@ -808,7 +834,7 @@ export default App()`
   assert.equal(beforeState.name, afterState.name)
   assert.equal(
     beforeState.name,
-    "@component/entry/App/body/content/key/primary-counter/component/Counter/enabled",
+    "@component/entry/App/body/content/key/s:primary-counter/component/Counter/enabled",
   )
 
   const beforeRoot = beforeProgram.root.child
@@ -821,7 +847,11 @@ export default App()`
   const afterCounter = afterRoot.children[1]
   assert.equal(beforeCounter?.identityKey?.kind, "literal")
   assert.equal(afterCounter?.identityKey?.kind, "literal")
-  assert.notEqual(beforeCounter?.id, afterCounter?.id)
+  assert.equal(beforeCounter?.id, afterCounter?.id)
+  assert.equal(
+    beforeCounter?.id,
+    "@node/entry/App/body/content/key/s:primary-counter/component/Counter/body/kind/action",
+  )
 })
 
 test("dynamic .id rejects stateful native subtrees until runtime state scopes can follow the key", () => {
