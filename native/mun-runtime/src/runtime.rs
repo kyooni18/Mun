@@ -9,6 +9,9 @@ use thiserror::Error;
 
 use crate::{
     accessibility::{AccessibilityBounds, AccessibilityNode, AccessibilityTree},
+    input::{
+        ButtonState, InputEvent, InputOutcome, InputState, KeyState, LogicalKey, PointerButton,
+    },
     ir::{
         AccessibilityRole, MotionExecutionPlan, MotionProperty, TransitionEdge, TransitionEffect,
         UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiProgram, UiTransition,
@@ -184,6 +187,7 @@ pub struct Runtime {
     motion: MotionScheduler,
     revision: u64,
     focused_action: Option<String>,
+    input: InputState,
     entering: HashMap<String, EnterPresence>,
     exiting: HashMap<String, ExitPresence>,
     layout_flips: HashMap<String, LayoutFlip>,
@@ -217,6 +221,7 @@ impl Runtime {
             motion: MotionScheduler::default(),
             revision: 0,
             focused_action: None,
+            input: InputState::default(),
             entering: HashMap::new(),
             exiting: HashMap::new(),
             layout_flips: HashMap::new(),
@@ -265,6 +270,84 @@ impl Runtime {
             || !self.entering.is_empty()
             || !self.exiting.is_empty()
             || !self.layout_flips.is_empty()
+    }
+
+    pub fn handle_input(
+        &mut self,
+        event: InputEvent,
+        width: f32,
+        height: f32,
+    ) -> Result<InputOutcome, taffy::TaffyError> {
+        let focus_before = self.focused_action.clone();
+        let mut outcome = InputOutcome::default();
+
+        match event {
+            InputEvent::PointerMoved { pointer, position } => {
+                self.input.set_pointer_position(pointer, position);
+            }
+            InputEvent::PointerButton {
+                pointer,
+                button: PointerButton::Primary,
+                state: ButtonState::Pressed,
+            } => {
+                let Some(position) = self.input.pointer_position(pointer) else {
+                    return Ok(outcome);
+                };
+                let scene = self.build_scene(width, height)?;
+                let target = scene.action_at(position.x, position.y).map(str::to_owned);
+                if let Some(id) = target {
+                    if self.focus_action(&id) {
+                        outcome.handled = true;
+                        outcome.activated = self.activate_action(&id).is_some();
+                    }
+                } else if self.focused_action.is_some() {
+                    self.clear_focus();
+                    outcome.handled = true;
+                }
+            }
+            InputEvent::PointerButton { .. } => {}
+            InputEvent::ModifiersChanged(modifiers) => {
+                self.input.set_modifiers(modifiers);
+            }
+            InputEvent::Key {
+                logical,
+                state: KeyState::Pressed,
+                repeat,
+                ..
+            } => match logical {
+                LogicalKey::Tab => {
+                    outcome.handled = self
+                        .focus_next_action(self.input.modifiers().shift)
+                        .is_some();
+                }
+                LogicalKey::Enter | LogicalKey::Space if !repeat => {
+                    if self.focused_action().is_none() {
+                        self.focus_next_action(false);
+                    }
+                    outcome.activated = self.activate_focused().is_some();
+                    outcome.handled = outcome.activated || self.focused_action().is_some();
+                }
+                LogicalKey::Escape => {
+                    outcome.handled = self.focused_action().is_some();
+                    self.clear_focus();
+                }
+                _ => {}
+            },
+            InputEvent::Key { .. } | InputEvent::TextInput { .. } | InputEvent::Scroll { .. } => {}
+            InputEvent::Cancel { pointer } => {
+                self.input.cancel_pointer(pointer);
+            }
+            InputEvent::WindowFocusChanged(false) => {
+                self.input.cancel_pointer(None);
+            }
+            InputEvent::WindowFocusChanged(true) => {}
+        }
+
+        outcome.focus_changed = self.focused_action != focus_before;
+        outcome.needs_redraw = outcome.focus_changed
+            || outcome.activated
+            || (outcome.handled && focus_before.is_some());
+        Ok(outcome)
     }
 
     pub fn focused_action(&self) -> Option<&str> {
@@ -1740,6 +1823,120 @@ mod tests {
     }
 
     const CONDITIONAL_BRANCH: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"ConditionalTest","states":[{"name":"expanded","initial":false}],"root":{"kind":"window","id":"root","title":"Conditional","child":{"kind":"conditional","id":"branch","condition":{"kind":"state","state":"expanded"},"then":[{"kind":"action","id":"expanded-action","label":"Expanded","action":{"kind":"toggle-state","state":"expanded"}}],"otherwise":[{"kind":"action","id":"collapsed-action","label":"Collapsed","action":{"kind":"toggle-state","state":"expanded"}}]}}}"#;
+
+    const TWO_ACTIONS: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"InputTest","states":[{"name":"armed","initial":false}],"root":{"kind":"window","id":"root","title":"Input","child":{"kind":"column","id":"actions","children":[{"kind":"action","id":"first","label":"First","action":{"kind":"toggle-state","state":"armed"}},{"kind":"action","id":"second","label":"Second","action":{"kind":"toggle-state","state":"armed"}}]}}}"#;
+
+    fn pressed_key(logical: LogicalKey) -> InputEvent {
+        InputEvent::Key {
+            logical,
+            physical: crate::input::PhysicalKey::Other,
+            state: KeyState::Pressed,
+            repeat: false,
+        }
+    }
+
+    #[test]
+    fn semantic_keyboard_input_owns_focus_traversal_and_activation() {
+        let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
+
+        let outcome = runtime
+            .handle_input(pressed_key(LogicalKey::Tab), 320.0, 200.0)
+            .expect("tab input");
+        assert!(outcome.handled);
+        assert!(outcome.focus_changed);
+        assert_eq!(runtime.focused_action(), Some("first"));
+
+        runtime
+            .handle_input(pressed_key(LogicalKey::Tab), 320.0, 200.0)
+            .expect("second tab");
+        assert_eq!(runtime.focused_action(), Some("second"));
+
+        runtime
+            .handle_input(
+                InputEvent::ModifiersChanged(crate::input::Modifiers {
+                    shift: true,
+                    ..Default::default()
+                }),
+                320.0,
+                200.0,
+            )
+            .expect("modifier input");
+        runtime
+            .handle_input(pressed_key(LogicalKey::Tab), 320.0, 200.0)
+            .expect("reverse tab");
+        assert_eq!(runtime.focused_action(), Some("first"));
+
+        runtime.clear_focus();
+        let outcome = runtime
+            .handle_input(pressed_key(LogicalKey::Enter), 320.0, 200.0)
+            .expect("enter input");
+        assert!(outcome.activated);
+        assert_eq!(runtime.focused_action(), Some("first"));
+        assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn semantic_pointer_input_uses_presentation_scene_for_hit_testing() {
+        let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
+        let scene = runtime.build_scene(320.0, 200.0).expect("input scene");
+        let first = scene
+            .actions
+            .iter()
+            .find(|action| action.id == "first")
+            .expect("first action");
+        let point = crate::input::InputPoint::new(
+            first.rect.x + first.rect.width * 0.5,
+            first.rect.y + first.rect.height * 0.5,
+        );
+
+        runtime
+            .handle_input(
+                InputEvent::PointerMoved {
+                    pointer: crate::input::PointerId::MOUSE,
+                    position: point,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer move");
+        let outcome = runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer: crate::input::PointerId::MOUSE,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Pressed,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer press");
+        assert!(outcome.activated);
+        assert_eq!(runtime.focused_action(), Some("first"));
+
+        runtime
+            .handle_input(
+                InputEvent::PointerMoved {
+                    pointer: crate::input::PointerId::MOUSE,
+                    position: crate::input::InputPoint::new(-10.0, -10.0),
+                },
+                320.0,
+                200.0,
+            )
+            .expect("background pointer move");
+        let outcome = runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer: crate::input::PointerId::MOUSE,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Pressed,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("background press");
+        assert!(outcome.focus_changed);
+        assert_eq!(runtime.focused_action(), None);
+    }
 
     #[test]
     fn conditional_fragments_expose_only_the_active_branch() {
