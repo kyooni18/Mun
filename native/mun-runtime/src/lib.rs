@@ -8,6 +8,7 @@ pub mod accessibility;
 pub mod gesture;
 pub mod input;
 pub mod ir;
+pub mod layout;
 pub mod motion;
 pub mod retained;
 pub mod runtime;
@@ -24,6 +25,7 @@ pub use input::{
     ButtonState, InputEvent, InputOutcome, InputPoint, KeyState, LogicalKey, Modifiers,
     PhysicalKey, PointerButton, PointerId, ScrollDelta,
 };
+pub use layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize};
 pub use retained::{
     RetainedNode, RetainedNodeKind, RetainedReconciliation, RetainedTree, RetainedTreeError,
 };

@@ -16,6 +16,7 @@ use crate::{
         AccessibilityRole, MotionExecutionPlan, MotionProperty, TransitionEdge, TransitionEffect,
         UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiProgram, UiTransition,
     },
+    layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize},
     motion::{MotionChannelKey, MotionScheduler},
     retained::{RetainedNodeKind, RetainedNodeSpec, RetainedReconciliation, RetainedTree},
     scene::{ActionHit, Color, Rect as SceneBounds, Scene, SceneRect, SceneText},
@@ -87,34 +88,7 @@ struct LayoutFlip {
     delta_y: f32,
 }
 
-// Semantic fallback metrics until native text/control measurement is plumbed in.
-// They are intrinsic content sizes, not explicit Mün layout constraints.
-#[derive(Clone, Copy, Debug, Default)]
-struct IntrinsicLayoutSize {
-    width: f32,
-    height: f32,
-}
-
-impl IntrinsicLayoutSize {
-    const TEXT: Self = Self {
-        width: 240.0,
-        height: 32.0,
-    };
-
-    const PANEL: Self = Self {
-        width: 160.0,
-        height: 96.0,
-    };
-
-    fn action(label: &str) -> Self {
-        Self {
-            width: (label.chars().count() as f32 * 9.0 + 34.0).max(92.0),
-            height: 38.0,
-        }
-    }
-}
-
-type LayoutTree = TaffyTree<IntrinsicLayoutSize>;
+type LayoutTree = TaffyTree<IntrinsicSize>;
 
 #[derive(Clone, Copy, Debug)]
 struct PresenceValues {
@@ -617,7 +591,16 @@ impl Runtime {
     }
 
     pub fn build_frame(&self, width: f32, height: f32) -> Result<RuntimeFrame, taffy::TaffyError> {
-        let (taffy, nodes) = self.build_layout_tree(width, height)?;
+        self.build_frame_with_measurer(width, height, &FallbackIntrinsicMeasurer)
+    }
+
+    pub fn build_frame_with_measurer(
+        &self,
+        width: f32,
+        height: f32,
+        measurer: &dyn IntrinsicMeasurer,
+    ) -> Result<RuntimeFrame, taffy::TaffyError> {
+        let (taffy, nodes) = self.build_layout_tree_with_measurer(width, height, measurer)?;
         let mut scene = Scene::default();
         self.collect_scene(
             &taffy,
@@ -644,12 +627,31 @@ impl Runtime {
         self.build_frame(width, height).map(|frame| frame.scene)
     }
 
+    pub fn build_scene_with_measurer(
+        &self,
+        width: f32,
+        height: f32,
+        measurer: &dyn IntrinsicMeasurer,
+    ) -> Result<Scene, taffy::TaffyError> {
+        self.build_frame_with_measurer(width, height, measurer)
+            .map(|frame| frame.scene)
+    }
+
     pub fn build_accessibility_tree(
         &self,
         width: f32,
         height: f32,
     ) -> Result<AccessibilityTree, taffy::TaffyError> {
-        let (taffy, nodes) = self.build_layout_tree(width, height)?;
+        self.build_accessibility_tree_with_measurer(width, height, &FallbackIntrinsicMeasurer)
+    }
+
+    pub fn build_accessibility_tree_with_measurer(
+        &self,
+        width: f32,
+        height: f32,
+        measurer: &dyn IntrinsicMeasurer,
+    ) -> Result<AccessibilityTree, taffy::TaffyError> {
+        let (taffy, nodes) = self.build_layout_tree_with_measurer(width, height, measurer)?;
         let mut accessibility = self.accessibility_from_layout(&taffy, &nodes, width, height)?;
         let mut empty_scene = Scene::default();
         self.apply_enter_presence(&mut empty_scene, &mut accessibility);
@@ -714,9 +716,19 @@ impl Runtime {
         width: f32,
         height: f32,
     ) -> Result<(LayoutTree, HashMap<String, NodeId>), taffy::TaffyError> {
+        self.build_layout_tree_with_measurer(width, height, &FallbackIntrinsicMeasurer)
+    }
+
+    fn build_layout_tree_with_measurer(
+        &self,
+        width: f32,
+        height: f32,
+        measurer: &dyn IntrinsicMeasurer,
+    ) -> Result<(LayoutTree, HashMap<String, NodeId>), taffy::TaffyError> {
         let mut taffy: LayoutTree = TaffyTree::new();
         let mut nodes = HashMap::new();
-        let children = self.build_layout_nodes(&mut taffy, &self.program.root.child, &mut nodes)?;
+        let children =
+            self.build_layout_nodes(&mut taffy, &self.program.root.child, &mut nodes, measurer)?;
         let wrapper = taffy.new_with_children(
             Style {
                 size: Size {
@@ -1278,11 +1290,12 @@ impl Runtime {
         taffy: &mut LayoutTree,
         node: &UiNode,
         nodes: &mut HashMap<String, NodeId>,
+        measurer: &dyn IntrinsicMeasurer,
     ) -> Result<Vec<NodeId>, taffy::TaffyError> {
         if matches!(node, UiNode::Conditional { .. }) {
             let mut output = Vec::new();
             for child in self.active_children(node) {
-                output.extend(self.build_layout_nodes(taffy, child, nodes)?);
+                output.extend(self.build_layout_nodes(taffy, child, nodes, measurer)?);
             }
             return Ok(output);
         }
@@ -1338,15 +1351,15 @@ impl Runtime {
         }
 
         let intrinsic = match node {
-            UiNode::Text { .. } => Some(IntrinsicLayoutSize::TEXT),
-            UiNode::Action { label, .. } => Some(IntrinsicLayoutSize::action(label)),
-            UiNode::Panel { .. } => Some(IntrinsicLayoutSize::PANEL),
+            UiNode::Text { value, .. } => Some(measurer.measure_text(&self.eval_text(value))),
+            UiNode::Action { label, .. } => Some(measurer.measure_action(label)),
+            UiNode::Panel { .. } => Some(measurer.measure_panel()),
             _ => None,
         };
 
         let mut children = Vec::new();
         for child in self.active_children(node) {
-            children.extend(self.build_layout_nodes(taffy, child, nodes)?);
+            children.extend(self.build_layout_nodes(taffy, child, nodes, measurer)?);
         }
         let id = if children.is_empty() {
             match intrinsic {
@@ -2102,13 +2115,119 @@ mod tests {
             .layout(*nodes.get("button").expect("button layout node"))
             .expect("button layout");
 
-
         assert_eq!(stretched.size.width, 200.0);
         assert_eq!(explicit.size.width, 80.0);
-        assert_eq!(stretched.size.height, IntrinsicLayoutSize::TEXT.height);
-        assert_eq!(explicit.size.height, IntrinsicLayoutSize::TEXT.height);
+        assert_eq!(
+            stretched.size.height,
+            FallbackIntrinsicMeasurer.measure_text("Intrinsic").height
+        );
+        assert_eq!(
+            explicit.size.height,
+            FallbackIntrinsicMeasurer.measure_text("Explicit").height
+        );
         assert_eq!(button.size.width, 200.0);
-        assert_eq!(button.size.height, IntrinsicLayoutSize::action("Go").height);
+        assert_eq!(
+            button.size.height,
+            FallbackIntrinsicMeasurer.measure_action("Go").height
+        );
+    }
+
+    const CUSTOM_INTRINSIC_MEASUREMENT: &str = r##"
+    {
+      "version": 1,
+      "sourceLanguage": "mun",
+      "entry": "CustomIntrinsicMeasurement",
+      "states": [{ "name": "armed", "initial": false }],
+      "root": {
+        "kind": "window",
+        "id": "root",
+        "title": "Measurement",
+        "child": {
+          "kind": "column",
+          "id": "stack",
+          "children": [
+            {
+              "kind": "text",
+              "id": "measured-text",
+              "value": { "kind": "literal", "value": "abc" }
+            },
+            {
+              "kind": "action",
+              "id": "measured-action",
+              "label": "Go",
+              "action": { "kind": "toggle-state", "state": "armed" }
+            },
+            {
+              "kind": "panel",
+              "id": "measured-panel",
+              "visual": { "background": "#000000" }
+            }
+          ]
+        }
+      }
+    }
+    "##;
+
+    struct ExactTestMeasurer;
+
+    impl IntrinsicMeasurer for ExactTestMeasurer {
+        fn measure_text(&self, text: &str) -> IntrinsicSize {
+            IntrinsicSize::new(text.chars().count() as f32 * 10.0, 11.0)
+        }
+
+        fn measure_action(&self, label: &str) -> IntrinsicSize {
+            IntrinsicSize::new(label.chars().count() as f32 * 20.0, 22.0)
+        }
+
+        fn measure_panel(&self) -> IntrinsicSize {
+            IntrinsicSize::new(33.0, 44.0)
+        }
+    }
+
+    #[test]
+    fn backend_intrinsic_measurer_drives_scene_and_accessibility_geometry() {
+        let runtime = Runtime::from_json(CUSTOM_INTRINSIC_MEASUREMENT)
+            .expect("valid custom intrinsic measurement program");
+        let frame = runtime
+            .build_frame_with_measurer(300.0, 240.0, &ExactTestMeasurer)
+            .expect("measured frame");
+
+        let text = frame
+            .accessibility
+            .node("measured-text")
+            .expect("measured text node");
+        let action = frame
+            .accessibility
+            .node("measured-action")
+            .expect("measured action node");
+        let panel = frame
+            .accessibility
+            .node("measured-panel")
+            .expect("measured panel node");
+
+        assert_eq!(text.bounds.width, 30.0);
+        assert_eq!(text.bounds.height, 11.0);
+        assert_eq!(action.bounds.width, 40.0);
+        assert_eq!(action.bounds.height, 22.0);
+        assert_eq!(panel.bounds.width, 33.0);
+        assert_eq!(panel.bounds.height, 44.0);
+
+        let action_hit = frame
+            .scene
+            .actions
+            .iter()
+            .find(|hit| hit.id == "measured-action")
+            .expect("measured action hit region");
+        let panel_rect = frame
+            .scene
+            .rects
+            .iter()
+            .find(|rect| rect.id == "measured-panel")
+            .expect("measured panel rect");
+        assert_eq!(action_hit.rect.width, 40.0);
+        assert_eq!(action_hit.rect.height, 22.0);
+        assert_eq!(panel_rect.rect.width, 33.0);
+        assert_eq!(panel_rect.rect.height, 44.0);
     }
 
     const CONTAINER_LAYOUT_SEMANTICS: &str = r#"
@@ -2224,7 +2343,6 @@ mod tests {
         assert_eq!(second.location.x, 33.0);
         assert_eq!(second.location.y, 22.0);
     }
-
 
     const CONDITIONAL_BRANCH: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"ConditionalTest","states":[{"name":"expanded","initial":false}],"root":{"kind":"window","id":"root","title":"Conditional","child":{"kind":"conditional","id":"branch","condition":{"kind":"state","state":"expanded"},"then":[{"kind":"action","id":"expanded-action","label":"Expanded","action":{"kind":"toggle-state","state":"expanded"}}],"otherwise":[{"kind":"action","id":"collapsed-action","label":"Collapsed","action":{"kind":"toggle-state","state":"expanded"}}]}}}"#;
 
