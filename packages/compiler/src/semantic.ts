@@ -54,6 +54,8 @@ export interface MunSemanticView {
 
 export interface MunSemanticCall {
   readonly callee: string
+  /** Qualified lexical View scope that owns this builder call, when any. */
+  readonly scope?: string
   readonly arguments: readonly {
     readonly label?: string
     readonly kind: "expression" | "closure"
@@ -303,11 +305,30 @@ export function semanticViewsForStructs(
   return result
 }
 
-function collectCalls(program: MunBuilderProgram, output: MunSemanticCall[]): void {
+
+/**
+ * Canonical lexical lookup order for a View constructor used inside another View.
+ * The current View's nested types win, then each enclosing scope, then a top-level type.
+ */
+export function semanticViewLookupCandidates(name: string, scope?: string): readonly string[] {
+  if (name.includes(".")) return [name]
+  const candidates: string[] = []
+  let current = scope
+  while (current) {
+    candidates.push(`${current}.${name}`)
+    const separator = current.lastIndexOf(".")
+    current = separator >= 0 ? current.slice(0, separator) : undefined
+  }
+  candidates.push(name)
+  return candidates
+}
+
+function collectCalls(program: MunBuilderProgram, output: MunSemanticCall[], scope?: string): void {
   const visit = (node: MunBuilderNode): void => {
     if (node.kind === "call") {
       output.push({
         callee: node.callee,
+        ...(scope ? { scope } : {}),
         arguments: node.arguments.map(argument => ({
           label: argument.label,
           kind: argument.value.kind === "closure" ? "closure" as const : "expression" as const,
@@ -319,9 +340,9 @@ function collectCalls(program: MunBuilderProgram, output: MunSemanticCall[]): vo
         resolution: resolveSemanticCall(undefined, []),
       })
       for (const argument of node.arguments) {
-        if (argument.value.kind === "closure") collectCalls(argument.value.body, output)
+        if (argument.value.kind === "closure") collectCalls(argument.value.body, output, scope)
       }
-      if (node.trailing) collectCalls(node.trailing.body, output)
+      if (node.trailing) collectCalls(node.trailing.body, output, scope)
       return
     }
     if (node.kind === "conditional") {
@@ -447,13 +468,21 @@ function resolvedCalls(
 ): MunSemanticCall[] {
   const runtimeSymbols = runtimeViewSymbols()
   const canonicalSymbols = canonicalViewSymbols()
-  for (const view of views) {
-    runtimeSymbols.set(view.name, view.symbol)
-    canonicalSymbols.set(view.name, view.symbol)
+  const sourceViews = new Map(views.map(view => [view.qualifiedName, view] as const))
+
+  const sourceViewFor = (call: MunSemanticCall): MunSemanticView | undefined => {
+    for (const candidate of semanticViewLookupCandidates(call.callee, call.scope)) {
+      const view = sourceViews.get(candidate)
+      if (view) return view
+    }
+    return undefined
   }
-  const declaredTypes = new Map<string, string>()
-  for (const view of views) for (const field of view.fields) if (field.type) declaredTypes.set(field.name, field.type)
+
   return calls.map(call => {
+    const scopedView = call.scope ? sourceViews.get(call.scope) : undefined
+    const declaredTypes = new Map<string, string>()
+    for (const field of scopedView?.fields ?? []) if (field.type) declaredTypes.set(field.name, field.type)
+
     const arguments_: SemanticArgument[] = call.arguments.map((argument, argumentIndex) => argument.kind === "closure"
       ? { label: argument.label, type: "function" }
       : call.callee === "ForEach" && argumentIndex === 1 && /^\{\s*(?:id|key)\s*:/.test(argument.source) && /=>/.test(argument.source)
@@ -461,26 +490,35 @@ function resolvedCalls(
         : compilerSemanticArgument(argument.source, argument.label, checker, sourceFile, declaredTypes))
     if (call.trailingClosure) arguments_.push({ type: "function", trailing: true })
     const swiftStyleSource = call.trailingClosure || call.arguments.some(argument => argument.label !== undefined)
+    const sourceView = sourceViewFor(call)
+    const symbol = sourceView?.symbol
+      ?? (swiftStyleSource ? canonicalSymbols : runtimeSymbols).get(call.callee)
     return {
       ...call,
-      resolution: resolveSemanticCall((swiftStyleSource ? canonicalSymbols : runtimeSymbols).get(call.callee), arguments_),
+      resolution: resolveSemanticCall(symbol, arguments_),
     }
   })
 }
 
-function builderProgramsFor(source: string, structs: readonly MunStructDeclaration[]): MunBuilderProgram[] {
-  const programs: MunBuilderProgram[] = []
+interface ScopedBuilderProgram {
+  readonly program: MunBuilderProgram
+  readonly scope?: string
+}
+
+function builderProgramsFor(source: string, structs: readonly MunStructDeclaration[]): ScopedBuilderProgram[] {
+  const programs: ScopedBuilderProgram[] = []
   const seen = new Set<string>()
-  const add = (value: MunBuilderProgram): void => {
-    const key = `${value.range.start}:${value.range.end}`
+  const add = (program: MunBuilderProgram, scope?: string): void => {
+    const key = `${program.range.start}:${program.range.end}:${scope ?? ""}`
     if (seen.has(key)) return
     seen.add(key)
-    programs.push(value)
+    programs.push({ program, ...(scope ? { scope } : {}) })
   }
-  const visit = (declarations: readonly MunStructDeclaration[]): void => {
+  const visit = (declarations: readonly MunStructDeclaration[], prefix = ""): void => {
     for (const declaration of declarations) {
-      add(parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start))
-      visit(declaration.nested ?? [])
+      const qualifiedName = prefix ? `${prefix}.${declaration.name}` : declaration.name
+      add(parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start), qualifiedName)
+      visit(declaration.nested ?? [], qualifiedName)
     }
   }
   if (structs.length > 0) {
@@ -647,9 +685,10 @@ export function createSemanticModel(source: string, fileName: string, generatedS
   const snapshot = typescriptSnapshot(fileName, generatedSource)
   const typescript = snapshot.sourceFile
   const structs = parseMunStructs(source)
-  const builderPrograms = builderProgramsFor(source, structs)
+  const scopedBuilderPrograms = builderProgramsFor(source, structs)
+  const builderPrograms = scopedBuilderPrograms.map(({ program }) => program)
   const collectedCalls: MunSemanticCall[] = []
-  for (const program of builderPrograms) collectCalls(program, collectedCalls)
+  for (const { program, scope } of scopedBuilderPrograms) collectCalls(program, collectedCalls, scope)
   const views = semanticViewsForStructs(structs)
   const calls = resolvedCalls(collectedCalls, views, snapshot.checker, typescript)
   const sourceMap = createMunSourceMap(source, generatedSource, fileName)
@@ -691,7 +730,10 @@ export function createSemanticModel(source: string, fileName: string, generatedS
     symbolTable,
     symbols: symbolTable.values(),
     view(name) {
-      return views.find(view => view.name === name || view.qualifiedName === name)
+      const qualified = views.find(view => view.qualifiedName === name)
+      if (qualified) return qualified
+      const simple = views.filter(view => view.name === name)
+      return simple.length === 1 ? simple[0] : undefined
     },
     symbol(name) {
       return symbolTable.get(name)

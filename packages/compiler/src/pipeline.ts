@@ -1,5 +1,5 @@
 import * as ts from "typescript"
-import { parseVuneBuilder, parseVuneStructs, lowerVuneBuilderAst, type VuneBuilderNode, type VuneBuilderProgram, type VuneCallExpression } from "./ast.js"
+import { parseMunBuilder, parseMunStructs, lowerMunBuilderAst, type MunBuilderNode, type MunBuilderProgram, type MunCallExpression } from "./ast.js"
 import {
   findBuilder,
   findRawHtml,
@@ -19,17 +19,18 @@ import {
   topLevelColon,
   type BuilderCall,
 } from "./scanner.js"
-import * as Core from "@vune-ui/core"
-import { resolveSemanticCall, swiftUIModifierLowering, type SemanticArgument, type SemanticCallResolution, type SemanticInitializerSymbol, type SemanticViewTypeSymbol } from "@vune-ui/core"
+import * as Core from "@mun/core/compat"
+import { resolveSemanticCall, swiftUIModifierLowering, type SemanticArgument, type SemanticCallResolution, type SemanticInitializerSymbol, type SemanticViewTypeSymbol } from "@mun/core/compat"
 import { lowerImplicitMemberShorthand, lowerNamedAnimationFactoryCalls, lowerShorthand } from "./shorthand.js"
 import { foldStaticResults, hoistStaticViewSubtrees, lowerCompiledViewTemplates, lowerContentTransitionArgument, lowerStaticSemanticSpecializations, staticModifierNames } from "./specialization.js"
 import { lowerCompiledCollections } from "./collection-specialization.js"
 import { lowerStateArrayMaps } from "./state-specialization.js"
+import { canonicalViewSymbols } from "./semantic.js"
 
 // Nested named calls are uncommon in ordinary argument expressions. Keep the
 // recursive lowering path behind a cheap lexical hint so every positional
 // argument does not rescan itself with the full balanced-call scanner.
-const nestedNamedVuneCallHint = /\b(?:[A-Z][A-Za-z0-9_$]*\.)*[A-Z][A-Za-z0-9_$]*\s*\([^()\n]*:[^()\n]*\)/
+const nestedNamedMunCallHint = /\b(?:[A-Z][A-Za-z0-9_$]*\.)*[A-Z][A-Za-z0-9_$]*\s*\([^()\n]*:[^()\n]*\)/
 const validationSourceFileCache = new Map<string, ts.SourceFile>()
 const maximumValidationSourceFiles = 32
 
@@ -40,7 +41,7 @@ function validationSourceFile(source: string): ts.SourceFile {
     validationSourceFileCache.set(source, cached)
     return cached
   }
-  const file = ts.createSourceFile("vune-call-validation.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const file = ts.createSourceFile("mun-call-validation.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   validationSourceFileCache.set(source, file)
   while (validationSourceFileCache.size > maximumValidationSourceFiles) {
     const oldest = validationSourceFileCache.keys().next().value as string | undefined
@@ -51,7 +52,7 @@ function validationSourceFile(source: string): ts.SourceFile {
 }
 
 /**
- * Compiler-facing view metadata starts with every runtime View so Vune-native
+ * Compiler-facing view metadata starts with every runtime View so Mun-native
  * and compatibility APIs remain usable. Canonical SwiftUI Views are then
  * replaced by the SDK-audited manifest contract, preventing runtime-only
  * overloads from silently becoming SwiftUI source syntax.
@@ -62,28 +63,27 @@ for (const [name, value] of Object.entries(Core)) {
   const viewType = (value as { readonly viewType?: { readonly name?: string; readonly semanticSymbol?: { readonly initializers: readonly SemanticInitializerSymbol[] } } }).viewType
   if (viewType?.name && viewType.semanticSymbol) canonicalInitializerSymbols.set(name, viewType.semanticSymbol.initializers)
 }
-for (const name of Core.swiftUIViewNames()) {
-  const canonical = Core.swiftUIInitializerSymbols(name)
-  if (canonical) canonicalInitializerSymbols.set(name, canonical)
+for (const [name, symbol] of canonicalViewSymbols()) {
+  canonicalInitializerSymbols.set(name, symbol.initializers)
 }
 type InitializerSymbolRegistry = ReadonlyMap<string, readonly SemanticInitializerSymbol[]>
 
-function symbolsForCall(call: VuneCallExpression, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): readonly SemanticInitializerSymbol[] | undefined {
+function symbolsForCall(call: MunCallExpression, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): readonly SemanticInitializerSymbol[] | undefined {
   return registry.get(call.callee)
 }
 
-class VuneInitializerSyntaxError extends SyntaxError {
-  readonly code = "VUNE_INITIALIZER" as const
+class MunInitializerSyntaxError extends SyntaxError {
+  readonly code = "MUN_INITIALIZER" as const
   readonly offset: number
 
   constructor(message: string, offset: number) {
     super(message)
-    this.name = "VuneInitializerSyntaxError"
+    this.name = "MunInitializerSyntaxError"
     this.offset = offset
   }
 }
 
-function buttonInitializerMessage(call: VuneCallExpression): string {
+function buttonInitializerMessage(call: MunCallExpression): string {
   const labels = call.arguments.flatMap(argument => argument.label ? [argument.label] : [])
   if (labels.includes("label") && labels.includes("action") && labels.indexOf("label") < labels.indexOf("action")) {
     return "Button arguments must follow declaration order: action:, label:."
@@ -91,7 +91,7 @@ function buttonInitializerMessage(call: VuneCallExpression): string {
   return "Button must use either Button(\"Title\") { action } or Button(action: { ... }) { label }."
 }
 
-function knownCallArguments(call: VuneCallExpression): readonly SemanticArgument[] {
+function knownCallArguments(call: MunCallExpression): readonly SemanticArgument[] {
   const arguments_ = call.arguments.flatMap((argument, argumentIndex) => {
     if (argument.value.kind === "closure") return [{ label: argument.label, type: "function" }]
     if (call.callee === "ForEach" && argumentIndex === 1 && /^\{\s*(?:id|key)\s*:/.test(argument.value.source) && /=>/.test(argument.value.source)) {
@@ -104,14 +104,14 @@ function knownCallArguments(call: VuneCallExpression): readonly SemanticArgument
   return call.trailing ? [...arguments_, { type: "function", trailing: true }] : arguments_
 }
 
-function canDeferDynamicButton(call: VuneCallExpression, arguments_: readonly SemanticArgument[]): boolean {
+function canDeferDynamicButton(call: MunCallExpression, arguments_: readonly SemanticArgument[]): boolean {
   if (!arguments_.some(argument => argument.type === "unknown")) return false
   if (call.trailing) return call.arguments.length === 1 && (!call.arguments[0]?.label || call.arguments[0]?.label === "action")
   const labels = call.arguments.map(argument => argument.label)
   return labels.length === 2 && labels[0] === "action" && labels[1] === "label"
 }
 
-function resolveKnownCall(call: VuneCallExpression, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): {
+function resolveKnownCall(call: MunCallExpression, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): {
   readonly symbols: readonly SemanticInitializerSymbol[]
   readonly initializerIndex: number
   readonly resolution: SemanticCallResolution
@@ -129,9 +129,9 @@ function resolveKnownCall(call: VuneCallExpression, registry: InitializerSymbolR
   const result = resolveSemanticCall(viewType, arguments_)
   if (!result.resolvedInitializer) {
     if (call.callee === "Button" && canDeferDynamicButton(call, arguments_)) return undefined
-    if (call.callee === "Button") throw new VuneInitializerSyntaxError(buttonInitializerMessage(call), call.range.start)
+    if (call.callee === "Button") throw new MunInitializerSyntaxError(buttonInitializerMessage(call), call.range.start)
     if (call.trailing && canonicalInitializerSymbols.get(call.callee) !== symbols) {
-      throw new VuneInitializerSyntaxError(
+      throw new MunInitializerSyntaxError(
         result.diagnostics[0]?.message ?? `No matching initializer for ${call.callee}.`,
         call.range.start,
       )
@@ -141,8 +141,8 @@ function resolveKnownCall(call: VuneCallExpression, registry: InitializerSymbolR
   return { symbols, initializerIndex: result.resolvedInitializer.index, resolution: result }
 }
 
-function validateKnownCalls(program: VuneBuilderProgram, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): void {
-  const visit = (node: VuneBuilderNode): void => {
+function validateKnownCalls(program: MunBuilderProgram, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): void {
+  const visit = (node: MunBuilderNode): void => {
     if (node.kind === "call") {
       if (node.callee === "Button" || node.trailing) resolveKnownCall(node, registry)
       for (const argument of node.arguments) if (argument.value.kind === "closure") validateKnownCalls(argument.value.body, registry)
@@ -172,13 +172,13 @@ function validateKnownTypeScriptCalls(
   const file = parsedSource ?? validationSourceFile(source)
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "Button" && registry.has("Button")) {
-      // The Vune scanner owns trailing closures. TypeScript sees the call
+      // The Mun scanner owns trailing closures. TypeScript sees the call
       // prefix as a complete call, so leave that shape to validateKnownCalls.
       const callText = source.slice(node.expression.end, node.end)
-      const hasVuneLabels = /(?:^|,)\s*[A-Za-z_$][A-Za-z0-9_$]*\s*:/.test(callText)
-      if (!hasVuneLabels && source[skipTrivia(source, node.end)] !== "{") {
+      const hasMunLabels = /(?:^|,)\s*[A-Za-z_$][A-Za-z0-9_$]*\s*:/.test(callText)
+      if (!hasMunLabels && source[skipTrivia(source, node.end)] !== "{") {
         const callSource = `Button(${node.arguments.map(argument => argument.getText(file)).join(", ")})`
-        const parsed = parseVuneBuilder(callSource, node.expression.getStart(file)).statements[0]
+        const parsed = parseMunBuilder(callSource, node.expression.getStart(file)).statements[0]
         if (parsed?.kind === "call") resolveKnownCall(parsed, registry)
       }
     }
@@ -188,7 +188,7 @@ function validateKnownTypeScriptCalls(
 }
 
 function closureRoleForKnownCall(
-  call: VuneCallExpression,
+  call: MunCallExpression,
   context: { readonly position: "argument" | "trailing"; readonly argumentIndex?: number; readonly label?: string },
   registry: InitializerSymbolRegistry = canonicalInitializerSymbols,
 ): "value" | "viewBuilder" | "action" | undefined {
@@ -200,7 +200,7 @@ function closureRoleForKnownCall(
   // rather than re-diagnosing the partial call.
   let resolved: ReturnType<typeof resolveKnownCall>
   try { resolved = resolveKnownCall(call, registry) } catch (error) {
-    if (!(error instanceof VuneInitializerSyntaxError)) throw error
+    if (!(error instanceof MunInitializerSyntaxError)) throw error
     resolved = undefined
   }
   const resolvedArgumentIndex = context.position === "trailing"
@@ -269,18 +269,18 @@ function isViewBuilderExpression(expression: ts.Expression): boolean {
 }
 
 function lowerViewBuilderAstStatements(source: string, registry: InitializerSymbolRegistry, childrenName: string): string {
-  // First lower nested Vune-only expressions (trailing closures, raw HTML,
+  // First lower nested Mun-only expressions (trailing closures, raw HTML,
   // binding shorthand) so the statement tree is valid TypeScript. Then let
   // TypeScript own control-flow parsing instead of maintaining a second,
-  // incomplete statement grammar in Vune.
-  // Labeled Vune arguments are not valid TypeScript syntax. They must be
+  // incomplete statement grammar in Mun.
+  // Labeled Mun arguments are not valid TypeScript syntax. They must be
   // converted before the TypeScript parser sees statement-bearing builders;
   // otherwise parser recovery rewrites `Foo(value, label: other)` into the
   // semantically different `Foo(value, label, other)` and leaks `label` as an
   // undeclared runtime identifier.
-  const lowered = lowerRange(lowerNamedVuneCalls(source, registry), registry)
-  const wrapper = `function __vune_builder__() {\n${lowered}\n}`
-  const file = ts.createSourceFile("vune-view-builder.ts", wrapper, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const lowered = lowerRange(lowerNamedMunCalls(source, registry), registry)
+  const wrapper = `function __mun_builder__() {\n${lowered}\n}`
+  const file = ts.createSourceFile("mun-view-builder.ts", wrapper, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const fn = file.statements.find(ts.isFunctionDeclaration)
   if (!fn?.body) return lowered
 
@@ -357,7 +357,7 @@ function needsStatementAwareViewBody(source: string): boolean {
 
 function lowerViewBuilderClosure(body: string, parameter: string | undefined, registry: InitializerSymbolRegistry): string {
   if (!needsStatementAwareViewBody(body)) {
-    const lowered = lowerVuneBuilderAst(parseVuneBuilder(body), {
+    const lowered = lowerMunBuilderAst(parseMunBuilder(body), {
       transformRaw: value => lowerRange(value, registry),
       transformArgument: (value, call, argumentIndex) => lowerForEachIdentityOptions(value, call, argumentIndex, registry),
       closure: (nestedBody, nestedParameter, nestedRole) => lowerAstClosure(nestedBody, nestedParameter, nestedRole, registry),
@@ -366,9 +366,9 @@ function lowerViewBuilderClosure(body: string, parameter: string | undefined, re
     return `${parameter ? `(${parameter})` : "()"} => [${lowered}]`
   }
   const prefix = parameter ? `(${parameter})` : "()"
-  let childrenName = "__vuneChildren"
+  let childrenName = "__munChildren"
   let suffix = 0
-  while (new RegExp(`\\b${childrenName}\\b`).test(body)) childrenName = `__vuneChildren${++suffix}`
+  while (new RegExp(`\\b${childrenName}\\b`).test(body)) childrenName = `__munChildren${++suffix}`
   const statements = lowerViewBuilderAstStatements(body, registry, childrenName)
   return `${prefix} => { const ${childrenName} = []; ${statements} return ${childrenName}; }`
 }
@@ -391,7 +391,7 @@ function lowerClosure(value: string, role?: "value" | "viewBuilder" | "action", 
 }
 
 function lowerArguments(source: string, calleeName?: string, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): string {
-  const parsed = calleeName ? parseVuneBuilder(`${calleeName}(${source})`).statements[0] : undefined
+  const parsed = calleeName ? parseMunBuilder(`${calleeName}(${source})`).statements[0] : undefined
   const call = parsed?.kind === "call" ? parsed : undefined
   const positional: string[] = []
   const named: string[] = []
@@ -414,16 +414,16 @@ function lowerArguments(source: string, calleeName?: string, registry: Initializ
 function lowerClosureOrExpression(source: string, role?: "value" | "viewBuilder" | "action", registry: InitializerSymbolRegistry = canonicalInitializerSymbols): string {
   const value = source.trim()
   if (value.startsWith("{") && matching(value, 0, "{", "}") === value.length - 1 && !/^(?:\s*(?:[A-Za-z_$][A-Za-z0-9_$]*|["'][^"']*["']|-?\d+(?:\.\d+)?)\s*:)/.test(value.slice(1, -1))) return lowerClosure(value, role, registry)
-  // Named Vune calls can be nested inside an argument expression. Lower them
+  // Named Mun calls can be nested inside an argument expression. Lower them
   // from the already-isolated argument rather than restarting a global scan
   // over the whole module for each inner call.
   const lowered = lowerRange(value, registry)
   return lowerImplicitMemberShorthand(lowerShorthand(
-    nestedNamedVuneCallHint.test(lowered) ? lowerNamedVuneCalls(lowered, registry) : lowered,
+    nestedNamedMunCallHint.test(lowered) ? lowerNamedMunCalls(lowered, registry) : lowered,
   ))
 }
 
-function lowerForEachIdentityOptions(source: string, call: VuneCallExpression, argumentIndex: number, registry: InitializerSymbolRegistry): string {
+function lowerForEachIdentityOptions(source: string, call: MunCallExpression, argumentIndex: number, registry: InitializerSymbolRegistry): string {
   const value = source.trim()
   if (call.callee !== "ForEach" || argumentIndex !== 1 || !value.startsWith("{") || matching(value, 0, "{", "}") !== value.length - 1) {
     return lowerImplicitMemberShorthand(lowerRange(source, registry))
@@ -472,8 +472,8 @@ function lowerStatements(source: string, registry: InitializerSymbolRegistry = c
 
 function lowerAstClosure(body: string, parameter?: string, role?: "value" | "viewBuilder" | "action", registry: InitializerSymbolRegistry = canonicalInitializerSymbols): string {
   if (role === "viewBuilder") return lowerViewBuilderClosure(body, parameter, registry)
-  const parsed = parseVuneBuilder(body)
-  const lowered = lowerVuneBuilderAst(parsed, {
+  const parsed = parseMunBuilder(body)
+  const lowered = lowerMunBuilderAst(parsed, {
     transformRaw: value => lowerRange(value, registry),
     transformArgument: (value, call, argumentIndex) => lowerForEachIdentityOptions(value, call, argumentIndex, registry),
     closure: (nestedBody, nestedParameter, nestedRole) => lowerAstClosure(nestedBody, nestedParameter, nestedRole, registry),
@@ -488,15 +488,15 @@ function lowerAstClosure(body: string, parameter?: string, role?: "value" | "vie
 }
 
 function lowerBuilder(call: BuilderCall, source: string, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): string {
-  const parsed = parseVuneBuilder(source.slice(call.start, call.end), call.start)
+  const parsed = parseMunBuilder(source.slice(call.start, call.end), call.start)
   // The scanner intentionally finds call-shaped blocks before the AST knows
-  // whether the block is a Vune closure. If it is an object/ordinary block,
+  // whether the block is a Mun closure. If it is an object/ordinary block,
   // preserve it as source instead of feeding the same span back into
   // lowerRange forever.
   if (parsed.statements.length === 1 && parsed.statements[0]?.kind === "raw") {
     return source.slice(call.start, call.end)
   }
-  const lowered = lowerVuneBuilderAst(parsed, {
+  const lowered = lowerMunBuilderAst(parsed, {
     transformRaw: value => lowerRange(value, registry),
     transformArgument: (value, call, argumentIndex) => lowerForEachIdentityOptions(value, call, argumentIndex, registry),
     closure: (body, parameter, role) => lowerAstClosure(body, parameter, role, registry),
@@ -511,7 +511,7 @@ function lowerRange(source: string, registry: InitializerSymbolRegistry = canoni
   let cursor = 0
   let iterations = 0
   while (cursor < source.length) {
-    if (++iterations > source.length + 1) throw syntaxError("Vune lowering did not advance past a builder expression", cursor)
+    if (++iterations > source.length + 1) throw syntaxError("Mun lowering did not advance past a builder expression", cursor)
     const call = findBuilder(source, cursor)
     const html = findRawHtml(source, cursor, value => lowerRange(value, registry))
     if (!call && !html) break
@@ -592,9 +592,9 @@ interface StructInitializerPlan {
   readonly delegation?: readonly string[]
 }
 
-type VuneStruct = ReturnType<typeof parseVuneStructs>[number]
+type MunStruct = ReturnType<typeof parseMunStructs>[number]
 
-function structInitializerPlans(declaration: VuneStruct): readonly StructInitializerPlan[] {
+function structInitializerPlans(declaration: MunStruct): readonly StructInitializerPlan[] {
   const fields = declaration.fields.map(field => ({
     name: field.name,
     kind: field.kind === "state" ? "state" : field.kind === "binding" ? "binding" : "value",
@@ -736,9 +736,8 @@ function canonicalRuntimeBindings(file: ts.SourceFile): CanonicalRuntimeBindings
   const namespaces = new Set<string>()
   for (const statement of file.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
-    if (statement.moduleSpecifier.text !== "vune-ui"
-      && statement.moduleSpecifier.text !== "@vune-ui/core"
-      && statement.moduleSpecifier.text !== "@vune-ui/react") continue
+    if (statement.moduleSpecifier.text !== "@mun/core/compat"
+      && statement.moduleSpecifier.text !== "@mun/react") continue
     const clause = statement.importClause
     if (!clause || clause.isTypeOnly) continue
     const bindings = clause.namedBindings
@@ -774,13 +773,13 @@ function canonicalCallName(
 }
 
 /**
- * Resolve the common intrinsic calls that need no TypeChecker from Vune's
+ * Resolve the common intrinsic calls that need no TypeChecker from Mun's
  * canonical initializer manifest. Unknown/dynamic arguments deliberately stay
  * untouched for the semantic TypeScript pass below.
  */
 function lowerStaticCanonicalCalls(source: string): string {
-  if (!/(?:from\s*|import\s*\()\s*["'](?:vune-ui|@vune-ui\/(?:core|react))["']/.test(source)) return source
-  const file = ts.createSourceFile("vune-canonical-calls.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  if (!/(?:from\s*|import\s*\()\s*["'](?:mun|@mun\/(?:core|react))["']/.test(source)) return source
+  const file = ts.createSourceFile("mun-canonical-calls.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const bindings = canonicalRuntimeBindings(file)
   if (bindings.names.size === 0 && bindings.namespaces.size === 0) return source
   const edits: Array<{ start: number; end: number; replacement: string }> = []
@@ -861,7 +860,7 @@ function semanticInitializerSymbol(name: string, plan: StructInitializerPlan, in
   }
 }
 
-function staticInitializerIndex(declaration: VuneStruct, argumentSource: string, offset = 0): number | undefined {
+function staticInitializerIndex(declaration: MunStruct, argumentSource: string, offset = 0): number | undefined {
   const plans = structInitializerPlans(declaration)
   const arguments_ = compilerInitializerArguments(argumentSource).map(compilerSemanticArgument)
   const initializers = plans.map((plan, index) => semanticInitializerSymbol(declaration.name, plan, index))
@@ -875,8 +874,8 @@ function staticInitializerIndex(declaration: VuneStruct, argumentSource: string,
   }
   const result = resolveSemanticCall(viewType, arguments_)
   if (result.resolvedInitializer) return result.resolvedInitializer.index
-  if (result.diagnostics[0]?.code === "VUNE_INITIALIZER" && arguments_.some(argument => argument.type === "unknown")) return undefined
-  throw new VuneInitializerSyntaxError(
+  if (result.diagnostics[0]?.code === "MUN_INITIALIZER" && arguments_.some(argument => argument.type === "unknown")) return undefined
+  throw new MunInitializerSyntaxError(
     result.diagnostics[0]?.message ?? `No matching initializer for ${declaration.name}.`,
     offset,
   )
@@ -964,7 +963,7 @@ interface StructStateProofContext {
 }
 
 function parsedCompilerExpression(source: string): ts.Expression | undefined {
-  const file = ts.createSourceFile("vune-struct-body.ts", `const __vuneBody = (${source})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const file = ts.createSourceFile("mun-struct-body.ts", `const __munBody = (${source})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   if (((file as ts.SourceFile & { readonly parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics?.length ?? 0) > 0) return undefined
   const statement = file.statements[0]
   if (!statement || !ts.isVariableStatement(statement)) return undefined
@@ -973,7 +972,7 @@ function parsedCompilerExpression(source: string): ts.Expression | undefined {
 }
 
 function lowerStructDefinition(
-  declaration: ReturnType<typeof parseVuneStructs>[number],
+  declaration: ReturnType<typeof parseMunStructs>[number],
   registry: InitializerSymbolRegistry = canonicalInitializerSymbols,
   stateProof?: StructStateProofContext,
 ): string {
@@ -994,7 +993,7 @@ function lowerStructDefinition(
   // SwiftUI-style labels intact by lowering them here as well; otherwise a
   // call such as Button(action: ..., label: { ... }) is consumed by the
   // builder pass and can reach TypeScript as `Button(action, ..., label, ...)`.
-  const loweredBody = lowerRange(lowerNamedVuneCalls(bodySource, registry), registry)
+  const loweredBody = lowerRange(lowerNamedMunCalls(bodySource, registry), registry)
   const stateNames = new Set(stateFields.map(field => field.name))
   const bodyExpression = stateFields.length > 0 && stateProof ? parsedCompilerExpression(loweredBody) : undefined
   const dependenciesComplete = bodyExpression && stateProof
@@ -1009,7 +1008,7 @@ function lowerStructDefinition(
     fieldMetadata,
     `legacyHost: ${legacyHostPlanSource(plans)}`,
   ].filter((item): item is string => item !== undefined).join(", ")
-  return `defineView(${JSON.stringify(declaration.name)}, { ${definitionMetadata}, initializers: [${initializers.join(", ")}]${state}${dependencies}, body: (__vuneProps: any) => { const { ${fields.map(field => field.name).join(", ")} } = __vuneProps; return ${loweredBody} } })`
+  return `defineView(${JSON.stringify(declaration.name)}, { ${definitionMetadata}, initializers: [${initializers.join(", ")}]${state}${dependencies}, body: (__munProps: any) => { const { ${fields.map(field => field.name).join(", ")} } = __munProps; return ${loweredBody} } })`
 }
 
 function lowerStructs(
@@ -1017,9 +1016,9 @@ function lowerStructs(
   registry: InitializerSymbolRegistry = canonicalInitializerSymbols,
   stateProof?: StructStateProofContext,
 ): string {
-  const declarations = parseVuneStructs(source)
+  const declarations = parseMunStructs(source)
   if (declarations.length === 0) return source
-  const proof = stateProof ?? importedVuneValueBindings(validationSourceFile(source))
+  const proof = stateProof ?? importedMunValueBindings(validationSourceFile(source))
   let output = source
   for (const declaration of [...declarations].sort((left, right) => right.range.start - left.range.start)) {
     const definition = lowerStructDefinition(declaration, registry, proof)
@@ -1032,16 +1031,16 @@ function lowerStructs(
   return output
 }
 
-function lowerStaticStructCalls(source: string, declarations: readonly VuneStruct[]): string {
+function lowerStaticStructCalls(source: string, declarations: readonly MunStruct[]): string {
   if (declarations.length === 0) return source
-  const known = new Map<string, VuneStruct>()
-  const add = (declaration: VuneStruct): void => {
-    known.set(declaration.name, declaration)
+  const known = new Map<string, MunStruct | undefined>()
+  const add = (declaration: MunStruct): void => {
+    known.set(declaration.name, known.has(declaration.name) ? undefined : declaration)
     for (const nested of declaration.nested ?? []) add(nested)
   }
   for (const declaration of declarations) add(declaration)
 
-  const file = ts.createSourceFile("vune-specialization.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const file = ts.createSourceFile("mun-specialization.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const edits: Array<{ start: number; end: number; replacement: string }> = []
   const simpleBuilderValue = (value: string): string | undefined => {
     const expression = /^\s*\(\s*\)\s*=>\s*(\[[\s\S]*\])\s*$/.exec(value)
@@ -1093,7 +1092,7 @@ interface TopLevelStateDeclaration {
   readonly eligible: boolean
 }
 
-interface VuneApiBindings {
+interface MunApiBindings {
   readonly state: ReadonlySet<string>
   readonly view: ReadonlySet<string>
   readonly namespaces: ReadonlySet<string>
@@ -1101,8 +1100,8 @@ interface VuneApiBindings {
   readonly blockedView: boolean
 }
 
-function isVunePackage(moduleName: string): boolean {
-  return moduleName === "vune-ui" || moduleName.startsWith("@vune-ui/")
+function isMunPackage(moduleName: string): boolean {
+  return moduleName.startsWith("@mun/")
 }
 
 function bindingNames(name: ts.BindingName): string[] {
@@ -1113,7 +1112,7 @@ function bindingNames(name: ts.BindingName): string[] {
   return []
 }
 
-function vuneApiBindings(file: ts.SourceFile): VuneApiBindings {
+function munApiBindings(file: ts.SourceFile): MunApiBindings {
   const state = new Set<string>()
   const view = new Set<string>()
   const namespaces = new Set<string>()
@@ -1122,25 +1121,25 @@ function vuneApiBindings(file: ts.SourceFile): VuneApiBindings {
 
   for (const statement of file.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
-      const vune = isVunePackage(statement.moduleSpecifier.text)
+      const mun = isMunPackage(statement.moduleSpecifier.text)
       const clause = statement.importClause
       if (clause?.name) {
-        if (!vune && clause.name.text === "State") blockedState = true
-        if (!vune && clause.name.text === "view") blockedView = true
+        if (!mun && clause.name.text === "State") blockedState = true
+        if (!mun && clause.name.text === "view") blockedView = true
       }
       const bindings = clause?.namedBindings
       if (bindings && ts.isNamespaceImport(bindings)) {
-        if (vune) namespaces.add(bindings.name.text)
+        if (mun) namespaces.add(bindings.name.text)
         continue
       }
       if (bindings && ts.isNamedImports(bindings)) {
         for (const element of bindings.elements) {
           const imported = element.propertyName?.text ?? element.name.text
           const local = element.name.text
-          if (vune && imported === "State") state.add(local)
-          else if (!vune && local === "State") blockedState = true
-          if (vune && imported === "view") view.add(local)
-          else if (!vune && local === "view") blockedView = true
+          if (mun && imported === "State") state.add(local)
+          else if (!mun && local === "State") blockedState = true
+          if (mun && imported === "view") view.add(local)
+          else if (!mun && local === "view") blockedView = true
         }
       }
       continue
@@ -1168,13 +1167,13 @@ function unwrapTsExpression(expression: ts.Expression): ts.Expression {
   return current
 }
 
-function isVuneApiCall(call: ts.CallExpression, api: "State" | "view", bindings: VuneApiBindings): boolean {
+function isMunApiCall(call: ts.CallExpression, api: "State" | "view", bindings: MunApiBindings): boolean {
   const expression = unwrapTsExpression(call.expression)
   const named = api === "State" ? bindings.state : bindings.view
   const blocked = api === "State" ? bindings.blockedState : bindings.blockedView
   if (ts.isIdentifier(expression)) {
     if (named.has(expression.text)) return true
-    // `.vune.ts` supports the canonical names without an explicit import; do
+    // `.mun.ts` supports the canonical names without an explicit import; do
     // not claim them when the file has provided an unrelated binding.
     return expression.text === api && !blocked && named.size === 0
   }
@@ -1185,7 +1184,7 @@ function isVuneApiCall(call: ts.CallExpression, api: "State" | "view", bindings:
   return false
 }
 
-function collectTopLevelStates(file: ts.SourceFile, bindings: VuneApiBindings): TopLevelStateDeclaration[] {
+function collectTopLevelStates(file: ts.SourceFile, bindings: MunApiBindings): TopLevelStateDeclaration[] {
   const states: TopLevelStateDeclaration[] = []
   for (const statement of file.statements) {
     if (!ts.isVariableStatement(statement)) continue
@@ -1194,7 +1193,7 @@ function collectTopLevelStates(file: ts.SourceFile, bindings: VuneApiBindings): 
     for (const declaration of statement.declarationList.declarations) {
       if (!declaration.initializer) continue
       const initializer = unwrapTsExpression(declaration.initializer)
-      if (!ts.isCallExpression(initializer) || !isVuneApiCall(initializer, "State", bindings)) continue
+      if (!ts.isCallExpression(initializer) || !isMunApiCall(initializer, "State", bindings)) continue
       states.push({
         name: ts.isIdentifier(declaration.name) ? declaration.name.text : undefined,
         statement,
@@ -1273,10 +1272,10 @@ function referencedStateNames(
   return result
 }
 
-function collectVuneViewCalls(file: ts.SourceFile, bindings: VuneApiBindings): ts.CallExpression[] {
+function collectMunViewCalls(file: ts.SourceFile, bindings: MunApiBindings): ts.CallExpression[] {
   const calls: ts.CallExpression[] = []
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && isVuneApiCall(node, "view", bindings)) {
+    if (ts.isCallExpression(node) && isMunApiCall(node, "view", bindings)) {
       calls.push(node)
       return
     }
@@ -1290,11 +1289,11 @@ function stateDependencies(state: TopLevelStateDeclaration, stateNames: Readonly
   return referencedStateNames(state.initializer, stateNames)
 }
 
-function importedVuneValueBindings(file: ts.SourceFile): { readonly values: ReadonlySet<string>; readonly namespaces: ReadonlySet<string> } {
+function importedMunValueBindings(file: ts.SourceFile): { readonly values: ReadonlySet<string>; readonly namespaces: ReadonlySet<string> } {
   const values = new Set<string>()
   const namespaces = new Set<string>()
   for (const statement of file.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !isVunePackage(statement.moduleSpecifier.text)) continue
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !isMunPackage(statement.moduleSpecifier.text)) continue
     const clause = statement.importClause
     if (!clause || clause.isTypeOnly) continue
     if (clause.name) values.add(clause.name.text)
@@ -1318,20 +1317,20 @@ const compilerAnimationFactoryNames = new Set([
 ])
 const compilerAnimationTransformNames = new Set(["delay", "speed", "repeatCount", "repeatForever"])
 
-function isProvenAnimationExpression(expression: ts.Expression, vuneValues: ReadonlySet<string>): boolean {
+function isProvenAnimationExpression(expression: ts.Expression, munValues: ReadonlySet<string>): boolean {
   const value = unwrapTsExpression(expression)
   if (!ts.isCallExpression(value)) return false
   const callee = unwrapTsExpression(value.expression)
   if (!ts.isPropertyAccessExpression(callee)) return false
   const owner = unwrapTsExpression(callee.expression)
-  if (compilerAnimationFactoryNames.has(callee.name.text)) return ts.isIdentifier(owner) && vuneValues.has(owner.text)
-  return compilerAnimationTransformNames.has(callee.name.text) && isProvenAnimationExpression(owner, vuneValues)
+  if (compilerAnimationFactoryNames.has(callee.name.text)) return ts.isIdentifier(owner) && munValues.has(owner.text)
+  return compilerAnimationTransformNames.has(callee.name.text) && isProvenAnimationExpression(owner, munValues)
 }
 
-function isProvenAnimationMember(expression: ts.PropertyAccessExpression, vuneValues: ReadonlySet<string>): boolean {
+function isProvenAnimationMember(expression: ts.PropertyAccessExpression, munValues: ReadonlySet<string>): boolean {
   const owner = unwrapTsExpression(expression.expression)
-  if (compilerAnimationFactoryNames.has(expression.name.text)) return ts.isIdentifier(owner) && vuneValues.has(owner.text)
-  return compilerAnimationTransformNames.has(expression.name.text) && isProvenAnimationExpression(owner, vuneValues)
+  if (compilerAnimationFactoryNames.has(expression.name.text)) return ts.isIdentifier(owner) && munValues.has(owner.text)
+  return compilerAnimationTransformNames.has(expression.name.text) && isProvenAnimationExpression(owner, munValues)
 }
 
 function valueBindingNames(root: ts.Node): Set<string> {
@@ -1352,20 +1351,20 @@ function valueBindingNames(root: ts.Node): Set<string> {
   return names
 }
 
-function isProvenVuneViewExpression(
+function isProvenMunViewExpression(
   expression: ts.Expression,
-  vuneValues: ReadonlySet<string>,
-  vuneNamespaces: ReadonlySet<string>,
+  munValues: ReadonlySet<string>,
+  munNamespaces: ReadonlySet<string>,
 ): boolean {
   const value = unwrapTsExpression(expression)
   if (!ts.isCallExpression(value)) return false
   const callee = unwrapTsExpression(value.expression)
-  if (ts.isIdentifier(callee)) return vuneValues.has(callee.text) && canonicalInitializerSymbols.has(callee.text)
+  if (ts.isIdentifier(callee)) return munValues.has(callee.text) && canonicalInitializerSymbols.has(callee.text)
   if (!ts.isPropertyAccessExpression(callee)) return false
   const owner = unwrapTsExpression(callee.expression)
-  if (staticModifierNames.has(callee.name.text)) return isProvenVuneViewExpression(owner, vuneValues, vuneNamespaces)
+  if (staticModifierNames.has(callee.name.text)) return isProvenMunViewExpression(owner, munValues, munNamespaces)
   return ts.isIdentifier(owner)
-    && vuneNamespaces.has(owner.text)
+    && munNamespaces.has(owner.text)
     && canonicalInitializerSymbols.has(callee.name.text)
 }
 
@@ -1379,8 +1378,8 @@ function hasCompleteStaticStateDependencies(
   root: ts.Expression,
   ownedStateNames: ReadonlySet<string>,
   allStateNames: ReadonlySet<string>,
-  vuneValues: ReadonlySet<string>,
-  vuneNamespaces: ReadonlySet<string>,
+  munValues: ReadonlySet<string>,
+  munNamespaces: ReadonlySet<string>,
   shadowedPureCalls: ReadonlySet<string> = new Set(),
 ): boolean {
   const directlyReferenced = referencedStateNames(root, allStateNames)
@@ -1396,27 +1395,27 @@ function hasCompleteStaticStateDependencies(
     if (ts.isPropertyAccessExpression(node)) {
       const expression = unwrapTsExpression(node.expression)
       const ownedStateValue = node.name.text === "value" && ts.isIdentifier(expression) && ownedStateNames.has(expression.text)
-      const vuneNamespaceMember = ts.isIdentifier(expression) && vuneNamespaces.has(expression.text)
+      const munNamespaceMember = ts.isIdentifier(expression) && munNamespaces.has(expression.text)
       const provenViewModifier = staticModifierNames.has(node.name.text)
-        && isProvenVuneViewExpression(node.expression, vuneValues, vuneNamespaces)
-      const provenAnimationMember = isProvenAnimationMember(node, vuneValues)
+        && isProvenMunViewExpression(node.expression, munValues, munNamespaces)
+      const provenAnimationMember = isProvenAnimationMember(node, munValues)
       // Modifier names alone are not enough: a user object may expose an
-      // `opacity()`/`padding()` method. Only a chain rooted in an imported Vune
+      // `opacity()`/`padding()` method. Only a chain rooted in an imported Mun
       // View constructor is admitted into the static dependency proof. Immutable
       // Animation factory/configuration chains are also closed and pure.
-      if (!ownedStateValue && !vuneNamespaceMember && !provenViewModifier && !provenAnimationMember) { safe = false; return }
+      if (!ownedStateValue && !munNamespaceMember && !provenViewModifier && !provenAnimationMember) { safe = false; return }
     }
     if (ts.isElementAccessExpression(node)) { safe = false; return }
     if (ts.isCallExpression(node)) {
       const callee = unwrapTsExpression(node.expression)
       if (ts.isIdentifier(callee)) {
-        if (!vuneValues.has(callee.text) && !pureCallAllowed(callee.text)) { safe = false; return }
+        if (!munValues.has(callee.text) && !pureCallAllowed(callee.text)) { safe = false; return }
       } else if (ts.isPropertyAccessExpression(callee)) {
         const owner = unwrapTsExpression(callee.expression)
-        const namespaceCall = ts.isIdentifier(owner) && vuneNamespaces.has(owner.text)
+        const namespaceCall = ts.isIdentifier(owner) && munNamespaces.has(owner.text)
         const modifierCall = staticModifierNames.has(callee.name.text)
-          && isProvenVuneViewExpression(owner, vuneValues, vuneNamespaces)
-        const animationCall = isProvenAnimationMember(callee, vuneValues)
+          && isProvenMunViewExpression(owner, munValues, munNamespaces)
+        const animationCall = isProvenAnimationMember(callee, munValues)
         if (!namespaceCall && !modifierCall && !animationCall) { safe = false; return }
       } else { safe = false; return }
     }
@@ -1447,9 +1446,9 @@ function lowerTopLevelState(source: string): string {
   // Aliases still contain the exported name in their import declaration
   // (`State as LocalState`), so this is a safe conservative preflight.
   if (!/\bState\b/.test(source)) return source
-  const file = ts.createSourceFile("vune-state.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const bindings = vuneApiBindings(file)
-  const vuneValues = importedVuneValueBindings(file)
+  const file = ts.createSourceFile("mun-state.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const bindings = munApiBindings(file)
+  const munValues = importedMunValueBindings(file)
   const fileValueBindings = valueBindingNames(file)
   const states = collectTopLevelStates(file, bindings)
   const eligibleStates = states.filter((state): state is TopLevelStateDeclaration & { readonly name: string } => state.eligible && state.name !== undefined)
@@ -1460,11 +1459,11 @@ function lowerTopLevelState(source: string): string {
   const dependencies = new Map<string, ReadonlySet<string>>()
   for (const state of eligibleStates) dependencies.set(state.name, stateDependencies(state, allNames))
 
-  const views = collectVuneViewCalls(file, bindings)
+  const views = collectMunViewCalls(file, bindings)
   if (views.length === 0) return source
   const viewSet = new Set<ts.Node>(views)
 
-  // Any reference outside a Vune view keeps that State module-scoped. This
+  // Any reference outside a Mun view keeps that State module-scoped. This
   // includes helper functions and ineligible/exported/mutable State factories.
   const directOutside = new Set<string>()
   const stateDeclarations = new Set(states.map(state => state.declaration))
@@ -1573,7 +1572,7 @@ function lowerTopLevelState(source: string): string {
       const dependencyParameters = `({ ${names.join(", ")} })`
       const ownedNames = new Set(names)
       const dependenciesComplete = !hasProps && hasCompleteStaticStateDependencies(
-        argument, ownedNames, allNames, vuneValues.values, vuneValues.namespaces, fileValueBindings,
+        argument, ownedNames, allNames, munValues.values, munValues.namespaces, fileValueBindings,
       )
       const completeness = dependenciesComplete ? `, dependenciesComplete: true` : ""
       const replacement = `${callee}({ state: () => { ${declarations} return { ${names.join(", ")} } }, dependencies: ${dependencyParameters} => [${names.join(", ")}]${completeness}, body: ${bodyParameters} => ${renderedBody} })`
@@ -1587,46 +1586,50 @@ function lowerTopLevelState(source: string): string {
   return result
 }
 
-function ensureImports(source: string): string {
+function ensureImports(source: string, includeViewBuiltins = false): string {
   const callableRequired = ["defineView", "initializer", "resolveBuilderInput", "namedArguments", "overloadClosure", "Binding", "State", "Element", "modifiedContent", "modifiedContentCompiled", "compiledTemplate", "defineCompiledTemplate"]
     .filter(name => new RegExp(`\\b${name}(?:<[^()\\n]*>)?\\s*\\(`).test(source) || (name === "defineView" && /const\s+[A-Z]\w*\s*=\s*defineView/.test(source)))
   const valueRequired = ["ContentTransition", "SymbolEffect"].filter(name => {
     if (!new RegExp(`\\b${name}\\s*\\.`).test(source)) return false
-    // Generated Swift-style shorthand should import its core value, while an
-    // explicitly declared local with the same name remains user-owned.
     return !new RegExp(`\\b(?:const|let|var|class|function|enum|namespace)\\s+${name}\\b`).test(source)
   })
-  const required = [...callableRequired, ...valueRequired]
+  const viewRequired = includeViewBuiltins
+    ? [...canonicalInitializerSymbols.keys()].filter(name => {
+        if (!new RegExp(`\\b${name}\\s*\\(`).test(source)) return false
+        return !new RegExp(`\\b(?:const|let|var|class|function|enum|namespace)\\s+${name}\\b`).test(source)
+      })
+    : []
+  const required = [...new Set([...callableRequired, ...valueRequired, ...viewRequired])]
   let result = source
   const internalRequired = ["compiledCollectionContent", "mapStateArrayData"].filter(name => new RegExp(`\\b${name}\\s*\\(`).test(source))
   if (required.length === 0 && internalRequired.length === 0) return result
-  const imports = [...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*(["'])(vune-ui|@vune-ui\/core)\2[\t ]*;?/g)]
+  const imports = [...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*(["'])(@mun\/core\/compat|@mun\/react)\2[\t ]*;?/g)]
   const imported = new Set(imports.flatMap(match => match[1].split(",").map(value => value.trim()).filter(Boolean)))
   const missing = required.filter(name => !imported.has(name))
   if (missing.length > 0) {
-    const existingCore = imports.find(match => match[3] === "@vune-ui/core")
-    if (!existingCore) result = `import { ${missing.join(", ")} } from "@vune-ui/core"\n${result}`
+    const existingCore = imports.find(match => match[3] === "@mun/core/compat")
+    if (!existingCore) result = `import { ${missing.join(", ")} } from "@mun/core/compat"\n${result}`
     else {
       const names = existingCore[1].split(",").map(value => value.trim()).filter(Boolean)
       for (const name of missing) if (!names.includes(name)) names.push(name)
-      const replacement = `import { ${names.join(", ")} } from ${existingCore[2]}@vune-ui/core${existingCore[2]}`
+      const replacement = `import { ${names.join(", ")} } from ${existingCore[2]}@mun/core/compat${existingCore[2]}`
       result = result.slice(0, existingCore.index) + replacement + result.slice(existingCore.index + existingCore[0].length)
     }
   }
   if (internalRequired.length > 0) {
-    const internalImport = /import\s*\{([^}]*)\}\s*from\s*(["'])@vune-ui\/core\/internal\/runtime\2[\t ]*;?/.exec(result)
-    if (!internalImport) result = `import { ${internalRequired.join(", ")} } from "@vune-ui/core/internal/runtime"\n${result}`
+    const internalImport = /import\s*\{([^}]*)\}\s*from\s*(["'])@mun\/core\/internal\/runtime\2[\t ]*;?/.exec(result)
+    if (!internalImport) result = `import { ${internalRequired.join(", ")} } from "@mun/core/internal/runtime"\n${result}`
     else {
       const names = internalImport[1].split(",").map(value => value.trim()).filter(Boolean)
       for (const name of internalRequired) if (!names.includes(name)) names.push(name)
-      const replacement = `import { ${names.join(", ")} } from ${internalImport[2]}@vune-ui/core/internal/runtime${internalImport[2]}`
+      const replacement = `import { ${names.join(", ")} } from ${internalImport[2]}@mun/core/internal/runtime${internalImport[2]}`
       result = result.slice(0, internalImport.index) + replacement + result.slice(internalImport.index + internalImport[0].length)
     }
   }
   return result
 }
 
-function lowerNamedVuneCalls(source: string, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): string {
+function lowerNamedMunCalls(source: string, registry: InitializerSymbolRegistry = canonicalInitializerSymbols): string {
   // A labeled call must contain a colon. Most host TypeScript modules do not,
   // so avoid even collecting uppercase call candidates in that common case.
   if (!source.includes(":")) return source
@@ -1684,7 +1687,7 @@ function lowerNamedModifierCalls(source: string): string {
   let output = source
   let iterations = 0
   while (true) {
-    if (++iterations > output.length + 1) throw syntaxError("Vune modifier argument lowering did not advance", 0)
+    if (++iterations > output.length + 1) throw syntaxError("Mun modifier argument lowering did not advance", 0)
     let candidate: { readonly name: string; readonly open: number; readonly close: number } | undefined
     for (let cursor = 0; cursor < output.length; cursor += 1) {
       const character = output[cursor]
@@ -1792,9 +1795,9 @@ function lowerNamedModifierCalls(source: string): string {
   }
 }
 
-function initializerRegistryFor(declarations: readonly VuneStruct[]): Map<string, readonly SemanticInitializerSymbol[]> {
+function initializerRegistryFor(declarations: readonly MunStruct[]): Map<string, readonly SemanticInitializerSymbol[]> {
   const registry = new Map(canonicalInitializerSymbols)
-  const add = (declaration: VuneStruct): void => {
+  const add = (declaration: MunStruct): void => {
     registry.set(
       declaration.name,
       structInitializerPlans(declaration).map((plan, index) => semanticInitializerSymbol(declaration.name, plan, index)),
@@ -1807,7 +1810,7 @@ function initializerRegistryFor(declarations: readonly VuneStruct[]): Map<string
 
 function lowerVueComponentImports(source: string): string {
   if (!/\.vue["']/.test(source)) return source
-  const file = ts.createSourceFile("vune-vue-imports.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const file = ts.createSourceFile("mun-vue-imports.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const existingNames = new Set<string>()
   const collectNames = (node: ts.Node): void => {
     if (ts.isIdentifier(node)) existingNames.add(node.text)
@@ -1824,8 +1827,8 @@ function lowerVueComponentImports(source: string): string {
         ? statement.importClause.namedBindings.elements.find(element => element.propertyName?.text === "default")?.name.text
         : undefined)
     if (!importedName) continue
-    let adapterName = `__vuneForeignComponent${index++}`
-    while (existingNames.has(adapterName)) adapterName = `__vuneForeignComponent${index++}`
+    let adapterName = `__munForeignComponent${index++}`
+    while (existingNames.has(adapterName)) adapterName = `__munForeignComponent${index++}`
     existingNames.add(adapterName)
     const quote = source[statement.moduleSpecifier.getStart(file)]
     const module = statement.moduleSpecifier.text
@@ -1834,18 +1837,18 @@ function lowerVueComponentImports(source: string): string {
     replacements.push({
       start: statement.getStart(file),
       end: statement.end,
-      value: `${indent}import ${adapterName} from ${quote}${module}${quote}\n${indent}const ${importedName} = __vuneForeignComponent(${adapterName})`,
+      value: `${indent}import ${adapterName} from ${quote}${module}${quote}\n${indent}const ${importedName} = __munForeignComponent(${adapterName})`,
     })
   }
   if (replacements.length === 0) return source
   let result = source
   for (const replacement of replacements.reverse()) result = result.slice(0, replacement.start) + replacement.value + result.slice(replacement.end)
-  return `import { foreignComponent as __vuneForeignComponent } from "@vune-ui/vue"\n${result}`
+  return `import { foreignComponent as __munForeignComponent } from "@mun/vue"\n${result}`
 }
 
 function lowerReactComponentImports(source: string): string {
   if (!/\.(?:tsx|jsx)["']/.test(source)) return source
-  const file = ts.createSourceFile("vune-react-imports.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const file = ts.createSourceFile("mun-react-imports.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const existingNames = new Set<string>()
   const collectNames = (node: ts.Node): void => {
     if (ts.isIdentifier(node)) existingNames.add(node.text)
@@ -1859,8 +1862,8 @@ function lowerReactComponentImports(source: string): string {
     if (!/\.(?:tsx|jsx)$/i.test(statement.moduleSpecifier.text) || statement.importClause?.isTypeOnly) continue
     const importedName = statement.importClause?.name?.text
     if (!importedName) continue
-    let adapterName = `__vuneReactComponent${index++}`
-    while (existingNames.has(adapterName)) adapterName = `__vuneReactComponent${index++}`
+    let adapterName = `__munReactComponent${index++}`
+    while (existingNames.has(adapterName)) adapterName = `__munReactComponent${index++}`
     existingNames.add(adapterName)
     const quote = source[statement.moduleSpecifier.getStart(file)]
     const module = statement.moduleSpecifier.text
@@ -1869,39 +1872,39 @@ function lowerReactComponentImports(source: string): string {
     replacements.push({
       start: statement.getStart(file),
       end: statement.end,
-      value: `${indent}import ${adapterName} from ${quote}${module}${quote}\n${indent}const ${importedName} = __vuneReactComponent(${adapterName})`,
+      value: `${indent}import ${adapterName} from ${quote}${module}${quote}\n${indent}const ${importedName} = __munReactComponent(${adapterName})`,
     })
   }
   if (replacements.length === 0) return source
   let result = source
   for (const replacement of replacements.reverse()) result = result.slice(0, replacement.start) + replacement.value + result.slice(replacement.end)
-  return `import { reactComponent as __vuneReactComponent } from "@vune-ui/react"\n${result}`
+  return `import { reactComponent as __munReactComponent } from "@mun/react"\n${result}`
 }
 
-export function transformVuneSource(source: string, fileName = "vune-source.ts"): string {
+export function transformMunSource(source: string, fileName = "mun-source.ts"): string {
   const withVueImports = lowerVueComponentImports(source)
   const withForeignImports = lowerReactComponentImports(withVueImports)
   const withAnimationArguments = lowerNamedAnimationFactoryCalls(withForeignImports)
   const withModifierArguments = lowerNamedModifierCalls(withAnimationArguments)
-  const declarations = parseVuneStructs(withModifierArguments)
+  const declarations = parseMunStructs(withModifierArguments)
   const registry = initializerRegistryFor(declarations)
   // Button validation and struct dependency proof both need the same pre-lowered
   // TypeScript syntax snapshot. Build it at most once and share it rather than
   // reparsing the module independently in two compiler stages.
   const needsValidationSyntax = declarations.length > 0 || /\bButton\s*\(/.test(withModifierArguments)
   const validationSyntax = needsValidationSyntax ? validationSourceFile(withModifierArguments) : undefined
-  validateKnownCalls(parseVuneBuilder(withModifierArguments), registry)
+  validateKnownCalls(parseMunBuilder(withModifierArguments), registry)
   validateKnownTypeScriptCalls(withModifierArguments, registry, validationSyntax)
   for (const declaration of declarations) {
-    validateKnownCalls(parseVuneBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start), registry)
+    validateKnownCalls(parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start), registry)
   }
   const structStateProof = declarations.length > 0 && validationSyntax
-    ? importedVuneValueBindings(validationSyntax)
+    ? importedMunValueBindings(validationSyntax)
     : undefined
   const withStructs = lowerStructs(withModifierArguments, registry, structStateProof)
-  const withNamedArguments = lowerNamedVuneCalls(withStructs, registry)
+  const withNamedArguments = lowerNamedMunCalls(withStructs, registry)
   const withBuilderSyntax = lowerRange(withNamedArguments, registry)
-  // State ownership is resolved only after Vune-only syntax has become valid
+  // State ownership is resolved only after Mun-only syntax has become valid
   // TypeScript. This lets the TypeScript AST see complete view() arguments
   // instead of truncating them at trailing builder blocks.
   const lowered = lowerTopLevelState(withBuilderSyntax)
@@ -1925,10 +1928,10 @@ export function transformVuneSource(source: string, fileName = "vune-source.ts")
   // compiler helper imports first makes the final static pass parse a larger
   // module and can only add irrelevant bindings to its candidate set.
   const withStaticHoists = hoistStaticViewSubtrees(withCompiledTemplates)
-  return ensureImports(withStaticHoists)
+  return ensureImports(withStaticHoists, /\.mun$/i.test(fileName))
 }
 
-function hasNamedVuneArguments(source: string): boolean {
+function hasNamedMunArguments(source: string): boolean {
   const calls = /\b[A-Z][A-Za-z0-9_$]*\s*\(/g
   let match: RegExpExecArray | null
   while ((match = calls.exec(source))) {
@@ -1952,11 +1955,11 @@ function hasStaticModifierSyntax(source: string): boolean {
   return Array.from(staticModifierNames).some(name => new RegExp(`\\.${name}\\s*\\(`).test(source))
 }
 
-export function hasVuneSyntax(source: string, allowRawHtml = true): boolean {
+export function hasMunSyntax(source: string, allowRawHtml = true): boolean {
   return /\bstruct\s+[A-Z][A-Za-z0-9_$]*(?:\s*<[^>{}]*>)?\s*:\s*View/.test(source)
     || (allowRawHtml && findRawHtml(source) !== undefined)
     || findBuilder(source, 0, true) !== undefined
     || hasBindingShorthand(source)
-    || hasNamedVuneArguments(source)
+    || hasNamedMunArguments(source)
     || hasStaticModifierSyntax(source)
 }

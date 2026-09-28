@@ -2,7 +2,7 @@
  * Renderer-neutral semantic symbols shared by the compiler, IDE, and runtime.
  *
  * This module deliberately contains no renderer or TypeScript AST dependency.
- * The compiler adapts Vune/TypeScript syntax to these symbols, while ViewType
+ * The compiler adapts Mun/TypeScript syntax to these symbols, while ViewType
  * exposes the same symbols for runtime resolution and tooling.
  */
 
@@ -81,46 +81,6 @@ export interface SemanticForeignComponentTypeSymbol {
   readonly rendererAdapter?: string
 }
 
-export type SemanticHtmlAttributeCategory = "global" | "tag" | "event" | "aria" | "data" | "custom"
-
-export type SemanticHtmlAttributeValueType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "event"
-  | "unknown"
-  | "string | number"
-  | "string | number | boolean"
-
-export interface SemanticHtmlAttributeSpec {
-  readonly name: string
-  readonly category: SemanticHtmlAttributeCategory
-  readonly type: SemanticHtmlAttributeValueType
-  readonly values?: readonly string[]
-}
-
-export interface SemanticHtmlTagSpec {
-  readonly tag: string
-  readonly custom: boolean
-  readonly attributes: readonly SemanticHtmlAttributeSpec[]
-}
-
-export interface SemanticHtmlAttributeSymbol {
-  readonly name: string
-  readonly category: SemanticHtmlAttributeCategory
-  readonly type: SemanticHtmlAttributeValueType
-  readonly valueType?: string
-}
-
-export interface SemanticHtmlElementSymbol {
-  readonly kind: "html-element"
-  /** Stable per-file semantic identity, for example `Element#42`. */
-  readonly name: string
-  readonly tag: string
-  readonly custom: boolean
-  readonly attributes: readonly SemanticHtmlAttributeSymbol[]
-}
-
 export type SemanticSymbol =
   | SemanticStructSymbol
   | SemanticViewTypeSymbol
@@ -129,156 +89,6 @@ export type SemanticSymbol =
   | SemanticBindingSymbol
   | SemanticBuilderTypeSymbol
   | SemanticForeignComponentTypeSymbol
-  | SemanticHtmlElementSymbol
-
-const globalHtmlAttributes: readonly SemanticHtmlAttributeSpec[] = [
-  { name: "id", category: "global", type: "string" },
-  { name: "class", category: "global", type: "string" },
-  { name: "className", category: "global", type: "string" },
-  { name: "style", category: "global", type: "unknown" },
-  { name: "title", category: "global", type: "string" },
-  { name: "role", category: "global", type: "string" },
-  { name: "hidden", category: "global", type: "boolean" },
-  { name: "lang", category: "global", type: "string" },
-  { name: "dir", category: "global", type: "string", values: ["ltr", "rtl", "auto"] },
-  { name: "tabindex", category: "global", type: "number" },
-  { name: "tabIndex", category: "global", type: "number" },
-  { name: "draggable", category: "global", type: "boolean" },
-  { name: "spellcheck", category: "global", type: "boolean" },
-  { name: "contenteditable", category: "global", type: "string", values: ["true", "false", "plaintext-only"] },
-  { name: "slot", category: "global", type: "string" },
-  { name: "part", category: "global", type: "string" },
-  { name: "ref", category: "global", type: "unknown" },
-]
-
-const htmlEventNames = [
-  "onclick", "onClick", "onchange", "onChange", "oninput", "onInput", "onsubmit", "onSubmit",
-  "onkeydown", "onKeyDown", "onkeyup", "onKeyUp", "onfocus", "onFocus", "onblur", "onBlur",
-  "onpointerdown", "onPointerDown", "onpointermove", "onPointerMove", "onpointerup", "onPointerUp",
-  "onpointerenter", "onPointerEnter", "onpointerleave", "onPointerLeave", "onmouseenter", "onMouseEnter",
-  "onmouseleave", "onMouseLeave", "onmousemove", "onMouseMove", "onmouseover", "onMouseOver",
-  "oncontextmenu", "onContextMenu", "ondblclick", "onDoubleClick", "onwheel", "onWheel",
-  "onscroll", "onScroll", "onfocusin", "onFocusIn", "onfocusout", "onFocusOut",
-  "oncompositionstart", "onCompositionStart", "oncompositionend", "onCompositionEnd",
-  "ondragstart", "onDragStart", "ondragover", "onDragOver", "ondrop", "onDrop",
-  "oncopy", "onCopy", "oncut", "onCut", "onpaste", "onPaste", "ontouchstart", "onTouchStart",
-  "ontouchmove", "onTouchMove", "ontouchend", "onTouchEnd", "onload", "onLoad", "onerror", "onError",
-] as const
-
-const eventHtmlAttributes: readonly SemanticHtmlAttributeSpec[] = htmlEventNames.map(name => ({
-  name,
-  category: "event" as const,
-  type: "event" as const,
-}))
-
-const tagHtmlAttributes: Readonly<Record<string, readonly SemanticHtmlAttributeSpec[]>> = {
-  a: [
-    { name: "href", category: "tag", type: "string" }, { name: "target", category: "tag", type: "string" },
-    { name: "rel", category: "tag", type: "string" }, { name: "download", category: "tag", type: "string" },
-    { name: "hreflang", category: "tag", type: "string" },
-  ],
-  button: [
-    { name: "type", category: "tag", type: "string", values: ["button", "submit", "reset"] },
-    { name: "disabled", category: "tag", type: "boolean" }, { name: "name", category: "tag", type: "string" },
-    { name: "value", category: "tag", type: "string | number" }, { name: "autofocus", category: "tag", type: "boolean" },
-    { name: "form", category: "tag", type: "string" },
-  ],
-  form: [
-    { name: "action", category: "tag", type: "string" }, { name: "method", category: "tag", type: "string", values: ["get", "post", "dialog"] },
-    { name: "enctype", category: "tag", type: "string" }, { name: "target", category: "tag", type: "string" },
-    { name: "novalidate", category: "tag", type: "boolean" }, { name: "autocomplete", category: "tag", type: "string", values: ["on", "off"] },
-  ],
-  img: [
-    { name: "src", category: "tag", type: "string" }, { name: "alt", category: "tag", type: "string" },
-    { name: "width", category: "tag", type: "string | number" }, { name: "height", category: "tag", type: "string | number" },
-    { name: "loading", category: "tag", type: "string", values: ["eager", "lazy"] },
-    { name: "decoding", category: "tag", type: "string", values: ["sync", "async", "auto"] },
-  ],
-  input: [
-    { name: "type", category: "tag", type: "string" }, { name: "value", category: "tag", type: "string | number" },
-    { name: "checked", category: "tag", type: "boolean" }, { name: "disabled", category: "tag", type: "boolean" },
-    { name: "readonly", category: "tag", type: "boolean" }, { name: "required", category: "tag", type: "boolean" },
-    { name: "multiple", category: "tag", type: "boolean" }, { name: "name", category: "tag", type: "string" },
-    { name: "placeholder", category: "tag", type: "string" }, { name: "min", category: "tag", type: "string | number" },
-    { name: "max", category: "tag", type: "string | number" }, { name: "step", category: "tag", type: "string | number" },
-    { name: "accept", category: "tag", type: "string" }, { name: "autocomplete", category: "tag", type: "string" },
-  ],
-  label: [{ name: "for", category: "tag", type: "string" }, { name: "htmlFor", category: "tag", type: "string" }],
-  option: [
-    { name: "value", category: "tag", type: "string | number" }, { name: "selected", category: "tag", type: "boolean" },
-    { name: "disabled", category: "tag", type: "boolean" }, { name: "label", category: "tag", type: "string" },
-  ],
-  select: [
-    { name: "value", category: "tag", type: "string | number" }, { name: "disabled", category: "tag", type: "boolean" },
-    { name: "required", category: "tag", type: "boolean" }, { name: "multiple", category: "tag", type: "boolean" },
-    { name: "name", category: "tag", type: "string" },
-  ],
-  textarea: [
-    { name: "value", category: "tag", type: "string" }, { name: "disabled", category: "tag", type: "boolean" },
-    { name: "readonly", category: "tag", type: "boolean" }, { name: "required", category: "tag", type: "boolean" },
-    { name: "name", category: "tag", type: "string" }, { name: "placeholder", category: "tag", type: "string" },
-    { name: "rows", category: "tag", type: "number" }, { name: "cols", category: "tag", type: "number" },
-    { name: "maxlength", category: "tag", type: "number" },
-  ],
-  audio: [
-    { name: "src", category: "tag", type: "string" }, { name: "controls", category: "tag", type: "boolean" },
-    { name: "autoplay", category: "tag", type: "boolean" }, { name: "loop", category: "tag", type: "boolean" },
-    { name: "muted", category: "tag", type: "boolean" }, { name: "preload", category: "tag", type: "string", values: ["none", "metadata", "auto"] },
-  ],
-  video: [
-    { name: "src", category: "tag", type: "string" }, { name: "controls", category: "tag", type: "boolean" },
-    { name: "autoplay", category: "tag", type: "boolean" }, { name: "loop", category: "tag", type: "boolean" },
-    { name: "muted", category: "tag", type: "boolean" }, { name: "preload", category: "tag", type: "string", values: ["none", "metadata", "auto"] },
-  ],
-  progress: [{ name: "value", category: "tag", type: "number" }, { name: "max", category: "tag", type: "number" }],
-  meter: [{ name: "value", category: "tag", type: "number" }, { name: "max", category: "tag", type: "number" }],
-  td: [
-    { name: "colspan", category: "tag", type: "number" }, { name: "rowspan", category: "tag", type: "number" },
-    { name: "headers", category: "tag", type: "string" }, { name: "scope", category: "tag", type: "string", values: ["row", "col", "rowgroup", "colgroup"] },
-  ],
-  th: [
-    { name: "colspan", category: "tag", type: "number" }, { name: "rowspan", category: "tag", type: "number" },
-    { name: "headers", category: "tag", type: "string" }, { name: "scope", category: "tag", type: "string", values: ["row", "col", "rowgroup", "colgroup"] },
-  ],
-}
-
-export const semanticHtmlTagNames = Object.freeze([
-  "a", "abbr", "address", "area", "article", "aside", "audio", "b", "base", "bdi", "bdo", "blockquote", "body", "br",
-  "button", "canvas", "caption", "cite", "code", "col", "colgroup", "data", "datalist", "dd", "del", "details", "dfn",
-  "dialog", "div", "dl", "dt", "em", "embed", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3",
-  "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "i", "iframe", "img", "input", "ins", "kbd", "label",
-  "legend", "li", "link", "main", "map", "mark", "menu", "meta", "meter", "nav", "noscript", "object", "ol", "optgroup",
-  "option", "output", "p", "picture", "pre", "progress", "q", "rp", "rt", "ruby", "s", "samp", "script", "search", "section",
-  "select", "slot", "small", "source", "span", "strong", "style", "sub", "summary", "sup", "table", "tbody", "td", "template",
-  "textarea", "tfoot", "th", "thead", "time", "title", "tr", "track", "u", "ul", "var", "video", "wbr",
-] as const)
-
-const ariaAttribute: SemanticHtmlAttributeSpec = { name: "aria-*", category: "aria", type: "string | number | boolean" }
-const dataAttribute: SemanticHtmlAttributeSpec = { name: "data-*", category: "data", type: "string | number | boolean" }
-
-export function semanticHtmlTagSpec(tag: string): SemanticHtmlTagSpec {
-  const normalized = tag.toLowerCase()
-  const custom = normalized.includes("-") && !semanticHtmlTagNames.includes(normalized as typeof semanticHtmlTagNames[number])
-  return {
-    tag,
-    custom,
-    attributes: [...globalHtmlAttributes, ...eventHtmlAttributes, ...(tagHtmlAttributes[normalized] ?? []), ariaAttribute, dataAttribute],
-  }
-}
-
-export function semanticHtmlAttributeSpec(tag: string, name: string): SemanticHtmlAttributeSpec | undefined {
-  const spec = semanticHtmlTagSpec(tag)
-  const exact = spec.attributes.find(attribute => attribute.name === name)
-  if (exact) return exact
-  if (name.startsWith("aria-")) return ariaAttribute
-  if (name.startsWith("data-")) return dataAttribute
-  if (spec.custom) return { name, category: "custom", type: "unknown" }
-  return undefined
-}
-
-export function semanticHtmlAttributeNames(tag: string): readonly string[] {
-  return semanticHtmlTagSpec(tag).attributes.map(attribute => attribute.name)
-}
 
 export type SemanticArgumentKind = "value" | "binding" | "viewBuilder" | "action"
 
@@ -308,16 +118,16 @@ export interface SemanticInitializerResolution {
 export type SemanticClosureRole = SemanticInitializerParameterKind
 
 export interface SemanticResolutionDiagnostic {
-  readonly code: "VUNE_INITIALIZER" | "VUNE_INITIALIZER_AMBIGUITY"
+  readonly code: "MUN_INITIALIZER" | "MUN_INITIALIZER_AMBIGUITY"
   readonly message: string
 }
 
 /**
- * The one semantic answer for a Vune call.
+ * The one semantic answer for a Mun call.
  *
  * Compiler, editor, and runtime adapters may have different inputs (source
  * types versus runtime values), but they consume this same result shape. An
- * absent view type means that the call is not statically known to Vune and is
+ * absent view type means that the call is not statically known to Mun and is
  * therefore left to the host language's dynamic interop rules.
  */
 export interface SemanticCallResolution {
@@ -686,7 +496,7 @@ function parameterIndexForSourceArgument(
   return next < 0 ? undefined : next
 }
 
-/** Resolve a statically known or runtime Vune call through the shared engine. */
+/** Resolve a statically known or runtime Mun call through the shared engine. */
 export function resolveSemanticCall(
   viewType: SemanticViewTypeSymbol | undefined,
   arguments_: readonly SemanticArgument[],
@@ -709,7 +519,7 @@ export function resolveSemanticCall(
     return {
       ...unresolved,
       diagnostics: [{
-        code: result.failure.kind === "ambiguous" ? "VUNE_INITIALIZER_AMBIGUITY" : "VUNE_INITIALIZER",
+        code: result.failure.kind === "ambiguous" ? "MUN_INITIALIZER_AMBIGUITY" : "MUN_INITIALIZER",
         message: `${prefix} for ${viewType.name}.${candidates ? ` Available initializers: ${candidates}.` : ""}`,
       }],
     }
@@ -735,13 +545,15 @@ export class SemanticModel {
   private readonly symbols = new Map<string, SemanticSymbol>()
 
   register(symbol: SemanticSymbol): void {
-    const name = "name" in symbol && symbol.name
-      ? symbol.name
-      : "signature" in symbol
-        ? symbol.signature
-        : "localName" in symbol
-          ? symbol.localName
-          : symbol.kind
+    const name = symbol.kind === "view"
+      ? symbol.qualifiedName
+      : "name" in symbol && symbol.name
+        ? symbol.name
+        : "signature" in symbol
+          ? symbol.signature
+          : "localName" in symbol
+            ? symbol.localName
+            : symbol.kind
     this.symbols.set(name, symbol)
   }
 

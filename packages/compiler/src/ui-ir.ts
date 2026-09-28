@@ -33,7 +33,12 @@ import {
   type MunStructDeclaration,
 } from "./ast.js"
 import { assertCanonicalMunSource } from "./analysis.js"
-import { canonicalViewSymbols, semanticViewsForStructs, type MunSemanticView } from "./semantic.js"
+import {
+  canonicalViewSymbols,
+  semanticViewLookupCandidates,
+  semanticViewsForStructs,
+  type MunSemanticView,
+} from "./semantic.js"
 import { splitStatements, splitTopLevel } from "./scanner.js"
 
 export interface MunUiCompileOptions {
@@ -1033,15 +1038,29 @@ function applyModifiers(
   }
 }
 
+interface StructDeclarationIndex {
+  readonly byQualifiedName: ReadonlyMap<string, MunStructDeclaration>
+  readonly qualifiedNameByDeclaration: ReadonlyMap<MunStructDeclaration, string>
+}
+
 function collectStructDeclarations(
   declarations: readonly MunStructDeclaration[],
-  output = new Map<string, MunStructDeclaration>(),
-): ReadonlyMap<string, MunStructDeclaration> {
+  prefix = "",
+  byQualifiedName = new Map<string, MunStructDeclaration>(),
+  qualifiedNameByDeclaration = new Map<MunStructDeclaration, string>(),
+): StructDeclarationIndex {
   for (const declaration of declarations) {
-    if (!output.has(declaration.name)) output.set(declaration.name, declaration)
-    collectStructDeclarations(declaration.nested ?? [], output)
+    const qualifiedName = prefix ? `${prefix}.${declaration.name}` : declaration.name
+    byQualifiedName.set(qualifiedName, declaration)
+    qualifiedNameByDeclaration.set(declaration, qualifiedName)
+    collectStructDeclarations(
+      declaration.nested ?? [],
+      qualifiedName,
+      byQualifiedName,
+      qualifiedNameByDeclaration,
+    )
   }
-  return output
+  return { byQualifiedName, qualifiedNameByDeclaration }
 }
 
 type UiIdentitySegment = string | number
@@ -1080,18 +1099,35 @@ function stateIdentityPathForModifiers(
 
 class UiLowerer {
   readonly #structs: ReadonlyMap<string, MunStructDeclaration>
+  readonly #qualifiedNameByDeclaration: ReadonlyMap<MunStructDeclaration, string>
   readonly #semanticViews = new Map<string, MunSemanticView>()
   readonly #componentStack: string[] = []
   readonly #states: MunUiState[]
   readonly #stateTypes: Map<string, string>
 
   constructor(structs: readonly MunStructDeclaration[], states: readonly MunUiState[]) {
-    this.#structs = collectStructDeclarations(structs)
+    const declarationIndex = collectStructDeclarations(structs)
+    this.#structs = declarationIndex.byQualifiedName
+    this.#qualifiedNameByDeclaration = declarationIndex.qualifiedNameByDeclaration
     this.#states = [...states]
     this.#stateTypes = stateTypeMap(states)
-    for (const view of semanticViewsForStructs(structs)) {
-      if (!this.#semanticViews.has(view.name)) this.#semanticViews.set(view.name, view)
+    for (const view of semanticViewsForStructs(structs)) this.#semanticViews.set(view.qualifiedName, view)
+  }
+
+  resolveComponent(name: string): { declaration: MunStructDeclaration; semanticView: MunSemanticView } | undefined {
+    const scope = this.#componentStack.at(-1)
+    for (const candidate of semanticViewLookupCandidates(name, scope)) {
+      const declaration = this.#structs.get(candidate)
+      const semanticView = this.#semanticViews.get(candidate)
+      if (declaration && semanticView) return { declaration, semanticView }
     }
+    return undefined
+  }
+
+  qualifiedName(declaration: MunStructDeclaration): string {
+    const qualifiedName = this.#qualifiedNameByDeclaration.get(declaration)
+    if (!qualifiedName) throw new SyntaxError(`Native View '${declaration.name}' has no qualified semantic identity`)
+    return qualifiedName
   }
 
   states(): readonly MunUiState[] {
@@ -1152,13 +1188,19 @@ class UiLowerer {
         bindings.set(field.name, lowerValueExpression(field.initializer, bindings))
       }
     }
-    const instancePath: UiIdentityPath = ["entry", declaration.name]
+    const qualifiedName = this.qualifiedName(declaration)
+    const instancePath: UiIdentityPath = ["entry", qualifiedName]
     this.bindLocalStates(declaration, bindings, instancePath)
     const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
     if (program.statements.length !== 1) {
-      throw new SyntaxError(`Native custom View '${declaration.name}' body must contain one root view`)
+      throw new SyntaxError(`Native custom View '${qualifiedName}' body must contain one root view`)
     }
-    return this.lower(program.statements[0], bindings, [...instancePath, "body"])
+    this.#componentStack.push(qualifiedName)
+    try {
+      return this.lower(program.statements[0], bindings, [...instancePath, "body"])
+    } finally {
+      this.#componentStack.pop()
+    }
   }
 
   lower(
@@ -1247,19 +1289,16 @@ class UiLowerer {
   lowerComponent(
     call: MunCallExpression,
     declaration: MunStructDeclaration,
+    semanticView: MunSemanticView,
     callerBindings: UiBindings,
     path: UiIdentityPath,
     statePath: UiStateIdentityPath,
   ): MunUiNode {
-    if (this.#componentStack.includes(declaration.name)) {
+    const qualifiedName = semanticView.qualifiedName
+    if (this.#componentStack.includes(qualifiedName)) {
       throw new SyntaxError(
-        `Recursive native View expansion is not supported: ${[...this.#componentStack, declaration.name].join(" -> ")}`,
+        `Recursive native View expansion is not supported: ${[...this.#componentStack, qualifiedName].join(" -> ")}`,
       )
-    }
-
-    const semanticView = this.#semanticViews.get(declaration.name)
-    if (!semanticView) {
-      throw new SyntaxError(`Native View '${declaration.name}' has no semantic component symbol`)
     }
 
     const supplied: ComponentSemanticArgument[] = call.arguments.map(argument =>
@@ -1403,20 +1442,20 @@ class UiLowerer {
         )
       }
     }
-    const instancePath = childIdentityPath(statePath, "component", declaration.name)
+    const instancePath = childIdentityPath(statePath, "component", qualifiedName)
     this.bindLocalStates(declaration, fieldBindings, instancePath)
 
     const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
     if (program.statements.length !== 1) {
-      throw new SyntaxError(`Native custom View '${declaration.name}' body must contain one root view`)
+      throw new SyntaxError(`Native custom View '${qualifiedName}' body must contain one root view`)
     }
 
-    this.#componentStack.push(declaration.name)
+    this.#componentStack.push(qualifiedName)
     try {
       return this.lower(
         program.statements[0],
         fieldBindings,
-        [...path, "component", declaration.name, "body"],
+        [...path, "component", qualifiedName, "body"],
         childIdentityPath(instancePath, "body"),
       )
     } finally {
@@ -1512,8 +1551,17 @@ class UiLowerer {
       }
     }
 
-    const declaration = this.#structs.get(call.callee)
-    if (declaration) return this.lowerComponent(call, declaration, bindings, path, statePath)
+    const component = this.resolveComponent(call.callee)
+    if (component) {
+      return this.lowerComponent(
+        call,
+        component.declaration,
+        component.semanticView,
+        bindings,
+        path,
+        statePath,
+      )
+    }
 
     throw new SyntaxError(`View '${call.callee}' is not part of the native Mün semantic component graph`)
   }

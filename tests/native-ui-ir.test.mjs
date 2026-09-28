@@ -407,6 +407,83 @@ export default App()`
 })
 
 
+test("nested custom Views resolve by qualified lexical scope instead of simple-name order", () => {
+  const source = `import { Text, VStack } from "@mun/core"
+
+struct First: View {
+  struct Badge: View {
+    let first: string
+
+    var body: some View {
+      Text(first)
+    }
+  }
+
+  var body: some View {
+    Badge(first: "First badge")
+  }
+}
+
+struct Second: View {
+  struct Badge: View {
+    let second: string
+
+    var body: some View {
+      Text(second)
+    }
+  }
+
+  var body: some View {
+    Badge(second: "Second badge")
+  }
+}
+
+struct App: View {
+  var body: some View {
+    VStack() {
+      First()
+      Second()
+    }
+  }
+}
+
+export default App()`
+
+  const semantic = createMunSemanticModel(source, "nested-native-scope.mun")
+  const firstBadge = semantic.view("First.Badge")
+  const secondBadge = semantic.view("Second.Badge")
+  assert.ok(firstBadge)
+  assert.ok(secondBadge)
+  assert.equal(semantic.view("Badge"), undefined)
+  assert.equal(semantic.symbol("First.Badge")?.kind, "view")
+  assert.equal(semantic.symbol("Second.Badge")?.kind, "view")
+  assert.equal(semantic.symbol("Badge"), undefined)
+
+  const badgeCalls = semantic.calls.filter(call => call.callee === "Badge")
+  assert.deepEqual(badgeCalls.map(call => call.scope), ["First", "Second"])
+  const firstCall = badgeCalls.find(call => call.scope === "First")
+  const secondCall = badgeCalls.find(call => call.scope === "Second")
+  assert.ok(firstCall)
+  assert.ok(secondCall)
+  assert.deepEqual(firstCall.resolution.diagnostics, [])
+  assert.deepEqual(secondCall.resolution.diagnostics, [])
+  assert.equal(firstCall.resolution.resolvedInitializer?.signature, firstBadge.initializers[0]?.signature)
+  assert.equal(secondCall.resolution.resolvedInitializer?.signature, secondBadge.initializers[0]?.signature)
+
+  const program = compileMunUiProgram(source, "nested-native-scope.mun")
+  const root = program.root.child
+  assert.equal(root.kind, "column")
+  if (root.kind !== "column") return
+  assert.equal(root.children[0]?.kind, "text")
+  assert.equal(root.children[1]?.kind, "text")
+  if (root.children[0]?.kind !== "text" || root.children[1]?.kind !== "text") return
+
+  assert.deepEqual(root.children[0].value, { kind: "literal", value: "First badge" })
+  assert.deepEqual(root.children[1].value, { kind: "literal", value: "Second badge" })
+  assert.match(root.children[0].id, /component\/First\/body\/component\/First\.Badge\/body/)
+  assert.match(root.children[1].id, /component\/Second\/body\/component\/Second\.Badge\/body/)
+})
+
 test("custom View memberwise calls use the shared semantic initializer contract", () => {
   const source = `import { Text } from "@mun/core"
 
