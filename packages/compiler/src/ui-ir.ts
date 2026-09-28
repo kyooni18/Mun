@@ -335,24 +335,18 @@ function validateCanonicalBuiltinCall(
 
 function numberValue(source: string | undefined, fallback?: number, bindings: UiBindings = emptyBindings): number | undefined {
   if (source === undefined) return fallback
-  try {
-    const value = lowerValueExpression(source, bindings)
-    return value.kind === "literal" && typeof value.value === "number" && Number.isFinite(value.value)
-      ? value.value
-      : fallback
-  } catch {
-    return fallback
+  const value = lowerValueExpression(source, bindings)
+  if (value.kind === "literal" && typeof value.value === "number" && Number.isFinite(value.value)) {
+    return value.value
   }
+  throw new SyntaxError(`Native semantic numeric value must be a finite static number: ${source}`)
 }
 
 function stringValue(source: string | undefined, fallback?: string, bindings: UiBindings = emptyBindings): string | undefined {
   if (source === undefined) return fallback
-  try {
-    const value = lowerValueExpression(source, bindings)
-    return value.kind === "literal" && typeof value.value === "string" ? value.value : fallback
-  } catch {
-    return fallback
-  }
+  const value = lowerValueExpression(source, bindings)
+  if (value.kind === "literal" && typeof value.value === "string") return value.value
+  throw new SyntaxError(`Native semantic string value must be static: ${source}`)
 }
 
 function rawArgument(call: MunCallExpression, label: string, positionalIndex: number): string | undefined {
@@ -814,9 +808,10 @@ function modifierRaw(modifier: ModifierCall, label: string, positionalIndex: num
 }
 
 function normalizedAlignment(source: string | undefined): MunUiAlignment | undefined {
-  const value = source?.trim().replace(/^\./, "")
+  if (source === undefined) return undefined
+  const value = source.trim().replace(/^\./, "")
   if (value === "leading" || value === "center" || value === "trailing" || value === "stretch") return value
-  return undefined
+  throw new SyntaxError(`Native alignment must be a static semantic alignment: ${source}`)
 }
 
 function offsetSources(modifier: ModifierCall): { readonly x?: string; readonly y?: string } {
@@ -961,13 +956,16 @@ function applyModifiers(
 
     if (modifier.name === "animation") {
       const planSource = modifierRaw(modifier, "animation", 0)
-      if (!planSource) continue
+      if (!planSource) throw new SyntaxError("animation requires an Animation value")
       const triggerSource = modifierRaw(modifier, "value", 1)
       pendingAnimation = {
         plan: animationPlan(planSource),
         trigger: triggerSource ? lowerValueExpression(triggerSource, bindings) : undefined,
       }
+      continue
     }
+
+    throw new SyntaxError(`View modifier '.${modifier.name}' is not representable in Mün semantic UI IR`)
   }
 
   const motionBindings: Array<NonNullable<MunUiNode["motion"]>[number]> = [...(parts.motion ?? [])]

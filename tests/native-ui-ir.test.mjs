@@ -243,6 +243,48 @@ export default App()`
 })
 
 
+test("native compiler rejects semantic constructs it cannot represent instead of silently defaulting", () => {
+  const unsupportedModifier = `import { Rectangle } from "@mun/core"
+struct App: View {
+  var body: some View {
+    Rectangle().shadow(radius: 4)
+  }
+}
+export default App()`
+
+  assert.throws(
+    () => compileMunUiProgram(unsupportedModifier, "unsupported-modifier.mun"),
+    /View modifier '\.shadow' is not representable in Mün semantic UI IR/,
+  )
+
+  const unsupportedPadding = `import { Rectangle } from "@mun/core"
+struct App: View {
+  var body: some View {
+    Rectangle().padding("wide")
+  }
+}
+export default App()`
+
+  assert.throws(
+    () => compileMunUiProgram(unsupportedPadding, "unsupported-padding.mun"),
+    /Native semantic numeric value must be a finite static number: "wide"/,
+  )
+
+  const unsupportedBackground = `import { Rectangle, State } from "@mun/core"
+const highlighted = State(false)
+struct App: View {
+  var body: some View {
+    Rectangle().background(highlighted.value ? "#fff" : "#000")
+  }
+}
+export default App()`
+
+  assert.throws(
+    () => compileMunUiProgram(unsupportedBackground, "unsupported-background.mun"),
+    /Native semantic string value must be static/,
+  )
+})
+
 test("native UI IR expands custom View structs with bound values, defaults, state, and conditionals", () => {
   const source = `import { Rectangle, State, Text, VStack } from "@mun/core"
 const expanded = State(false)
