@@ -23,7 +23,11 @@ fn state_transaction_drives_motion_layout_and_scene() {
         .activate_action("action-2")
         .expect("activate semantic action");
     assert_eq!(transaction.mutations.len(), 1);
-    assert_eq!(transaction.mutations[0].state, "expanded");
+    let program: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse compiler UI IR");
+    let expanded_state = program["states"][0]["name"]
+        .as_str()
+        .expect("compiled state identity");
+    assert_eq!(transaction.mutations[0].state, expanded_state);
     assert!(runtime.has_active_motion());
 
     runtime.step(0.08);

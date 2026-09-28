@@ -1,6 +1,24 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum UiBinaryOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+    Equal,
+    NotEqual,
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
+    And,
+    Or,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind")]
 pub enum UiExpression {
@@ -10,6 +28,14 @@ pub enum UiExpression {
     State { state: String },
     #[serde(rename = "not")]
     Not { value: Box<UiExpression> },
+    #[serde(rename = "stringify")]
+    Stringify { value: Box<UiExpression> },
+    #[serde(rename = "binary")]
+    Binary {
+        operator: UiBinaryOperator,
+        left: Box<UiExpression>,
+        right: Box<UiExpression>,
+    },
     #[serde(rename = "conditional")]
     Conditional {
         condition: Box<UiExpression>,

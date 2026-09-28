@@ -4,7 +4,7 @@
   "entry": "NativeDemo",
   "states": [
     {
-      "name": "expanded",
+      "name": "@component/NativeDemo-0/expanded",
       "initial": false
     }
   ],
@@ -55,7 +55,7 @@
           "label": "Toggle",
           "action": {
             "kind": "toggle-state",
-            "state": "expanded"
+            "state": "@component/NativeDemo-0/expanded"
           },
           "accessibility": {
             "role": "button",
@@ -70,7 +70,7 @@
               "kind": "conditional",
               "condition": {
                 "kind": "state",
-                "state": "expanded"
+                "state": "@component/NativeDemo-0/expanded"
               },
               "then": {
                 "kind": "literal",
@@ -98,7 +98,7 @@
                 "kind": "conditional",
                 "condition": {
                   "kind": "state",
-                  "state": "expanded"
+                  "state": "@component/NativeDemo-0/expanded"
                 },
                 "then": {
                   "kind": "literal",
@@ -111,7 +111,7 @@
               },
               "trigger": {
                 "kind": "state",
-                "state": "expanded"
+                "state": "@component/NativeDemo-0/expanded"
               },
               "plan": {
                 "kind": "spring",
@@ -130,7 +130,7 @@
           "id": "conditional-4",
           "condition": {
             "kind": "state",
-            "state": "expanded"
+            "state": "@component/NativeDemo-0/expanded"
           },
           "then": [
             {

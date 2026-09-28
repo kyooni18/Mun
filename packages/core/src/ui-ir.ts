@@ -2,10 +2,32 @@
 
 export type MunUiScalar = string | number | boolean | null
 
+export type MunUiBinaryOperator =
+  | "add"
+  | "subtract"
+  | "multiply"
+  | "divide"
+  | "modulo"
+  | "equal"
+  | "notEqual"
+  | "less"
+  | "lessOrEqual"
+  | "greater"
+  | "greaterOrEqual"
+  | "and"
+  | "or"
+
 export type MunUiExpression =
   | { readonly kind: "literal"; readonly value: MunUiScalar }
   | { readonly kind: "state"; readonly state: string }
   | { readonly kind: "not"; readonly value: MunUiExpression }
+  | { readonly kind: "stringify"; readonly value: MunUiExpression }
+  | {
+      readonly kind: "binary"
+      readonly operator: MunUiBinaryOperator
+      readonly left: MunUiExpression
+      readonly right: MunUiExpression
+    }
   | {
       readonly kind: "conditional"
       readonly condition: MunUiExpression

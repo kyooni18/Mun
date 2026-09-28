@@ -11,7 +11,7 @@ use crate::{
     accessibility::{AccessibilityBounds, AccessibilityNode, AccessibilityTree},
     ir::{
         AccessibilityRole, MotionExecutionPlan, MotionProperty, TransitionEdge, TransitionEffect,
-        UiAction, UiAlignment, UiExpression, UiNode, UiProgram, UiTransition,
+        UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiProgram, UiTransition,
     },
     motion::{MotionChannelKey, MotionScheduler},
     scene::{ActionHit, Color, Rect as SceneBounds, Scene, SceneRect, SceneText},
@@ -90,6 +90,78 @@ impl Default for PresenceValues {
     }
 }
 
+fn scalar_string(value: &Value) -> String {
+    match value {
+        Value::String(value) => value.clone(),
+        Value::Null => "null".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn numeric_result(value: f64) -> Value {
+    serde_json::Number::from_f64(value)
+        .map(Value::Number)
+        .unwrap_or(Value::Null)
+}
+
+fn ordered_comparison(
+    left: &Value,
+    right: &Value,
+    number: impl FnOnce(f64, f64) -> bool,
+    string: impl FnOnce(&str, &str) -> bool,
+) -> Value {
+    if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
+        return Value::Bool(number(left, right));
+    }
+    if let (Some(left), Some(right)) = (left.as_str(), right.as_str()) {
+        return Value::Bool(string(left, right));
+    }
+    Value::Bool(false)
+}
+
+fn evaluate_binary(operator: UiBinaryOperator, left: Value, right: Value) -> Value {
+    match operator {
+        UiBinaryOperator::Add => {
+            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
+                numeric_result(left + right)
+            } else if let (Some(left), Some(right)) = (left.as_str(), right.as_str()) {
+                Value::String(format!("{left}{right}"))
+            } else {
+                Value::Null
+            }
+        }
+        UiBinaryOperator::Subtract => left
+            .as_f64()
+            .zip(right.as_f64())
+            .map(|(left, right)| numeric_result(left - right))
+            .unwrap_or(Value::Null),
+        UiBinaryOperator::Multiply => left
+            .as_f64()
+            .zip(right.as_f64())
+            .map(|(left, right)| numeric_result(left * right))
+            .unwrap_or(Value::Null),
+        UiBinaryOperator::Divide => left
+            .as_f64()
+            .zip(right.as_f64())
+            .map(|(left, right)| numeric_result(left / right))
+            .unwrap_or(Value::Null),
+        UiBinaryOperator::Modulo => left
+            .as_f64()
+            .zip(right.as_f64())
+            .map(|(left, right)| numeric_result(left % right))
+            .unwrap_or(Value::Null),
+        UiBinaryOperator::Equal => Value::Bool(left == right),
+        UiBinaryOperator::NotEqual => Value::Bool(left != right),
+        UiBinaryOperator::Less => ordered_comparison(&left, &right, |a, b| a < b, |a, b| a < b),
+        UiBinaryOperator::LessOrEqual => ordered_comparison(&left, &right, |a, b| a <= b, |a, b| a <= b),
+        UiBinaryOperator::Greater => ordered_comparison(&left, &right, |a, b| a > b, |a, b| a > b),
+        UiBinaryOperator::GreaterOrEqual => ordered_comparison(&left, &right, |a, b| a >= b, |a, b| a >= b),
+        UiBinaryOperator::And => Value::Bool(left.as_bool().unwrap_or(false) && right.as_bool().unwrap_or(false)),
+        UiBinaryOperator::Or => Value::Bool(left.as_bool().unwrap_or(false) || right.as_bool().unwrap_or(false)),
+    }
+}
 pub struct Runtime {
     pub program: UiProgram,
     state: HashMap<String, Value>,
@@ -453,6 +525,12 @@ impl Runtime {
             UiExpression::Not { value } => {
                 Value::Bool(!self.eval(value).as_bool().unwrap_or(false))
             }
+            UiExpression::Stringify { value } => Value::String(scalar_string(&self.eval(value))),
+            UiExpression::Binary {
+                operator,
+                left,
+                right,
+            } => evaluate_binary(*operator, self.eval(left), self.eval(right)),
             UiExpression::Conditional {
                 condition,
                 then_value,

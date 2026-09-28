@@ -10,6 +10,7 @@ import {
   type MunMotionProperty,
   type MunUiAction,
   type MunUiAlignment,
+  type MunUiBinaryOperator,
   type MunUiExpression,
   type MunUiLayout,
   type MunUiNode,
@@ -33,6 +34,7 @@ import {
 } from "./ast.js"
 import { assertCanonicalMunSource } from "./analysis.js"
 import { canonicalViewSymbols, semanticViewsForStructs, type MunSemanticView } from "./semantic.js"
+import { splitStatements, splitTopLevel } from "./scanner.js"
 
 export interface MunUiCompileOptions {
   readonly windowTitle?: string
@@ -97,6 +99,27 @@ function scalarFromExpression(expression: ts.Expression): MunUiScalar | undefine
   return undefined
 }
 
+function binaryOperator(kind: ts.SyntaxKind): MunUiBinaryOperator | undefined {
+  switch (kind) {
+    case ts.SyntaxKind.PlusToken: return "add"
+    case ts.SyntaxKind.MinusToken: return "subtract"
+    case ts.SyntaxKind.AsteriskToken: return "multiply"
+    case ts.SyntaxKind.SlashToken: return "divide"
+    case ts.SyntaxKind.PercentToken: return "modulo"
+    case ts.SyntaxKind.EqualsEqualsToken:
+    case ts.SyntaxKind.EqualsEqualsEqualsToken: return "equal"
+    case ts.SyntaxKind.ExclamationEqualsToken:
+    case ts.SyntaxKind.ExclamationEqualsEqualsToken: return "notEqual"
+    case ts.SyntaxKind.LessThanToken: return "less"
+    case ts.SyntaxKind.LessThanEqualsToken: return "lessOrEqual"
+    case ts.SyntaxKind.GreaterThanToken: return "greater"
+    case ts.SyntaxKind.GreaterThanEqualsToken: return "greaterOrEqual"
+    case ts.SyntaxKind.AmpersandAmpersandToken: return "and"
+    case ts.SyntaxKind.BarBarToken: return "or"
+    default: return undefined
+  }
+}
+
 function lowerValueExpression(source: string, bindings: UiBindings = emptyBindings): MunUiExpression {
   const expression = unwrap(parsedExpression(source))
   const scalar = scalarFromExpression(expression)
@@ -112,9 +135,34 @@ function lowerValueExpression(source: string, bindings: UiBindings = emptyBindin
     && expression.name.text === "value"
     && ts.isIdentifier(expression.expression)
   ) {
+    const binding = bindings.get(expression.expression.text)
+    if (binding?.kind === "state") return binding
     return { kind: "state", state: expression.expression.text }
   }
 
+  if (
+    ts.isCallExpression(expression)
+    && ts.isIdentifier(expression.expression)
+    && expression.expression.text === "String"
+    && expression.arguments.length === 1
+  ) {
+    return {
+      kind: "stringify",
+      value: lowerValueExpression(expression.arguments[0].getText(), bindings),
+    }
+  }
+
+  if (ts.isBinaryExpression(expression)) {
+    const operator = binaryOperator(expression.operatorToken.kind)
+    if (operator) {
+      return {
+        kind: "binary",
+        operator,
+        left: lowerValueExpression(expression.left.getText(), bindings),
+        right: lowerValueExpression(expression.right.getText(), bindings),
+      }
+    }
+  }
   if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
     return { kind: "not", value: lowerValueExpression(expression.operand.getText(), bindings) }
   }
@@ -138,6 +186,18 @@ function semanticTypeForUiExpression(
   if (expression.kind === "literal") return expression.value === null ? "null" : typeof expression.value
   if (expression.kind === "state") return stateTypes.get(expression.state)
   if (expression.kind === "not") return "boolean"
+  if (expression.kind === "stringify") return "string"
+  if (expression.kind === "binary") {
+    if (["equal", "notEqual", "less", "lessOrEqual", "greater", "greaterOrEqual", "and", "or"].includes(expression.operator)) {
+      return "boolean"
+    }
+    if (expression.operator === "add") {
+      const left = semanticTypeForUiExpression(expression.left, stateTypes)
+      const right = semanticTypeForUiExpression(expression.right, stateTypes)
+      if (left === "string" && right === "string") return "string"
+    }
+    return "number"
+  }
   if (expression.kind === "conditional") {
     const thenType = semanticTypeForUiExpression(expression.then, stateTypes)
     const otherwiseType = semanticTypeForUiExpression(expression.otherwise, stateTypes)
@@ -155,6 +215,18 @@ function componentSemanticArgument(
     return { label: argument.label, type: "function", sourceArgument: argument }
   }
 
+  if (isBindingSource(argument.value.source)) {
+    const binding = bindingStateExpression(argument.value.source, bindings)
+    const underlyingType = stateTypes.get(binding.state)
+    return {
+      label: argument.label,
+      kind: "binding",
+      type: "binding",
+      ...(underlyingType ? { underlyingType } : {}),
+      sourceArgument: argument,
+    }
+  }
+
   let type: string | undefined
   try {
     type = semanticTypeForUiExpression(lowerValueExpression(argument.value.source, bindings), stateTypes)
@@ -168,11 +240,72 @@ function componentSemanticArgument(
   }
 }
 
-function stateTypeMap(states: readonly MunUiState[]): ReadonlyMap<string, string> {
+function stateTypeMap(states: readonly MunUiState[]): Map<string, string> {
   return new Map(states.map(state => [
     state.name,
     state.initial === null ? "null" : typeof state.initial,
   ] as const))
+}
+
+function stateTarget(name: string, bindings: UiBindings): string {
+  const binding = bindings.get(name)
+  return binding?.kind === "state" ? binding.state : name
+}
+
+function isBindingSource(source: string): boolean {
+  const trimmed = source.trim()
+  return /^\$[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)
+    || /^Binding\s*\(/.test(trimmed)
+}
+
+function bindingStateExpression(
+  source: string,
+  bindings: UiBindings,
+): Extract<MunUiExpression, { readonly kind: "state" }> {
+  const trimmed = source.trim()
+  const shorthand = /^\$([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(trimmed)
+  const constructor = /^Binding\s*\(\s*\$?([A-Za-z_$][A-Za-z0-9_$]*)\s*\)$/.exec(trimmed)
+  const name = shorthand?.[1] ?? constructor?.[1]
+  if (!name) {
+    throw new SyntaxError(`Native @Binding requires $state or Binding(state): ${source}`)
+  }
+  const bound = bindings.get(name)
+  if (bound?.kind === "state") return bound
+  return { kind: "state", state: name }
+}
+
+function initializerDefaultSources(
+  parametersSource: string,
+  parameters: readonly { readonly name?: string }[],
+): ReadonlyMap<string, string> {
+  const declarations = splitTopLevel(parametersSource)
+  const defaults = new Map<string, string>()
+  for (let index = 0; index < parameters.length; index += 1) {
+    const name = parameters[index]?.name
+    const declaration = declarations[index]
+    if (!name || !declaration) continue
+    const equals = declaration.search(/=(?!>)/)
+    if (equals < 0) continue
+    defaults.set(name, declaration.slice(equals + 1).trim())
+  }
+  return defaults
+}
+
+function explicitInitializerAssignments(bodySource: string): ReadonlyMap<string, string> {
+  const assignments = new Map<string, string>()
+  for (const statement of splitStatements(bodySource)) {
+    if (/^self\.init\s*\(/.test(statement)) {
+      throw new SyntaxError("Native explicit initializer delegation is not implemented yet")
+    }
+    const match = /^self\.([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=|>)\s*([\s\S]+)$/.exec(statement)
+    if (!match) {
+      throw new SyntaxError(
+        `Native explicit initializer supports direct self.field assignments only: ${statement}`,
+      )
+    }
+    assignments.set(match[1], match[2].trim())
+  }
+  return assignments
 }
 
 function validateCanonicalBuiltinCall(
@@ -284,14 +417,30 @@ function actionFromClosure(source: string, bindings: UiBindings = emptyBindings)
   }
 
   const toggleAssignment = body.match(/^([A-Za-z_$][\w$]*)\.value\s*=\s*!\s*\1\.value$/)
-  if (toggleAssignment) return { kind: "toggle-state", state: toggleAssignment[1] }
+  if (toggleAssignment) return { kind: "toggle-state", state: stateTarget(toggleAssignment[1], bindings) }
 
   const toggleCall = body.match(/^([A-Za-z_$][\w$]*)\.toggle\s*\(\s*\)$/)
-  if (toggleCall) return { kind: "toggle-state", state: toggleCall[1] }
+  if (toggleCall) return { kind: "toggle-state", state: stateTarget(toggleCall[1], bindings) }
 
+  const compoundAssignment = body.match(/^([A-Za-z_$][\w$]*)\.value\s*(\+=|-=|\*=|\/=|%=)\s*(.+)$/s)
+  if (compoundAssignment) {
+    const operator = compoundAssignment[2][0]
+    return {
+      kind: "set-state",
+      state: stateTarget(compoundAssignment[1], bindings),
+      value: lowerValueExpression(
+        `${compoundAssignment[1]}.value ${operator} (${compoundAssignment[3]})`,
+        bindings,
+      ),
+    }
+  }
   const assignment = body.match(/^([A-Za-z_$][\w$]*)\.value\s*=\s*(.+)$/s)
   if (assignment) {
-    return { kind: "set-state", state: assignment[1], value: lowerValueExpression(assignment[2], bindings) }
+    return {
+      kind: "set-state",
+      state: stateTarget(assignment[1], bindings),
+      value: lowerValueExpression(assignment[2], bindings),
+    }
   }
 
   throw new SyntaxError(`Action body is not yet representable in native Mün IR: ${source.trim()}`)
@@ -866,23 +1015,80 @@ function collectStructDeclarations(
 
 class UiLowerer {
   #nextNodeId = 0
+  #nextComponentId = 0
   readonly #structs: ReadonlyMap<string, MunStructDeclaration>
   readonly #semanticViews = new Map<string, MunSemanticView>()
   readonly #componentStack: string[] = []
-  readonly #stateTypes: ReadonlyMap<string, string>
+  readonly #states: MunUiState[]
+  readonly #stateTypes: Map<string, string>
 
-  constructor(structs: readonly MunStructDeclaration[], stateTypes: ReadonlyMap<string, string>) {
+  constructor(structs: readonly MunStructDeclaration[], states: readonly MunUiState[]) {
     this.#structs = collectStructDeclarations(structs)
-    this.#stateTypes = stateTypes
+    this.#states = [...states]
+    this.#stateTypes = stateTypeMap(states)
     for (const view of semanticViewsForStructs(structs)) {
       if (!this.#semanticViews.has(view.name)) this.#semanticViews.set(view.name, view)
     }
+  }
+
+  states(): readonly MunUiState[] {
+    return this.#states
   }
 
   id(prefix: string): string {
     const value = `${prefix}-${this.#nextNodeId}`
     this.#nextNodeId += 1
     return value
+  }
+
+  bindLocalStates(declaration: MunStructDeclaration, bindings: Map<string, MunUiExpression>): void {
+    const fields = declaration.fields.filter(field => field.kind === "state")
+    if (fields.length === 0) return
+
+    const instanceId = `${declaration.name}-${this.#nextComponentId}`
+    this.#nextComponentId += 1
+    for (const field of fields) {
+      if (field.initializer === undefined) {
+        throw new SyntaxError(
+          `Native @State member '${declaration.name}.${field.name}' requires an initial value`,
+        )
+      }
+      const initial = lowerValueExpression(field.initializer, bindings)
+      if (initial.kind !== "literal") {
+        throw new SyntaxError(
+          `Native @State member '${declaration.name}.${field.name}' requires a scalar initial value for now`,
+        )
+      }
+      const stateName = `@component/${instanceId}/${field.name}`
+      this.#states.push({ name: stateName, initial: initial.value })
+      this.#stateTypes.set(stateName, initial.value === null ? "null" : typeof initial.value)
+      bindings.set(field.name, { kind: "state", state: stateName })
+    }
+  }
+
+  lowerEntry(declaration: MunStructDeclaration): MunUiNode {
+    const bindings = new Map<string, MunUiExpression>()
+    for (const field of declaration.fields) {
+      if (field.kind === "binding") {
+        throw new SyntaxError(
+          `Native entry View '${declaration.name}' member '${field.name}' uses @Binding without an owning parent`,
+        )
+      }
+      if (field.kind === "stored") {
+        if (field.initializer === undefined) {
+          throw new SyntaxError(
+            `Native entry View '${declaration.name}' stored member '${field.name}' requires a default value`,
+          )
+        }
+        bindings.set(field.name, lowerValueExpression(field.initializer, bindings))
+      }
+    }
+    this.bindLocalStates(declaration, bindings)
+    const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
+    if (program.statements.length !== 1) {
+      throw new SyntaxError(`Native custom View '${declaration.name}' body must contain one root view`)
+    }
+    return this.lower(program.statements[0], bindings)
   }
 
   lower(node: MunBuilderNode, bindings: UiBindings = emptyBindings): MunUiNode {
@@ -965,40 +1171,117 @@ class UiLowerer {
       throw new SyntaxError(`Native View '${declaration.name}' resolved an unknown initializer`)
     }
 
-    const unsupportedField = declaration.fields.find(field => field.kind !== "stored")
-    if (unsupportedField) {
-      const wrapper = unsupportedField.kind === "state" ? "@State" : "@Binding"
-      throw new SyntaxError(
-        `Native custom View '${declaration.name}' member '${unsupportedField.name}' uses ${wrapper}; component-local state identity is not implemented yet`,
-      )
-    }
-
-    if (selected.synthesized !== "memberwise") {
-      throw new SyntaxError(
-        `Native custom View '${declaration.name}' resolved ${selected.signature}; explicit initializer execution is not implemented yet`,
-      )
-    }
 
     const fieldBindings = new Map<string, MunUiExpression>()
-    for (let index = 0; index < selected.parameters.length; index += 1) {
-      const parameter = selected.parameters[index]
-      const field = declaration.fields.find(candidate => candidate.name === parameter.name)
-      if (!field) continue
+    if (selected.synthesized === "memberwise") {
+      for (let index = 0; index < selected.parameters.length; index += 1) {
+        const parameter = selected.parameters[index]
+        const field = declaration.fields.find(candidate => candidate.name === parameter.name)
+        if (!field) continue
 
-      const normalized = result.resolution.arguments[index] as ComponentSemanticArgument | undefined
-      const sourceArgument = normalized?.sourceArgument
-      if (sourceArgument?.value.kind === "raw") {
-        fieldBindings.set(field.name, lowerValueExpression(sourceArgument.value.source, callerBindings))
-        continue
+        const normalized = result.resolution.arguments[index] as ComponentSemanticArgument | undefined
+        const sourceArgument = normalized?.sourceArgument
+        if (field.kind === "binding" && sourceArgument?.value.kind === "raw") {
+          const binding = bindingStateExpression(sourceArgument.value.source, callerBindings)
+          const actualType = this.#stateTypes.get(binding.state)
+          if (!actualType) {
+            throw new SyntaxError(
+              `Native @Binding '${declaration.name}.${field.name}' does not reference known state '${binding.state}'`,
+            )
+          }
+          const expectedType = field.type?.trim()
+          if (expectedType && expectedType !== actualType) {
+            throw new SyntaxError(
+              `Native @Binding '${declaration.name}.${field.name}' expects ${expectedType} state, received ${actualType}`,
+            )
+          }
+          fieldBindings.set(field.name, binding)
+          continue
+        }
+        if (sourceArgument?.value.kind === "raw") {
+          fieldBindings.set(field.name, lowerValueExpression(sourceArgument.value.source, callerBindings))
+          continue
+        }
+        if (field.initializer !== undefined) {
+          fieldBindings.set(field.name, lowerValueExpression(field.initializer, fieldBindings))
+          continue
+        }
+        throw new SyntaxError(
+          `Initializer ${selected.signature} did not bind required field '${field.name}'`,
+        )
       }
-      if (field.initializer !== undefined) {
-        fieldBindings.set(field.name, lowerValueExpression(field.initializer, fieldBindings))
-        continue
+    } else {
+      const initializer = declaration.initializers[selected.index]
+      if (!initializer) {
+        throw new SyntaxError(`Native View '${declaration.name}' resolved an unknown explicit initializer`)
       }
-      throw new SyntaxError(
-        `Initializer ${selected.signature} did not bind required field '${field.name}'`,
-      )
+      const parameterBindings = new Map<string, MunUiExpression>()
+      const defaults = initializerDefaultSources(initializer.parametersSource, selected.parameters)
+      for (let index = 0; index < selected.parameters.length; index += 1) {
+        const parameter = selected.parameters[index]
+        const name = parameter.name
+        if (!name) throw new SyntaxError(`Native initializer ${selected.signature} has an unnamed parameter`)
+        const normalized = result.resolution.arguments[index] as ComponentSemanticArgument | undefined
+        const sourceArgument = normalized?.sourceArgument
+        const source = sourceArgument?.value.kind === "raw"
+          ? sourceArgument.value.source
+          : defaults.get(name)
+        if (!source) {
+          throw new SyntaxError(`Native initializer ${selected.signature} could not resolve parameter '${name}'`)
+        }
+        if (parameter.kind === "binding") {
+          const binding = bindingStateExpression(source, callerBindings)
+          const actualType = this.#stateTypes.get(binding.state)
+          if (!actualType) {
+            throw new SyntaxError(`Native initializer binding '${name}' does not reference known state '${binding.state}'`)
+          }
+          const expectedType = parameter.type?.trim()
+          if (expectedType && expectedType !== actualType) {
+            throw new SyntaxError(
+              `Native initializer binding '${name}' expects ${expectedType} state, received ${actualType}`,
+            )
+          }
+          parameterBindings.set(name, binding)
+        } else {
+          const scope = new Map<string, MunUiExpression>([...callerBindings, ...parameterBindings])
+          parameterBindings.set(name, lowerValueExpression(source, scope))
+        }
+      }
+
+      const initializerScope = new Map<string, MunUiExpression>([...callerBindings, ...parameterBindings])
+      for (const [fieldName, expression] of explicitInitializerAssignments(initializer.bodySource)) {
+        const field = declaration.fields.find(candidate => candidate.name === fieldName)
+        if (!field) {
+          throw new SyntaxError(`Native initializer ${selected.signature} assigns unknown field '${fieldName}'`)
+        }
+        if (field.kind === "state") {
+          throw new SyntaxError(`Native initializer ${selected.signature} cannot replace @State storage '${fieldName}'`)
+        }
+        const value = lowerValueExpression(expression, initializerScope)
+        if (field.kind === "binding" && value.kind !== "state") {
+          throw new SyntaxError(`Native initializer ${selected.signature} must bind @Binding field '${fieldName}' to state`)
+        }
+        fieldBindings.set(fieldName, value)
+      }
+
+      for (const field of declaration.fields) {
+        if (field.kind === "state" || fieldBindings.has(field.name)) continue
+        const parameterValue = parameterBindings.get(field.name)
+        if (parameterValue) {
+          fieldBindings.set(field.name, parameterValue)
+          continue
+        }
+        if (field.initializer !== undefined) {
+          const scope = new Map<string, MunUiExpression>([...parameterBindings, ...fieldBindings])
+          fieldBindings.set(field.name, lowerValueExpression(field.initializer, scope))
+          continue
+        }
+        throw new SyntaxError(
+          `Initializer ${selected.signature} did not initialize field '${field.name}'`,
+        )
+      }
     }
+    this.bindLocalStates(declaration, fieldBindings)
 
     const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
     if (program.statements.length !== 1) {
@@ -1120,12 +1403,9 @@ export function compileMunUiProgram(
 
   const requestedEntry = entryName(source, structs[0].name)
   const entry = structs.find(structure => structure.name === requestedEntry) ?? structs[0]
-  const program = parseMunBuilder(entry.bodyExpressionSource, entry.bodyExpressionRange.start)
-  if (program.statements.length !== 1) throw new SyntaxError("Native Mün entry body must currently contain one root view")
-
   const states = stateDeclarations(source)
-  const lowerer = new UiLowerer(structs, stateTypeMap(states))
-  const lowered = lowerer.lower(program.statements[0])
+  const lowerer = new UiLowerer(structs, states)
+  const lowered = lowerer.lowerEntry(entry)
   const title = options.windowTitle ?? "Mün"
   const root: MunUiWindowNode = lowered.kind === "window"
     ? lowered
@@ -1145,7 +1425,7 @@ export function compileMunUiProgram(
     version: 1,
     sourceLanguage: "mun",
     entry: entry.name,
-    states,
+    states: lowerer.states(),
     root,
   }
 }

@@ -24,7 +24,8 @@ test("native UI IR keeps semantic controls and precompiles inherited spring moti
   const panel = column.children.find(node => node.kind === "panel")
   assert.ok(action && action.kind === "action")
   assert.equal(action.accessibility?.role, "button")
-  assert.deepEqual(action.action, { kind: "toggle-state", state: "expanded" })
+  assert.match(program.states[0].name, /^@component\/NativeDemo-\d+\/expanded$/)
+  assert.deepEqual(action.action, { kind: "toggle-state", state: program.states[0].name })
 
   assert.ok(panel && panel.kind === "panel")
   const widthMotion = panel.motion?.find(binding => binding.property === "width")
@@ -384,6 +385,58 @@ export default App()`
   )
 })
 
+test("native explicit initializer assigns fields and honors default arguments", () => {
+  const source = `import { Rectangle, Text, VStack } from "@mun/core"
+
+struct Badge: View {
+  let title: string
+  let width: number
+
+  init(_ label: string, width: number = 140) {
+    self.title = label
+    self.width = width
+  }
+
+  var body: some View {
+    VStack() {
+      Text(title)
+      Rectangle().frame(width: width, height: 20)
+    }
+  }
+}
+
+struct App: View {
+  var body: some View {
+    VStack() {
+      Badge("Compact")
+      Badge("Wide", width: 220)
+    }
+  }
+}
+
+export default App()`
+
+  const program = compileMunUiProgram(source, "explicit-initializer-contract.mun")
+  const root = program.root.child
+  assert.equal(root.kind, "column")
+  if (root.kind !== "column") return
+  assert.equal(root.children.length, 2)
+
+  const compact = root.children[0]
+  const wide = root.children[1]
+  assert.equal(compact?.kind, "column")
+  assert.equal(wide?.kind, "column")
+  if (compact?.kind !== "column" || wide?.kind !== "column") return
+
+  const compactText = compact.children[0]
+  const compactPanel = compact.children[1]
+  const wideText = wide.children[0]
+  const widePanel = wide.children[1]
+  assert.deepEqual(compactText?.kind === "text" ? compactText.value : undefined, { kind: "literal", value: "Compact" })
+  assert.deepEqual(wideText?.kind === "text" ? wideText.value : undefined, { kind: "literal", value: "Wide" })
+  assert.deepEqual(compactPanel?.layout?.width, { kind: "literal", value: 140 })
+  assert.deepEqual(widePanel?.layout?.width, { kind: "literal", value: 220 })
+})
 test("native built-ins validate calls through the shared semantic initializer contract", () => {
   const source = `import { Button, State, Text, VStack } from "@mun/core"
 const enabled = State(false)
@@ -421,27 +474,173 @@ export default App()`
   )
 })
 
-test("custom View expansion rejects unsupported identity and recursion instead of inventing semantics", () => {
-  const localState = `import { State, Text } from "@mun/core"
+test("entry View @State lowers to owned semantic state used by reads and actions", () => {
+  const source = `import { Button, Text, VStack } from "@mun/core"
+
+struct App: View {
+  @State var enabled: boolean = false
+
+  var body: some View {
+    VStack(spacing: 8) {
+      Button("Toggle") { enabled.toggle() }
+      if (enabled.value) {
+        Text("Enabled")
+      } else {
+        Text("Disabled")
+      }
+    }
+  }
+}
+
+export default App()`
+
+  const program = compileMunUiProgram(source, "entry-state-contract.mun")
+  assert.equal(program.states.length, 1)
+  const state = program.states[0]
+  assert.match(state.name, /^@component\/App-\d+\/enabled$/)
+  assert.equal(state.initial, false)
+
+  const column = program.root.child
+  assert.equal(column.kind, "column")
+  if (column.kind !== "column") return
+  const action = column.children[0]
+  const conditional = column.children[1]
+  assert.equal(action?.kind, "action")
+  assert.equal(conditional?.kind, "conditional")
+  if (action?.kind !== "action" || conditional?.kind !== "conditional") return
+  assert.deepEqual(action.action, { kind: "toggle-state", state: state.name })
+  assert.deepEqual(conditional.condition, { kind: "state", state: state.name })
+})
+
+test("custom View instances own distinct @State identities and initial values", () => {
+  const source = `import { Button, Text, VStack } from "@mun/core"
 
 struct Counter: View {
-  @State var enabled: boolean = false
+  let initiallyEnabled: boolean
+  @State var enabled: boolean = initiallyEnabled
+
   var body: some View {
-    Text("Counter")
+    VStack() {
+      Button("Toggle") { enabled.value = !enabled.value }
+      if (enabled.value) {
+        Text("On")
+      } else {
+        Text("Off")
+      }
+    }
   }
 }
 
 struct App: View {
   var body: some View {
-    Counter()
+    VStack() {
+      Counter(initiallyEnabled: false)
+      Counter(initiallyEnabled: true)
+    }
+  }
+}
+
+export default App()`
+
+  const program = compileMunUiProgram(source, "component-state-contract.mun")
+  assert.equal(program.states.length, 2)
+  assert.deepEqual(program.states.map(state => state.initial), [false, true])
+  assert.notEqual(program.states[0].name, program.states[1].name)
+  assert.match(program.states[0].name, /^@component\/Counter-\d+\/enabled$/)
+  assert.match(program.states[1].name, /^@component\/Counter-\d+\/enabled$/)
+
+  const root = program.root.child
+  assert.equal(root.kind, "column")
+  if (root.kind !== "column") return
+  const counters = root.children
+  assert.equal(counters.length, 2)
+  for (let index = 0; index < counters.length; index += 1) {
+    const counter = counters[index]
+    assert.equal(counter?.kind, "column")
+    if (counter?.kind !== "column") continue
+    const action = counter.children[0]
+    const conditional = counter.children[1]
+    assert.equal(action?.kind, "action")
+    assert.equal(conditional?.kind, "conditional")
+    if (action?.kind !== "action" || conditional?.kind !== "conditional") continue
+    assert.equal(action.action.state, program.states[index].name)
+    assert.deepEqual(conditional.condition, { kind: "state", state: program.states[index].name })
+  }
+})
+
+test("custom View @Binding aliases parent-owned State without copying storage", () => {
+  const source = `import { Button, Text, VStack } from "@mun/core"
+
+struct ToggleRow: View {
+  @Binding var enabled: boolean
+
+  var body: some View {
+    VStack() {
+      Button("Child toggle") { enabled.toggle() }
+      if (enabled.value) {
+        Text("Child on")
+      } else {
+        Text("Child off")
+      }
+    }
+  }
+}
+
+struct App: View {
+  @State var enabled: boolean = false
+
+  var body: some View {
+    VStack() {
+      ToggleRow(enabled: $enabled)
+      if (enabled.value) {
+        Text("Parent on")
+      } else {
+        Text("Parent off")
+      }
+    }
+  }
+}
+
+export default App()`
+
+  const program = compileMunUiProgram(source, "component-binding-alias.mun")
+  assert.equal(program.states.length, 1)
+  const state = program.states[0]
+
+  const root = program.root.child
+  assert.equal(root.kind, "column")
+  if (root.kind !== "column") return
+  const child = root.children[0]
+  const parentConditional = root.children[1]
+  assert.equal(child?.kind, "column")
+  assert.equal(parentConditional?.kind, "conditional")
+  if (child?.kind !== "column" || parentConditional?.kind !== "conditional") return
+
+  const action = child.children[0]
+  const childConditional = child.children[1]
+  assert.equal(action?.kind, "action")
+  assert.equal(childConditional?.kind, "conditional")
+  if (action?.kind !== "action" || childConditional?.kind !== "conditional") return
+
+  assert.equal(action.action.state, state.name)
+  assert.deepEqual(childConditional.condition, { kind: "state", state: state.name })
+  assert.deepEqual(parentConditional.condition, { kind: "state", state: state.name })
+})
+test("native custom View expansion still rejects unsupported binding ownership and recursion", () => {
+  const entryBinding = `import { Text } from "@mun/core"
+
+struct App: View {
+  @Binding var enabled: boolean
+  var body: some View {
+    Text("Binding")
   }
 }
 
 export default App()`
 
   assert.throws(
-    () => compileMunUiProgram(localState, "component-state-contract.mun"),
-    /component-local state identity is not implemented yet/,
+    () => compileMunUiProgram(entryBinding, "component-binding-contract.mun"),
+    /uses @Binding without an owning parent/,
   )
 
   const recursive = `struct Loop: View {
