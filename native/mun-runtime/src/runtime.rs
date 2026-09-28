@@ -378,16 +378,31 @@ impl Runtime {
         self.focused_action = None;
     }
 
-    fn reconcile_focus(&mut self) {
-        let focus_is_invalid = match self.focused_action.as_deref() {
-            Some(id) => find_action(&self.program.root.child, self, id)
-                .map(|(_, base)| !self.node_enabled(base))
-                .unwrap_or(true),
-            None => false,
+    fn reconcile_focus(&mut self, previous_order: &[String]) {
+        let Some(focused) = self.focused_action.clone() else {
+            return;
         };
-        if focus_is_invalid {
-            self.focused_action = None;
+
+        let mut actions = Vec::new();
+        collect_focusable_actions(&self.program.root.child, self, &mut actions);
+        if actions.iter().any(|id| id == &focused) {
+            return;
         }
+
+        if actions.is_empty() {
+            self.focused_action = None;
+            return;
+        }
+
+        // If the focused semantic identity disappears or becomes disabled, preserve
+        // its traversal position: prefer the action that moved into the same slot,
+        // otherwise fall back to the preceding final slot. If the prior identity was
+        // already stale, clear focus instead of guessing.
+        self.focused_action = previous_order
+            .iter()
+            .position(|id| id == &focused)
+            .and_then(|index| actions.get(index.min(actions.len() - 1)))
+            .cloned();
     }
 
     pub fn focus_action(&mut self, id: &str) -> bool {
@@ -441,6 +456,12 @@ impl Runtime {
         }
         let action = action.clone();
         let action_transaction = action.transaction().cloned().unwrap_or_default();
+        let mut focus_order_before = Vec::new();
+        collect_focusable_actions(
+            &self.program.root.child,
+            self,
+            &mut focus_order_before,
+        );
         let before_presence = self.active_transition_roots();
         let before_layout_neighborhoods = self.layout_neighborhoods();
         let before_layout_geometry = self.last_live_accessibility.borrow().clone();
@@ -478,9 +499,9 @@ impl Runtime {
 
         self.reconcile_retained_tree();
 
-        // State mutations can change the focused action's enabled semantics.
-        // Never expose a disabled/stale action as keyboard or accessibility focus.
-        self.reconcile_focus();
+        // State mutations can remove or disable the focused semantic node.
+        // Reconcile by stable identity first, then by deterministic traversal position.
+        self.reconcile_focus(&focus_order_before);
 
         self.revision = transaction.revision;
         let after = self.motion_targets();
@@ -1966,6 +1987,8 @@ mod tests {
 
     const TWO_ACTIONS: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"InputTest","states":[{"name":"armed","initial":false}],"root":{"kind":"window","id":"root","title":"Input","child":{"kind":"column","id":"actions","children":[{"kind":"action","id":"first","label":"First","action":{"kind":"toggle-state","state":"armed"}},{"kind":"action","id":"second","label":"Second","action":{"kind":"toggle-state","state":"armed"}}]}}}"#;
 
+    const REMOVE_LAST_FOCUSED_ACTION: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"FocusRemoval","states":[{"name":"visible","initial":true}],"root":{"kind":"window","id":"root","title":"Focus Removal","child":{"kind":"column","id":"actions","children":[{"kind":"action","id":"stable","label":"Stable","action":{"kind":"toggle-state","state":"visible"}},{"kind":"conditional","id":"branch","condition":{"kind":"state","state":"visible"},"then":[{"kind":"action","id":"remove","label":"Remove","action":{"kind":"toggle-state","state":"visible"}}],"otherwise":[]}]}}}"#;
+
     fn pressed_key(logical: LogicalKey) -> InputEvent {
         InputEvent::Key {
             logical,
@@ -2122,7 +2145,7 @@ mod tests {
         runtime
             .activate_focused()
             .expect("collapsed action toggles state");
-        assert_eq!(runtime.focused_action(), None);
+        assert_eq!(runtime.focused_action(), Some("expanded-action"));
         assert_eq!(
             runtime
                 .retained_tree()
@@ -2147,6 +2170,7 @@ mod tests {
         );
 
         let expanded = runtime.build_frame(320.0, 200.0).expect("expanded frame");
+        assert_eq!(expanded.accessibility.focus_id.as_deref(), Some("expanded-action"));
         assert_eq!(
             expanded.accessibility.node("root").unwrap().children,
             vec!["expanded-action"]
@@ -2162,6 +2186,25 @@ mod tests {
         );
         assert!(runtime.focus_action("expanded-action"));
         assert!(!runtime.focus_action("collapsed-action"));
+    }
+
+    #[test]
+    fn focused_removal_falls_back_to_previous_action_when_no_same_slot_remains() {
+        let mut runtime =
+            Runtime::from_json(REMOVE_LAST_FOCUSED_ACTION).expect("valid focus removal program");
+        assert!(runtime.focus_action("remove"));
+
+        runtime
+            .activate_focused()
+            .expect("focused removal action toggles state");
+
+        assert_eq!(runtime.focused_action(), Some("stable"));
+        let tree = runtime
+            .build_accessibility_tree(320.0, 200.0)
+            .expect("accessibility tree after focus removal");
+        assert_eq!(tree.focus_id.as_deref(), Some("stable"));
+        assert!(tree.node("remove").is_none());
+        assert!(tree.node("stable").expect("stable action").focused);
     }
 
     const STRUCTURAL_FLIP: &str = r##"{
