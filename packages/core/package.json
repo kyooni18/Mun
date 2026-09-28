@@ -1,7 +1,7 @@
 {
-  "name": "@vune-ui/core",
+  "name": "@mun/core",
   "version": "0.1.20",
-  "description": "Renderer-independent Vune View graph and state primitives.",
+  "description": "Backend-neutral Mün semantics, motion values, and Semantic UI IR.",
   "type": "module",
   "files": [
     "dist"
@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./compat": {
+      "types": "./dist/compat.d.ts",
+      "import": "./dist/compat.js"
     },
     "./internal/motion-abi": {
       "types": "./dist/motion-abi.d.ts",
@@ -40,7 +44,7 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@vune-ui/execution": "workspace:*"
+    "@mun/execution": "workspace:*"
   },
   "sideEffects": false,
   "publishConfig": {

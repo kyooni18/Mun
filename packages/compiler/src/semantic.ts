@@ -1,14 +1,10 @@
 import * as ts from "typescript"
-import * as Core from "@vune-ui/core"
+import * as Core from "@mun/core/compat"
 import {
   SemanticModel,
   resolveSemanticCall,
-  semanticHtmlAttributeSpec,
-  semanticHtmlTagSpec,
   type SemanticBuilderTypeSymbol,
   type SemanticForeignComponentTypeSymbol,
-  type SemanticHtmlAttributeSymbol,
-  type SemanticHtmlElementSymbol,
   type SemanticInitializerParameter,
   type SemanticInitializerSymbol,
   type SemanticArgument,
@@ -16,118 +12,100 @@ import {
   type SemanticStateSymbol,
   type SemanticSymbol,
   type SemanticViewTypeSymbol,
-} from "@vune-ui/core"
+} from "@mun/core/compat"
 import {
-  parseVuneBuilder,
-  parseVuneStructs,
-  type VuneBuilderNode,
-  type VuneBuilderProgram,
-  type VuneStructDeclaration,
-  type VuneSourceRange,
+  parseMunBuilder,
+  parseMunStructs,
+  type MunBuilderNode,
+  type MunBuilderProgram,
+  type MunStructDeclaration,
+  type MunSourceRange,
 } from "./ast.js"
-import { createVuneSourceMap, mapGeneratedPosition, type VuneSourcePosition } from "./source-map.js"
+import { createMunSourceMap, mapGeneratedPosition, type MunSourcePosition } from "./source-map.js"
 
-export interface VuneSemanticInitializer {
+export interface MunSemanticInitializer {
   readonly index: number
   readonly signature: string
   readonly parametersSource: string
   readonly parameters: readonly SemanticInitializerParameter[]
   readonly symbol: SemanticInitializerSymbol
-  readonly range: VuneSourceRange
+  readonly range: MunSourceRange
+  readonly synthesized?: "memberwise"
 }
 
-export interface VuneSemanticField {
+export interface MunSemanticField {
   readonly name: string
-  readonly kind: VuneStructDeclaration["fields"][number]["kind"]
+  readonly kind: MunStructDeclaration["fields"][number]["kind"]
   readonly type?: string
   readonly initializer?: string
-  readonly range: VuneSourceRange
+  readonly range: MunSourceRange
 }
 
-export interface VuneSemanticView {
+export interface MunSemanticView {
   readonly name: string
   readonly qualifiedName: string
   readonly genericParameters?: string
-  readonly fields: readonly VuneSemanticField[]
-  readonly initializers: readonly VuneSemanticInitializer[]
+  readonly fields: readonly MunSemanticField[]
+  readonly initializers: readonly MunSemanticInitializer[]
   readonly symbol: SemanticViewTypeSymbol
-  readonly bodyRange: VuneSourceRange
-  readonly range: VuneSourceRange
+  readonly bodyRange: MunSourceRange
+  readonly range: MunSourceRange
 }
 
-export interface VuneSemanticCall {
+export interface MunSemanticCall {
   readonly callee: string
   readonly arguments: readonly {
     readonly label?: string
     readonly kind: "expression" | "closure"
     readonly source: string
-    readonly range: VuneSourceRange
+    readonly range: MunSourceRange
   }[]
   readonly trailingClosure: boolean
-  readonly range: VuneSourceRange
+  readonly range: MunSourceRange
   /** The shared semantic answer consumed by compiler and IDE clients. */
   readonly resolution: SemanticCallResolution
 }
 
-export interface VuneSemanticImport {
+export interface MunSemanticImport {
   readonly module: string
-  readonly range: VuneSourceRange
+  readonly range: MunSourceRange
 }
 
-export interface VuneSemanticHtmlElement {
-  readonly tag: string
-  readonly attributes: readonly string[]
-  readonly attributeSymbols: readonly SemanticHtmlAttributeSymbol[]
-  readonly symbol: SemanticHtmlElementSymbol
-  /** Range mapped back to the original Vune source. */
-  readonly range: VuneSourceRange
-  /** Range in the lowered TypeScript snapshot. */
-  readonly generatedRange: VuneSourceRange
-}
 
-export interface VuneSemanticHtmlDiagnostic {
-  readonly code: "VUNE_HTML_ATTRIBUTE" | "VUNE_HTML_VALUE"
-  readonly message: string
-  readonly range: VuneSourceRange
-  readonly generatedRange: VuneSourceRange
-}
-
-export interface VuneSemanticForeignComponent {
+export interface MunSemanticForeignComponent {
   readonly localName: string
   readonly module: string
-  /** Range mapped back to the original Vune source. */
-  readonly range: VuneSourceRange
-  readonly generatedRange: VuneSourceRange
+  /** Range mapped back to the original Mün source. */
+  readonly range: MunSourceRange
+  readonly generatedRange: MunSourceRange
   readonly symbol: SemanticForeignComponentTypeSymbol
 }
 
 /**
- * Shared compiler/editor view of a Vune file.
+ * Shared compiler/editor view of a Mun file.
  *
- * Vune-only declarations and builder blocks stay in the Vune AST. Normal
+ * Mun-only declarations and builder blocks stay in the Mun AST. Normal
  * imports, expressions, types, and diagnostics are represented by the
  * TypeScript SourceFile produced from the lowered snapshot.
  */
-export interface VuneSemanticModel {
-  readonly kind: "VuneSemanticModel"
+export interface MunSemanticModel {
+  readonly kind: "MunSemanticModel"
   readonly fileName: string
   readonly source: string
   readonly generatedSource: string
   readonly typescript: ts.SourceFile
   readonly typeChecker: ts.TypeChecker
   readonly typescriptDiagnostics: readonly ts.Diagnostic[]
-  readonly htmlDiagnostics: readonly VuneSemanticHtmlDiagnostic[]
-  readonly structs: readonly VuneStructDeclaration[]
-  readonly views: readonly VuneSemanticView[]
-  readonly builderPrograms: readonly VuneBuilderProgram[]
-  readonly calls: readonly VuneSemanticCall[]
-  readonly imports: readonly VuneSemanticImport[]
-  readonly htmlElements: readonly VuneSemanticHtmlElement[]
-  readonly foreignComponents: readonly VuneSemanticForeignComponent[]
+  readonly structs: readonly MunStructDeclaration[]
+  readonly views: readonly MunSemanticView[]
+  readonly builderPrograms: readonly MunBuilderProgram[]
+  readonly calls: readonly MunSemanticCall[]
+  readonly imports: readonly MunSemanticImport[]
+  readonly foreignComponents: readonly MunSemanticForeignComponent[]
   /** Canonical symbol table shared with runtime ViewType metadata. */
   readonly symbolTable: SemanticModel
   readonly symbols: readonly SemanticSymbol[]
-  view(name: string): VuneSemanticView | undefined
+  view(name: string): MunSemanticView | undefined
   symbol(name: string): SemanticSymbol | undefined
 }
 
@@ -226,27 +204,75 @@ function semanticInitializerParameters(source: string): readonly SemanticInitial
   })
 }
 
-function flattenStructs(structs: readonly VuneStructDeclaration[], prefix = ""): VuneSemanticView[] {
-  const result: VuneSemanticView[] = []
+function synthesizedMemberwiseInitializer(declaration: MunStructDeclaration): MunSemanticInitializer {
+  const constructorFields = declaration.fields.filter(field => field.kind !== "state")
+  const parameters: SemanticInitializerParameter[] = constructorFields.map(field => ({
+    name: field.name,
+    label: field.name,
+    labelRequired: true,
+    kind: field.kind === "binding" ? "binding" : "value",
+    required: field.initializer === undefined,
+    type: field.kind === "binding" && field.type ? `Binding<${field.type}>` : field.type,
+  }))
+  const parametersSource = constructorFields.map((field, index) => {
+    const parameter = parameters[index]
+    const binding = field.kind === "binding" ? "@Binding " : ""
+    const type = parameter.type ? `: ${parameter.type}` : ""
+    const fallback = field.initializer === undefined ? "" : ` = ${field.initializer}`
+    return `${binding}${field.name}${type}${fallback}`
+  }).join(", ")
+  const signature = `${declaration.name}(${parametersSource})`
+  const symbol: SemanticInitializerSymbol = {
+    kind: "initializer",
+    index: 0,
+    signature,
+    parameters,
+  }
+  return {
+    index: 0,
+    signature,
+    parametersSource,
+    parameters,
+    symbol,
+    range: declaration.range,
+    synthesized: "memberwise",
+  }
+}
+
+/**
+ * Build the canonical semantic View symbols for parsed source structs.
+ *
+ * A struct without an explicit init receives the same synthesized memberwise
+ * initializer contract used by native lowering and language-service call
+ * resolution. @State storage is identity-owned and therefore not an initializer
+ * argument; @Binding remains an explicit binding input.
+ */
+export function semanticViewsForStructs(
+  structs: readonly MunStructDeclaration[],
+  prefix = "",
+): MunSemanticView[] {
+  const result: MunSemanticView[] = []
   for (const declaration of structs) {
     const qualifiedName = prefix ? `${prefix}.${declaration.name}` : declaration.name
-    const initializers = declaration.initializers.map((initializer, index) => {
-      const parameters = semanticInitializerParameters(initializer.parametersSource)
-      const symbol: SemanticInitializerSymbol = {
-        kind: "initializer",
-        index,
-        signature: `${declaration.name}(${initializer.parametersSource.trim()})`,
-        parameters,
-      }
-      return {
-        index,
-        signature: symbol.signature,
-        parametersSource: initializer.parametersSource,
-        parameters,
-        symbol,
-        range: initializer.range,
-      }
-    })
+    const initializers = declaration.initializers.length > 0
+      ? declaration.initializers.map((initializer, index) => {
+          const parameters = semanticInitializerParameters(initializer.parametersSource)
+          const symbol: SemanticInitializerSymbol = {
+            kind: "initializer",
+            index,
+            signature: `${declaration.name}(${initializer.parametersSource.trim()})`,
+            parameters,
+          }
+          return {
+            index,
+            signature: symbol.signature,
+            parametersSource: initializer.parametersSource,
+            parameters,
+            symbol,
+            range: initializer.range,
+          }
+        })
+      : [synthesizedMemberwiseInitializer(declaration)]
     const fields = declaration.fields.map(field => ({
       name: field.name,
       kind: field.kind,
@@ -272,13 +298,13 @@ function flattenStructs(structs: readonly VuneStructDeclaration[], prefix = ""):
       bodyRange: declaration.bodyExpressionRange,
       range: declaration.range,
     })
-    result.push(...flattenStructs(declaration.nested ?? [], qualifiedName))
+    result.push(...semanticViewsForStructs(declaration.nested ?? [], qualifiedName))
   }
   return result
 }
 
-function collectCalls(program: VuneBuilderProgram, output: VuneSemanticCall[]): void {
-  const visit = (node: VuneBuilderNode): void => {
+function collectCalls(program: MunBuilderProgram, output: MunSemanticCall[]): void {
+  const visit = (node: MunBuilderNode): void => {
     if (node.kind === "call") {
       output.push({
         callee: node.callee,
@@ -319,17 +345,24 @@ function runtimeViewSymbols(): Map<string, SemanticViewTypeSymbol> {
   return result
 }
 
-function canonicalViewSymbols(): Map<string, SemanticViewTypeSymbol> {
+export function canonicalViewSymbols(): Map<string, SemanticViewTypeSymbol> {
   const result = runtimeViewSymbols()
-  // Keep IDE/diagnostic resolution on the same SDK-audited source contract as
-  // the compiler. Runtime ViewTypes may intentionally expose extra JavaScript
-  // compatibility overloads, but those must not leak back into SwiftUI-style
-  // authoring or override trailing-closure roles from the manifest.
+  // The canonical language manifest must be sufficient on its own. @mun/core
+  // intentionally excludes legacy runtime View constructors, so runtime metadata
+  // can enrich a symbol when present but can never be required for source semantics.
   for (const name of Core.swiftUIViewNames()) {
     const initializers = Core.swiftUIInitializerSymbols(name)
+    if (!initializers) continue
     const runtime = result.get(name)
-    if (!initializers || !runtime) continue
-    result.set(name, { ...runtime, initializers })
+    result.set(name, runtime
+      ? { ...runtime, initializers }
+      : {
+          kind: "view",
+          name,
+          qualifiedName: name,
+          fields: [],
+          initializers,
+        })
   }
   return result
 }
@@ -351,7 +384,7 @@ function checkerTypeForExpression(source: string, checker: ts.TypeChecker, sourc
   try {
     const type = checker.getTypeAtLocation(candidate)
     if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) return undefined
-    // `const label = "x"` has the literal type `"x"`, but a normal Vune
+    // `const label = "x"` has the literal type `"x"`, but a normal Mun
     // initializer accepting `string` must still accept it. Preserve literal
     // precision in TypeScript itself while normalizing the compiler-facing
     // semantic category used for overload matching.
@@ -368,7 +401,7 @@ function checkerTypeForExpression(source: string, checker: ts.TypeChecker, sourc
     return primitiveCategory(type) ?? checker.typeToString(type)
   } catch {
     // Type inference is an optional refinement for semantic overload scoring.
-    // Generated Vune expressions can occasionally drive TypeScript's
+    // Generated Mun expressions can occasionally drive TypeScript's
     // contextual-type machinery into an internal error; preserve compilation
     // by falling back to the declared/unknown semantic type instead.
     return undefined
@@ -407,11 +440,11 @@ function compilerSemanticArgument(
 }
 
 function resolvedCalls(
-  calls: readonly VuneSemanticCall[],
-  views: readonly VuneSemanticView[],
+  calls: readonly MunSemanticCall[],
+  views: readonly MunSemanticView[],
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
-): VuneSemanticCall[] {
+): MunSemanticCall[] {
   const runtimeSymbols = runtimeViewSymbols()
   const canonicalSymbols = canonicalViewSymbols()
   for (const view of views) {
@@ -435,18 +468,18 @@ function resolvedCalls(
   })
 }
 
-function builderProgramsFor(source: string, structs: readonly VuneStructDeclaration[]): VuneBuilderProgram[] {
-  const programs: VuneBuilderProgram[] = []
+function builderProgramsFor(source: string, structs: readonly MunStructDeclaration[]): MunBuilderProgram[] {
+  const programs: MunBuilderProgram[] = []
   const seen = new Set<string>()
-  const add = (value: VuneBuilderProgram): void => {
+  const add = (value: MunBuilderProgram): void => {
     const key = `${value.range.start}:${value.range.end}`
     if (seen.has(key)) return
     seen.add(key)
     programs.push(value)
   }
-  const visit = (declarations: readonly VuneStructDeclaration[]): void => {
+  const visit = (declarations: readonly MunStructDeclaration[]): void => {
     for (const declaration of declarations) {
-      add(parseVuneBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start))
+      add(parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start))
       visit(declaration.nested ?? [])
     }
   }
@@ -458,14 +491,14 @@ function builderProgramsFor(source: string, structs: readonly VuneStructDeclarat
     for (const declaration of [...structs].sort((left, right) => right.range.start - left.range.start)) {
       masked = masked.slice(0, declaration.range.start) + " ".repeat(declaration.range.end - declaration.range.start) + masked.slice(declaration.range.end)
     }
-    add(parseVuneBuilder(masked))
+    add(parseMunBuilder(masked))
   }
   visit(structs)
-  if (programs.length === 0 && /\b[A-Z][A-Za-z0-9_$]*\s*\(/.test(source)) add(parseVuneBuilder(source))
+  if (programs.length === 0 && /\b[A-Z][A-Za-z0-9_$]*\s*\(/.test(source)) add(parseMunBuilder(source))
   return programs
 }
 
-function importsOf(source: string, generatedSource: string, sourceFile: ts.SourceFile, sourceMap: ReturnType<typeof createVuneSourceMap>): VuneSemanticImport[] {
+function importsOf(source: string, generatedSource: string, sourceFile: ts.SourceFile, sourceMap: ReturnType<typeof createMunSourceMap>): MunSemanticImport[] {
   return sourceFile.statements.flatMap(statement => {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) return []
     const generatedRange = { start: statement.getStart(sourceFile), end: statement.end }
@@ -476,66 +509,22 @@ function importsOf(source: string, generatedSource: string, sourceFile: ts.Sourc
   })
 }
 
-function propertyName(property: ts.PropertyName | undefined): string | undefined {
-  if (!property) return undefined
-  if (ts.isIdentifier(property) || ts.isStringLiteral(property) || ts.isNumericLiteral(property)) return property.text
-  return undefined
-}
 
-function objectPropertyName(property: ts.ObjectLiteralElementLike): string | undefined {
-  if (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property) || ts.isMethodDeclaration(property)) {
-    return propertyName(property.name)
-  }
-  return undefined
-}
-
-function expressionValueType(expression: ts.Expression, checker: ts.TypeChecker): string | undefined {
-  if (ts.isStringLiteralLike(expression)) return "string"
-  if (ts.isNumericLiteral(expression)) return "number"
-  if (expression.kind === ts.SyntaxKind.TrueKeyword || expression.kind === ts.SyntaxKind.FalseKeyword) return "boolean"
-  if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return "event"
-  try {
-    const type = checker.getTypeAtLocation(expression)
-    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) return undefined
-    if (type.flags & (ts.TypeFlags.String | ts.TypeFlags.StringLiteral)) return "string"
-    if (type.flags & (ts.TypeFlags.Number | ts.TypeFlags.NumberLiteral)) return "number"
-    if (type.flags & (ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral)) return "boolean"
-    if (type.getCallSignatures().length > 0) return "event"
-    return undefined
-  } catch {
-    return undefined
-  }
-}
-
-function acceptsHtmlValue(
-  spec: ReturnType<typeof semanticHtmlAttributeSpec>,
-  valueType: string | undefined,
-  expression: ts.Expression | undefined,
-): boolean {
-  if (!spec || !valueType || spec.type === "unknown") return true
-  if (spec.type === "event") return valueType === "event"
-  if (spec.type === "string | number") return valueType === "string" || valueType === "number"
-  if (spec.type === "string | number | boolean") return ["string", "number", "boolean"].includes(valueType)
-  if (spec.values && expression && ts.isStringLiteralLike(expression)) return spec.values.includes(expression.text)
-  if (spec.type === valueType) return true
-  return false
-}
-
-function positionAt(source: string, offset: number): VuneSourcePosition {
+function positionAt(source: string, offset: number): MunSourcePosition {
   const bounded = Math.max(0, Math.min(source.length, offset))
   const prefix = source.slice(0, bounded)
   const line = prefix.split("\n")
   return { line: line.length, column: (line[line.length - 1]?.length ?? 0) + 1 }
 }
 
-function offsetAt(source: string, position: VuneSourcePosition): number {
+function offsetAt(source: string, position: MunSourcePosition): number {
   const lines = source.split("\n")
   const line = Math.max(1, Math.min(lines.length, position.line))
   const offset = lines.slice(0, line - 1).reduce((sum, value) => sum + value.length + 1, 0)
   return Math.min(source.length, offset + Math.max(0, position.column - 1))
 }
 
-function mapRange(source: string, generatedSource: string, map: ReturnType<typeof createVuneSourceMap>, generatedRange: VuneSourceRange): VuneSourceRange {
+function mapRange(source: string, generatedSource: string, map: ReturnType<typeof createMunSourceMap>, generatedRange: MunSourceRange): MunSourceRange {
   const start = mapGeneratedPosition(map, positionAt(generatedSource, generatedRange.start))
   const end = mapGeneratedPosition(map, positionAt(generatedSource, generatedRange.end))
   return { start: offsetAt(source, start), end: Math.max(offsetAt(source, start), offsetAt(source, end)) }
@@ -560,7 +549,7 @@ function matchingDelimiter(source: string, open: number, opener: string, closer:
   return source.length - 1
 }
 
-function originalCallRange(source: string, name: string): VuneSourceRange | undefined {
+function originalCallRange(source: string, name: string): MunSourceRange | undefined {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const expression = new RegExp(`\\b${escaped}\\s*\\(`, "g")
   const match = expression.exec(source)
@@ -571,62 +560,31 @@ function originalCallRange(source: string, name: string): VuneSourceRange | unde
   return { start: match.index, end: Math.min(source.length, close + 1) }
 }
 
-function originalElementRange(source: string, tag: string, from: number): { readonly range: VuneSourceRange; readonly next: number } | undefined {
-  const rawStart = source.indexOf("<" + tag, from)
-  const rawBoundary = rawStart < 0 ? undefined : source[rawStart + tag.length + 1]
-  const validRawStart = rawStart >= 0 && rawBoundary !== undefined && (rawBoundary === " " || rawBoundary === "\t" || rawBoundary === "/" || rawBoundary === ">") ? rawStart : -1
-  const callStart = source.indexOf("Element(", from)
-  if (validRawStart >= 0 && (callStart < 0 || validRawStart < callStart)) {
-    const openingEnd = source.indexOf(">", validRawStart)
-    if (openingEnd < 0) return { range: { start: validRawStart, end: source.length }, next: source.length }
-    const closingStart = source.indexOf("</" + tag, openingEnd + 1)
-    const closingEnd = closingStart >= 0 ? source.indexOf(">", closingStart) : -1
-    const end = closingEnd >= 0 ? closingEnd + 1 : openingEnd + 1
-    return { range: { start: validRawStart, end: Math.max(openingEnd + 1, end) }, next: Math.max(openingEnd + 1, end) }
-  }
-  if (callStart >= 0) {
-    const close = matchingDelimiter(source, callStart + "Element".length, "(", ")")
-    return { range: { start: callStart, end: Math.min(source.length, close + 1) }, next: Math.min(source.length, close + 1) }
-  }
-  return undefined
-}
 
 function typescriptGraphSymbols(
   source: string,
   generatedSource: string,
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker,
-  sourceMap: ReturnType<typeof createVuneSourceMap>,
+  sourceMap: ReturnType<typeof createMunSourceMap>,
 ): {
-  readonly htmlElements: VuneSemanticHtmlElement[]
-  readonly htmlDiagnostics: VuneSemanticHtmlDiagnostic[]
-  readonly foreignComponents: VuneSemanticForeignComponent[]
+  readonly foreignComponents: MunSemanticForeignComponent[]
 } {
-  const htmlElements: VuneSemanticHtmlElement[] = []
-  const htmlDiagnostics: VuneSemanticHtmlDiagnostic[] = []
-  const foreignComponents: VuneSemanticForeignComponent[] = []
+  const foreignComponents: MunSemanticForeignComponent[] = []
   const vueImports = new Map<string, string>()
   const reactImports = new Map<string, string>()
-  let elementCursor = 0
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
     const module = statement.moduleSpecifier.text
-    if (!/\.vue$/i.test(module) || !statement.importClause?.name) continue
-    vueImports.set(statement.importClause.name.text, module)
-  }
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
-    const module = statement.moduleSpecifier.text
-    if (!/\.(?:tsx|jsx)$/i.test(module) || !statement.importClause?.name) continue
-    reactImports.set(statement.importClause.name.text, module)
+    if (/\.vue$/i.test(module) && statement.importClause?.name) vueImports.set(statement.importClause.name.text, module)
+    if (/\.(?:tsx|jsx)$/i.test(module) && statement.importClause?.name) reactImports.set(statement.importClause.name.text, module)
   }
 
   const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && ts.isCallExpression(node.initializer)) {
       const expression = node.initializer.expression
       const argument = node.initializer.arguments[0]
-      if (ts.isIdentifier(expression) && /^(?:__vuneForeignComponent|__vuneVueComponent|__vuneReactComponent)/.test(expression.text) && ts.isIdentifier(argument)) {
-        const isReact = expression.text === "__vuneReactComponent"
+      if (ts.isIdentifier(expression) && /^(?:__munForeignComponent|__munVueComponent|__munReactComponent)/.test(expression.text) && ts.isIdentifier(argument)) {
+        const isReact = expression.text === "__munReactComponent"
         const module = (isReact ? reactImports : vueImports).get(argument.text)
         if (module) {
           const generatedRange = { start: node.getStart(sourceFile), end: node.end }
@@ -639,90 +597,16 @@ function typescriptGraphSymbols(
               kind: "foreign-component",
               localName: node.name.text,
               module,
-              rendererAdapter: isReact ? "@vune-ui/react" : "@vune-ui/vue",
+              rendererAdapter: isReact ? "@mun/react" : "@mun/vue",
             },
           })
         }
       }
     }
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "Element") {
-      const tag = node.arguments[0]
-      if (tag && ts.isStringLiteral(tag)) {
-        const props = node.arguments[1]
-        const generatedRange = { start: node.getStart(sourceFile), end: node.end }
-        const original = originalElementRange(source, tag.text, elementCursor)
-        const attributes = props && ts.isObjectLiteralExpression(props)
-          ? props.properties.flatMap(property => {
-              if (ts.isSpreadAssignment(property)) return ["..."]
-              return objectPropertyName(property) ?? []
-            })
-          : []
-        const attributeSymbols: SemanticHtmlAttributeSymbol[] = []
-        if (props && ts.isObjectLiteralExpression(props)) {
-          for (const property of props.properties) {
-            if (ts.isSpreadAssignment(property)) {
-              attributeSymbols.push({ name: "...", category: "custom", type: "unknown" })
-              continue
-            }
-            const name = objectPropertyName(property)
-            if (!name) continue
-            const expression = ts.isPropertyAssignment(property)
-              ? property.initializer
-              : ts.isShorthandPropertyAssignment(property)
-                ? property.objectAssignmentInitializer
-                : undefined
-            const spec = semanticHtmlAttributeSpec(tag.text, name)
-            const valueType = ts.isMethodDeclaration(property)
-              ? "event"
-              : expression
-                ? expressionValueType(expression, checker)
-                : undefined
-            attributeSymbols.push({ name, category: spec?.category ?? "custom", type: spec?.type ?? "unknown", valueType })
-            const generatedAttributeRange = { start: property.getStart(sourceFile), end: property.end }
-            const diagnosticRange = mapRange(source, generatedSource, sourceMap, generatedAttributeRange)
-            if (!spec) {
-              htmlDiagnostics.push({
-                code: "VUNE_HTML_ATTRIBUTE",
-                message: `Unknown attribute \"${name}\" on <${tag.text}>.`,
-                range: diagnosticRange,
-                generatedRange: generatedAttributeRange,
-              })
-              continue
-            }
-            if (!acceptsHtmlValue(spec, valueType, expression)) {
-              const expected = spec.values?.length ? spec.values.map(value => `\"${value}\"`).join(" | ") : spec.type
-              htmlDiagnostics.push({
-                code: "VUNE_HTML_VALUE",
-                message: `Attribute \"${name}\" on <${tag.text}> expects ${expected}.`,
-                range: diagnosticRange,
-                generatedRange: generatedAttributeRange,
-              })
-            }
-          }
-        }
-        const tagSpec = semanticHtmlTagSpec(tag.text)
-        const symbol: SemanticHtmlElementSymbol = {
-          kind: "html-element",
-          name: `Element#${generatedRange.start}`,
-          tag: tag.text,
-          custom: tagSpec.custom,
-          attributes: attributeSymbols,
-        }
-        htmlElements.push({
-          tag: tag.text,
-          attributes,
-          attributeSymbols,
-          symbol,
-          range: original?.range ?? mapRange(source, generatedSource, sourceMap, generatedRange),
-          generatedRange,
-        })
-        if (original) elementCursor = original.next
-      }
-    }
     ts.forEachChild(node, visit)
   }
   visit(sourceFile)
-  return { htmlElements, htmlDiagnostics, foreignComponents }
+  return { foreignComponents }
 }
 
 function typescriptSnapshot(fileName: string, source: string): {
@@ -759,17 +643,17 @@ function typescriptSnapshot(fileName: string, source: string): {
   }
 }
 
-export function createSemanticModel(source: string, fileName: string, generatedSource: string): VuneSemanticModel {
+export function createSemanticModel(source: string, fileName: string, generatedSource: string): MunSemanticModel {
   const snapshot = typescriptSnapshot(fileName, generatedSource)
   const typescript = snapshot.sourceFile
-  const structs = parseVuneStructs(source)
+  const structs = parseMunStructs(source)
   const builderPrograms = builderProgramsFor(source, structs)
-  const collectedCalls: VuneSemanticCall[] = []
+  const collectedCalls: MunSemanticCall[] = []
   for (const program of builderPrograms) collectCalls(program, collectedCalls)
-  const views = flattenStructs(structs)
+  const views = semanticViewsForStructs(structs)
   const calls = resolvedCalls(collectedCalls, views, snapshot.checker, typescript)
-  const sourceMap = createVuneSourceMap(source, generatedSource, fileName)
-  const graphSymbols = typescriptGraphSymbols(source, generatedSource, typescript, snapshot.checker, sourceMap)
+  const sourceMap = createMunSourceMap(source, generatedSource, fileName)
+  const graphSymbols = typescriptGraphSymbols(source, generatedSource, typescript, sourceMap)
   const symbolTable = new SemanticModel()
   for (const view of canonicalViewSymbols().values()) {
     symbolTable.register(view)
@@ -790,22 +674,19 @@ export function createSemanticModel(source: string, fileName: string, generatedS
     operations: ["buildBlock", "buildOptional", "buildEither", "buildArray"],
   } satisfies SemanticBuilderTypeSymbol)
   for (const foreign of graphSymbols.foreignComponents) symbolTable.register(foreign.symbol)
-  for (const element of graphSymbols.htmlElements) symbolTable.register(element.symbol)
   return {
-    kind: "VuneSemanticModel",
+    kind: "MunSemanticModel",
     fileName,
     source,
     generatedSource,
     typescript,
     typeChecker: snapshot.checker,
     typescriptDiagnostics: snapshot.diagnostics,
-    htmlDiagnostics: graphSymbols.htmlDiagnostics,
     structs,
     views,
     builderPrograms,
     calls,
     imports: importsOf(source, generatedSource, typescript, sourceMap),
-    htmlElements: graphSymbols.htmlElements,
     foreignComponents: graphSymbols.foreignComponents,
     symbolTable,
     symbols: symbolTable.values(),

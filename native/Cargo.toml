@@ -1,0 +1,21 @@
+[workspace]
+members = ["mun-runtime", "mun-native"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+accesskit = "0.25.1"
+accesskit_winit = "0.34.1"
+bytemuck = { version = "1.24", features = ["derive"] }
+glyphon = "0.12"
+pollster = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+taffy = "0.14"
+thiserror = "2.0"
+wgpu = "30.0"
+winit = "0.30"

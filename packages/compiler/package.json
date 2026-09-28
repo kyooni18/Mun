@@ -1,7 +1,7 @@
 {
-  "name": "@vune-ui/compiler",
+  "name": "@mun/compiler",
   "version": "0.1.20",
-  "description": "TypeScript-hosted compiler for Vune builder and .vune/.vune.ts syntax.",
+  "description": "Compiler for canonical .mun source and Mün Semantic UI IR.",
   "type": "module",
   "files": [
     "dist"
@@ -20,8 +20,9 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@vune-ui/core": "workspace:*",
-    "@vune-ui/execution": "workspace:*",
+    "@mun/animation": "workspace:*",
+    "@mun/core": "workspace:*",
+    "@mun/execution": "workspace:*",
     "typescript": "^5.8.3"
   },
   "sideEffects": false,

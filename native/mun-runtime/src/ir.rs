@@ -1,0 +1,336 @@
+use serde::Deserialize;
+use serde_json::Value;
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind")]
+pub enum UiExpression {
+    #[serde(rename = "literal")]
+    Literal { value: Value },
+    #[serde(rename = "state")]
+    State { state: String },
+    #[serde(rename = "not")]
+    Not { value: Box<UiExpression> },
+    #[serde(rename = "conditional")]
+    Conditional {
+        condition: Box<UiExpression>,
+        #[serde(rename = "then")]
+        then_value: Box<UiExpression>,
+        otherwise: Box<UiExpression>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiState {
+    pub name: String,
+    pub initial: Value,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AccessibilityRole {
+    Window,
+    Group,
+    Text,
+    Button,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessibilitySemantics {
+    pub role: AccessibilityRole,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<UiExpression>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiAlignment {
+    Leading,
+    Center,
+    Trailing,
+    Stretch,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiLayout {
+    #[serde(default)]
+    pub width: Option<UiExpression>,
+    #[serde(default)]
+    pub height: Option<UiExpression>,
+    #[serde(default)]
+    pub padding: Option<f32>,
+    #[serde(default)]
+    pub spacing: Option<f32>,
+    #[serde(default)]
+    pub alignment: Option<UiAlignment>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiVisual {
+    #[serde(default)]
+    pub background: Option<String>,
+    #[serde(default)]
+    pub foreground: Option<String>,
+    #[serde(default)]
+    pub corner_radius: Option<f32>,
+    #[serde(default)]
+    pub opacity: Option<UiExpression>,
+    #[serde(default)]
+    pub translation_x: Option<UiExpression>,
+    #[serde(default)]
+    pub translation_y: Option<UiExpression>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum MotionProperty {
+    Opacity,
+    TranslationX,
+    TranslationY,
+    ScaleX,
+    ScaleY,
+    Rotation,
+    ForegroundColor,
+    BackgroundColor,
+    BorderColor,
+    Width,
+    Height,
+    MinWidth,
+    MinHeight,
+    MaxWidth,
+    MaxHeight,
+    PaddingTop,
+    PaddingRight,
+    PaddingBottom,
+    PaddingLeft,
+    MarginTop,
+    MarginRight,
+    MarginBottom,
+    MarginLeft,
+    RowGap,
+    ColumnGap,
+    FontSize,
+    LineHeight,
+    LetterSpacing,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind")]
+pub enum MotionExecutionPlan {
+    #[serde(rename = "spring")]
+    Spring {
+        omega: f32,
+        #[serde(rename = "dampingRatio")]
+        damping_ratio: f32,
+        #[serde(rename = "blendDuration")]
+        blend_duration: f32,
+        #[serde(rename = "delayMs")]
+        delay_ms: f32,
+        #[serde(rename = "repeatCount")]
+        repeat_count: Value,
+        autoreverses: bool,
+    },
+    #[serde(rename = "timing")]
+    Timing {
+        duration: f32,
+        curve: [f32; 4],
+        #[serde(rename = "delayMs")]
+        delay_ms: f32,
+        #[serde(rename = "repeatCount")]
+        repeat_count: Value,
+        autoreverses: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TransitionEdge {
+    Top,
+    Bottom,
+    Leading,
+    Trailing,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind")]
+pub enum TransitionEffect {
+    #[serde(rename = "opacity")]
+    Opacity,
+    #[serde(rename = "scale")]
+    Scale { scale: f32 },
+    #[serde(rename = "move")]
+    Move { edge: TransitionEdge, distance: f32 },
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiTransition {
+    #[serde(default)]
+    pub insertion: Vec<TransitionEffect>,
+    #[serde(default)]
+    pub removal: Vec<TransitionEffect>,
+    #[serde(default)]
+    pub animation: Option<MotionExecutionPlan>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiMotionBinding {
+    pub property: MotionProperty,
+    pub property_mask: u32,
+    pub value: UiExpression,
+    #[serde(default)]
+    pub trigger: Option<UiExpression>,
+    #[serde(default)]
+    pub plan: Option<MotionExecutionPlan>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiTransaction {
+    #[serde(default)]
+    pub animation: Option<MotionExecutionPlan>,
+    #[serde(default)]
+    pub disables_animations: bool,
+    #[serde(default)]
+    pub is_continuous: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind")]
+pub enum UiAction {
+    #[serde(rename = "toggle-state")]
+    ToggleState {
+        state: String,
+        #[serde(default)]
+        transaction: Option<UiTransaction>,
+    },
+    #[serde(rename = "set-state")]
+    SetState {
+        state: String,
+        value: UiExpression,
+        #[serde(default)]
+        transaction: Option<UiTransaction>,
+    },
+}
+
+impl UiAction {
+    pub fn transaction(&self) -> Option<&UiTransaction> {
+        match self {
+            Self::ToggleState { transaction, .. } | Self::SetState { transaction, .. } => {
+                transaction.as_ref()
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeBase {
+    pub id: String,
+    #[serde(default)]
+    pub layout: Option<UiLayout>,
+    #[serde(default)]
+    pub visual: Option<UiVisual>,
+    #[serde(default)]
+    pub accessibility: Option<AccessibilitySemantics>,
+    #[serde(default)]
+    pub motion: Vec<UiMotionBinding>,
+    #[serde(default)]
+    pub transition: Option<UiTransition>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind")]
+pub enum UiNode {
+    #[serde(rename = "column")]
+    Column {
+        #[serde(flatten)]
+        base: NodeBase,
+        children: Vec<UiNode>,
+    },
+    #[serde(rename = "row")]
+    Row {
+        #[serde(flatten)]
+        base: NodeBase,
+        children: Vec<UiNode>,
+    },
+    #[serde(rename = "conditional")]
+    Conditional {
+        #[serde(flatten)]
+        base: NodeBase,
+        condition: UiExpression,
+        #[serde(rename = "then")]
+        then_nodes: Vec<UiNode>,
+        #[serde(default)]
+        otherwise: Vec<UiNode>,
+    },
+    #[serde(rename = "text")]
+    Text {
+        #[serde(flatten)]
+        base: NodeBase,
+        value: UiExpression,
+    },
+    #[serde(rename = "panel")]
+    Panel {
+        #[serde(flatten)]
+        base: NodeBase,
+    },
+    #[serde(rename = "action")]
+    Action {
+        #[serde(flatten)]
+        base: NodeBase,
+        label: String,
+        action: UiAction,
+    },
+}
+
+impl UiNode {
+    pub fn base(&self) -> &NodeBase {
+        match self {
+            Self::Column { base, .. }
+            | Self::Row { base, .. }
+            | Self::Conditional { base, .. }
+            | Self::Text { base, .. }
+            | Self::Panel { base }
+            | Self::Action { base, .. } => base,
+        }
+    }
+
+    pub fn children(&self) -> &[UiNode] {
+        match self {
+            Self::Column { children, .. } | Self::Row { children, .. } => children,
+            _ => &[],
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiWindow {
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub layout: Option<UiLayout>,
+    #[serde(default)]
+    pub accessibility: Option<AccessibilitySemantics>,
+    pub child: UiNode,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiProgram {
+    pub version: u32,
+    pub source_language: String,
+    pub entry: String,
+    pub states: Vec<UiState>,
+    pub root: UiWindow,
+}

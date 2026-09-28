@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "sourceLanguage": "mun",
+  "entry": "NativeDemo",
+  "states": [
+    {
+      "name": "expanded",
+      "initial": false
+    }
+  ],
+  "root": {
+    "kind": "window",
+    "id": "window-root",
+    "title": "Mün",
+    "layout": {
+      "width": {
+        "kind": "literal",
+        "value": 640
+      },
+      "height": {
+        "kind": "literal",
+        "value": 420
+      }
+    },
+    "accessibility": {
+      "role": "window",
+      "label": "Mün"
+    },
+    "child": {
+      "kind": "column",
+      "id": "column-0",
+      "layout": {
+        "spacing": 16,
+        "padding": 24
+      },
+      "accessibility": {
+        "role": "group"
+      },
+      "children": [
+        {
+          "kind": "text",
+          "id": "text-1",
+          "value": {
+            "kind": "literal",
+            "value": "Mün"
+          },
+          "accessibility": {
+            "role": "text",
+            "label": "Mün"
+          }
+        },
+        {
+          "kind": "action",
+          "id": "action-2",
+          "label": "Toggle",
+          "action": {
+            "kind": "toggle-state",
+            "state": "expanded"
+          },
+          "accessibility": {
+            "role": "button",
+            "label": "Toggle"
+          }
+        },
+        {
+          "kind": "panel",
+          "id": "panel-3",
+          "layout": {
+            "width": {
+              "kind": "conditional",
+              "condition": {
+                "kind": "state",
+                "state": "expanded"
+              },
+              "then": {
+                "kind": "literal",
+                "value": 320
+              },
+              "otherwise": {
+                "kind": "literal",
+                "value": 160
+              }
+            },
+            "height": {
+              "kind": "literal",
+              "value": 96
+            }
+          },
+          "visual": {
+            "background": "#6750A4",
+            "cornerRadius": 18
+          },
+          "motion": [
+            {
+              "property": "width",
+              "propertyMask": 512,
+              "value": {
+                "kind": "conditional",
+                "condition": {
+                  "kind": "state",
+                  "state": "expanded"
+                },
+                "then": {
+                  "kind": "literal",
+                  "value": 320
+                },
+                "otherwise": {
+                  "kind": "literal",
+                  "value": 160
+                }
+              },
+              "trigger": {
+                "kind": "state",
+                "state": "expanded"
+              },
+              "plan": {
+                "kind": "spring",
+                "omega": 13.089969389957473,
+                "dampingRatio": 0.82,
+                "blendDuration": 0,
+                "delayMs": 0,
+                "repeatCount": 1,
+                "autoreverses": true
+              }
+            }
+          ]
+        },
+        {
+          "kind": "conditional",
+          "id": "conditional-4",
+          "condition": {
+            "kind": "state",
+            "state": "expanded"
+          },
+          "then": [
+            {
+              "kind": "text",
+              "id": "text-5",
+              "value": {
+                "kind": "literal",
+                "value": "Expanded"
+              },
+              "accessibility": {
+                "role": "text",
+                "label": "Expanded"
+              }
+            },
+            {
+              "kind": "text",
+              "id": "text-6",
+              "value": {
+                "kind": "literal",
+                "value": "Native conditional branches are live"
+              },
+              "accessibility": {
+                "role": "text",
+                "label": "Native conditional branches are live"
+              }
+            }
+          ],
+          "otherwise": [
+            {
+              "kind": "text",
+              "id": "text-7",
+              "value": {
+                "kind": "literal",
+                "value": "Collapsed"
+              },
+              "accessibility": {
+                "role": "text",
+                "label": "Collapsed"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

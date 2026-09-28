@@ -1,42 +1,27 @@
-export * from "./animation.js"
-export * from "./api-manifest.js"
-export * from "./closures.js"
-export * from "./content-transition.js"
-export * from "./controls.js"
-export * from "./advanced.js"
-export * from "./graph.js"
-export * from "./html.js"
-export * from "./identity.js"
-export * from "./layout.js"
-export * from "./presentation.js"
+/**
+ * Canonical backend-neutral Mün core.
+ *
+ * This surface describes language semantics, motion values, and Semantic UI IR.
+ * The historical TypeScript View graph lives at @mun/core/compat and is used by
+ * compatibility renderers while they migrate to direct Semantic UI IR lowering.
+ */
 export {
-  Action,
-  Binding,
-  State,
-  collectStateReads,
-  isBinding,
-  isStateRef,
-  resolveValue,
-  stateTransaction,
-  stateVersion,
-  subscribeState,
-} from "./state.js"
-export type { BindingRef, StateRef, Value } from "./state.js"
-export * from "./transition.js"
-export { VectorSymbol } from "./vector-symbol.js"
+  Animation,
+  Transaction,
+  currentTransaction,
+  snapshotTransaction,
+  swiftUIAnimationFactoryArgumentLabels,
+  withAnimation,
+  withTransaction,
+} from "./animation.js"
 export type {
-  LucideIconDataLike,
-  SVGIconAttributeValue,
-  SVGIconNode,
-  SVGIconOptions,
-  VectorSymbolDescriptor,
-  VectorSymbolLayer,
-  VectorSymbolOptions,
-} from "./vector-symbol.js"
+  AnimationDescriptor,
+  AnimationKind,
+  TransactionOptions,
+} from "./animation.js"
+export * from "./closures.js"
 export * from "./semantic.js"
-export * from "./views.js"
+export * from "./ui-ir.js"
 
-// SwiftUI TextEditor and animatable SVG Path are canonical authoring values.
-// Browser-only escape hatches stay on @vune-ui/core/web-primitives.
-export { Path, TextEditor } from "./web-primitives.js"
-export type { PathProps, TextEditorProps } from "./web-primitives.js"
+export { Transition } from "./transition.js"
+export type { TransitionDescriptor, TransitionEdge, TransitionEffect } from "./transition.js"

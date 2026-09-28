@@ -1,0 +1,15 @@
+[package]
+name = "mun-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+accesskit.workspace = true
+accesskit_winit.workspace = true
+bytemuck.workspace = true
+glyphon.workspace = true
+mun-runtime = { path = "../mun-runtime" }
+pollster.workspace = true
+wgpu.workspace = true
+winit.workspace = true

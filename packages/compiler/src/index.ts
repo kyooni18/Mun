@@ -1,41 +1,44 @@
-import { createVuneSourceMap } from "./source-map.js"
-import { createSemanticModel, type VuneSemanticModel } from "./semantic.js"
-import { transformVuneSource } from "./pipeline.js"
-import { diagnoseVuneSource } from "./diagnostics.js"
-import type { VuneLanguageService, VuneSourceMap, VuneTransformResult } from "./types.js"
+import { createMunSourceMap } from "./source-map.js"
+import { createSemanticModel, type MunSemanticModel } from "./semantic.js"
+import { transformMunSource } from "./pipeline.js"
+import { diagnoseMunSource } from "./diagnostics.js"
+import { analyzeMunSource, assertCanonicalMunSource } from "./analysis.js"
+import type { MunLanguageService, MunSourceMap, MunTransformResult } from "./types.js"
 
-export { transformVuneSource } from "./pipeline.js"
-export { diagnoseVuneSource } from "./diagnostics.js"
-export { createVuneVitePlugin } from "./vite.js"
+export { transformMunSource } from "./pipeline.js"
+export { diagnoseMunSource } from "./diagnostics.js"
+export { createMunVitePlugin } from "./vite.js"
 export { generateVueHostModule } from "./vue-host.js"
-export type { VuneVueHostGenerationOptions, VuneVueHostGenerationResult } from "./vue-host.js"
-export type { VuneDiagnostic, VuneLanguageService, VuneSourceMap, VuneTransformResult, VuneVitePluginOptions } from "./types.js"
+export { analyzeMunSource, assertCanonicalMunSource } from "./analysis.js"
+export type { MunSourceAnalysis } from "./analysis.js"
+export type { MunVueHostGenerationOptions, MunVueHostGenerationResult } from "./vue-host.js"
+export type { MunDiagnostic, MunLanguageService, MunSourceMap, MunTransformResult, MunVitePluginOptions } from "./types.js"
 
-export { lowerVuneBuilderAst, parseVuneBuilder, parseVuneStructs } from "./ast.js"
+export { lowerMunBuilderAst, parseMunBuilder, parseMunStructs } from "./ast.js"
+export { compileMunUiProgram } from "./ui-ir.js"
+export type { MunUiCompileOptions } from "./ui-ir.js"
 export type {
-  VuneArgument,
-  VuneAstLowering,
-  VuneBuilderNode,
-  VuneBuilderProgram,
-  VuneCallExpression,
-  VuneClosureExpression,
-  VuneConditionalExpression,
-  VuneRawExpression,
-  VuneSourceRange,
-  VuneStructDeclaration,
-  VuneStructField,
-  VuneStructInitializer,
+  MunArgument,
+  MunAstLowering,
+  MunBuilderNode,
+  MunBuilderProgram,
+  MunCallExpression,
+  MunClosureExpression,
+  MunConditionalExpression,
+  MunRawExpression,
+  MunSourceRange,
+  MunStructDeclaration,
+  MunStructField,
+  MunStructInitializer,
 } from "./ast.js"
 export type {
-  VuneSemanticCall,
-  VuneSemanticField,
-  VuneSemanticForeignComponent,
-  VuneSemanticHtmlDiagnostic,
-  VuneSemanticHtmlElement,
-  VuneSemanticImport,
-  VuneSemanticInitializer,
-  VuneSemanticModel,
-  VuneSemanticView,
+  MunSemanticCall,
+  MunSemanticField,
+  MunSemanticForeignComponent,
+  MunSemanticImport,
+  MunSemanticInitializer,
+  MunSemanticModel,
+  MunSemanticView,
 } from "./semantic.js"
 export type {
   SemanticArgument,
@@ -46,12 +49,6 @@ export type {
   SemanticBuilderTypeSymbol,
   SemanticFieldSymbol,
   SemanticForeignComponentTypeSymbol,
-  SemanticHtmlAttributeSpec,
-  SemanticHtmlAttributeSymbol,
-  SemanticHtmlElementSymbol,
-  SemanticHtmlTagSpec,
-  SemanticHtmlAttributeCategory,
-  SemanticHtmlAttributeValueType,
   SemanticInitializerParameter,
   SemanticInitializerParameterKind,
   SemanticInitializerResolution,
@@ -63,23 +60,26 @@ export type {
   SemanticStructSymbol,
   SemanticSymbol,
   SemanticViewTypeSymbol,
-} from "@vune-ui/core"
-export { resolveSemanticCall, resolveSemanticInitializer, SemanticModel, semanticHtmlAttributeNames, semanticHtmlAttributeSpec, semanticHtmlTagNames, semanticHtmlTagSpec } from "@vune-ui/core"
-export { mapGeneratedPosition, mapOriginalPosition } from "./source-map.js"
-export type { VuneSourceMapAnchor, VuneSourcePosition } from "./source-map.js"
+} from "@mun/core"
+export { resolveSemanticCall, resolveSemanticInitializer, SemanticModel } from "@mun/core"
+export { createMunSourceMap, mapGeneratedPosition, mapOriginalPosition } from "./source-map.js"
+export type { MunSourceMapAnchor, MunSourcePosition } from "./source-map.js"
 
-export function compileVuneFile(source: string, fileName = "vune-source.vune.ts"): VuneTransformResult {
-  const code = transformVuneSource(source, fileName)
-  return { code, map: createVuneSourceMap(source, code, fileName) }
+export function compileMunFile(source: string, fileName = "mun-source.mun"): MunTransformResult {
+  assertCanonicalMunSource(source, fileName)
+  const code = transformMunSource(source, fileName)
+  return { code, map: createMunSourceMap(source, code, fileName) }
 }
 
-/** Build the shared Vune + TypeScript semantic model used by compiler clients and IDE tooling. */
-export function createVuneSemanticModel(source: string, fileName = "vune-source.vune.ts"): VuneSemanticModel {
-  return createSemanticModel(source, fileName, transformVuneSource(source, fileName))
+/** Build the shared Mun + TypeScript semantic model used by compiler clients and IDE tooling. */
+export function createMunSemanticModel(source: string, fileName = "mun-source.mun"): MunSemanticModel {
+  assertCanonicalMunSource(source, fileName)
+  return createSemanticModel(source, fileName, transformMunSource(source, fileName))
 }
 
-export function formatVuneSource(source: string): string {
-  return transformVuneSource(source)
+export function formatMunSource(source: string): string {
+  assertCanonicalMunSource(source, "mun-source.mun")
+  return transformMunSource(source, "mun-source.mun")
 }
 
 function boundedOffset(source: string, offset: number): number {
@@ -87,11 +87,11 @@ function boundedOffset(source: string, offset: number): number {
   return Math.max(0, Math.min(source.length, numeric))
 }
 
-export function createVuneLanguageService(): VuneLanguageService {
+export function createMunLanguageService(): MunLanguageService {
   return {
-    format: formatVuneSource,
-    diagnose: diagnoseVuneSource,
-    transform: compileVuneFile,
+    format: formatMunSource,
+    diagnose: diagnoseMunSource,
+    transform: compileMunFile,
     positionAt(source, offset) {
       const bounded = boundedOffset(source, offset)
       const before = source.slice(0, bounded)
@@ -105,6 +105,6 @@ export function createVuneLanguageService(): VuneLanguageService {
       const lineOffset = lines.slice(0, line - 1).reduce((offset, item) => offset + item.length + 1, 0)
       return boundedOffset(source, lineOffset + Math.max(0, requestedColumn - 1))
     },
-    semantic: createVuneSemanticModel,
+    semantic: createMunSemanticModel,
   }
 }
