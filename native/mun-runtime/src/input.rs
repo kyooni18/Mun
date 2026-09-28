@@ -103,6 +103,14 @@ pub enum ScrollDelta {
     Pixels { x: f32, y: f32 },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollPhase {
+    Began,
+    Changed,
+    Ended,
+    Cancelled,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum InputEvent {
     PointerMoved {
@@ -127,6 +135,7 @@ pub enum InputEvent {
     Scroll {
         pointer: Option<PointerId>,
         delta: ScrollDelta,
+        phase: ScrollPhase,
     },
     Cancel {
         pointer: Option<PointerId>,
@@ -181,6 +190,30 @@ impl InputState {
         self.primary_captures
             .retain(|_, action| valid_actions.contains(action));
         self.primary_captures.len() != before
+    }
+
+    pub(crate) fn remove_captures_for_actions(
+        &mut self,
+        replaced_actions: &HashSet<String>,
+    ) -> bool {
+        if replaced_actions.is_empty() {
+            return false;
+        }
+
+        let primary_before = self.primary_captures.len();
+        self.primary_captures
+            .retain(|_, action| !replaced_actions.contains(action));
+        let primary_changed = self.primary_captures.len() != primary_before;
+
+        let keyboard_changed = self
+            .keyboard_capture
+            .as_ref()
+            .is_some_and(|action| replaced_actions.contains(action));
+        if keyboard_changed {
+            self.keyboard_capture = None;
+        }
+
+        primary_changed || keyboard_changed
     }
 
     pub(crate) fn keyboard_capture(&self) -> Option<&str> {

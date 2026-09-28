@@ -14,7 +14,7 @@ use mun_runtime::scene::{Rect, ScenePresentation, SceneTransform};
 use mun_runtime::{
     ButtonState as MunButtonState, Color, InputEvent, InputPoint, KeyState as MunKeyState,
     LogicalKey, Modifiers, PhysicalKey as MunPhysicalKey, PointerButton as MunPointerButton,
-    PointerId, Runtime, RuntimeLoadError, Scene, ScrollDelta,
+    PointerId, Runtime, RuntimeLoadError, Scene, ScrollDelta, ScrollPhase,
 };
 use winit::{
     application::ApplicationHandler,
@@ -892,6 +892,17 @@ mod tests {
     }
 
     #[test]
+    fn platform_scroll_phase_preserves_trackpad_gesture_boundaries() {
+        assert_eq!(input_scroll_phase(TouchPhase::Started), ScrollPhase::Began);
+        assert_eq!(input_scroll_phase(TouchPhase::Moved), ScrollPhase::Changed);
+        assert_eq!(input_scroll_phase(TouchPhase::Ended), ScrollPhase::Ended);
+        assert_eq!(
+            input_scroll_phase(TouchPhase::Cancelled),
+            ScrollPhase::Cancelled
+        );
+    }
+
+    #[test]
     fn platform_scroll_pixels_are_normalized_to_logical_points() {
         let delta = input_scroll_delta(
             MouseScrollDelta::PixelDelta(PhysicalPosition::new(20.0, -10.0)),
@@ -1197,6 +1208,15 @@ fn input_scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> ScrollDelta
     }
 }
 
+fn input_scroll_phase(phase: TouchPhase) -> ScrollPhase {
+    match phase {
+        TouchPhase::Started => ScrollPhase::Began,
+        TouchPhase::Moved => ScrollPhase::Changed,
+        TouchPhase::Ended => ScrollPhase::Ended,
+        TouchPhase::Cancelled => ScrollPhase::Cancelled,
+    }
+}
+
 fn input_touch_events(
     id: u64,
     phase: TouchPhase,
@@ -1418,10 +1438,11 @@ impl ApplicationHandler<NativeEvent> for Application {
                     state: input_button_state(button_state),
                 });
             }
-            WindowEvent::MouseWheel { delta, .. } => {
+            WindowEvent::MouseWheel { delta, phase, .. } => {
                 state.dispatch_input(InputEvent::Scroll {
                     pointer: Some(PointerId::MOUSE),
                     delta: input_scroll_delta(delta, state.window.scale_factor()),
+                    phase: input_scroll_phase(phase),
                 });
             }
             WindowEvent::Touch(touch) => {

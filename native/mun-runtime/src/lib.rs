@@ -25,7 +25,7 @@ pub use gesture::{
 };
 pub use input::{
     ButtonState, InputEvent, InputOutcome, InputPoint, KeyState, LogicalKey, Modifiers,
-    PhysicalKey, PointerButton, PointerId, ScrollDelta,
+    PhysicalKey, PointerButton, PointerId, ScrollDelta, ScrollPhase,
 };
 pub use layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize};
 pub use retained::{
