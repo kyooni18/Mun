@@ -884,6 +884,55 @@ function semanticIdentityKey(modifier: ModifierCall, bindings: UiBindings): MunU
   return identityKey
 }
 
+interface SupportedModifierShape {
+  readonly labels: ReadonlySet<string>
+  readonly maxPositional: number
+}
+
+const supportedModifierShapes: Readonly<Record<string, SupportedModifierShape>> = {
+  id: { labels: new Set(["value"]), maxPositional: 1 },
+  frame: { labels: new Set(["width", "height"]), maxPositional: 2 },
+  padding: { labels: new Set(["length"]), maxPositional: 1 },
+  background: { labels: new Set(["style", "color"]), maxPositional: 1 },
+  fill: { labels: new Set(["style", "color"]), maxPositional: 1 },
+  foregroundStyle: { labels: new Set(["style", "color"]), maxPositional: 1 },
+  foregroundColor: { labels: new Set(["style", "color"]), maxPositional: 1 },
+  cornerRadius: { labels: new Set(["radius"]), maxPositional: 1 },
+  opacity: { labels: new Set(["value"]), maxPositional: 1 },
+  offset: { labels: new Set(["x", "y"]), maxPositional: 2 },
+  transition: { labels: new Set(["transition", "value"]), maxPositional: 1 },
+  animation: { labels: new Set(["animation", "value"]), maxPositional: 2 },
+}
+
+function assertSupportedModifierShape(modifier: ModifierCall): void {
+  const shape = supportedModifierShapes[modifier.name]
+  if (!shape) return
+
+  const positional = modifier.arguments.filter(argument => argument.label === undefined)
+  if (positional.length > shape.maxPositional) {
+    throw new SyntaxError(
+      `View modifier '.${modifier.name}' has ${positional.length} positional arguments, but native Semantic UI IR supports at most ${shape.maxPositional}`,
+    )
+  }
+
+  const seenLabels = new Set<string>()
+  for (const argument of modifier.arguments) {
+    if (argument.value.kind !== "raw") {
+      throw new SyntaxError(`View modifier '.${modifier.name}' closure arguments are not representable in native Semantic UI IR`)
+    }
+    if (argument.label === undefined) continue
+    if (!shape.labels.has(argument.label)) {
+      throw new SyntaxError(
+        `View modifier '.${modifier.name}' argument '${argument.label}' is not representable in native Semantic UI IR`,
+      )
+    }
+    if (seenLabels.has(argument.label)) {
+      throw new SyntaxError(`View modifier '.${modifier.name}' repeats argument '${argument.label}'`)
+    }
+    seenLabels.add(argument.label)
+  }
+}
+
 function applyModifiers(
   node: MunUiNode,
   modifiers: readonly ModifierCall[],
@@ -899,6 +948,7 @@ function applyModifiers(
   let pendingAnimation: { readonly plan: MunMotionExecutionPlan; readonly trigger?: MunUiExpression } | undefined
 
   for (const modifier of modifiers) {
+    assertSupportedModifierShape(modifier)
     if (modifier.name === "id") {
       parts = { ...parts, identityKey: semanticIdentityKey(modifier, bindings) }
       continue
