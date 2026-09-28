@@ -445,6 +445,13 @@ impl Runtime {
         self.input.clear_keyboard_capture();
     }
 
+    fn reconcile_pointer_captures(&mut self) {
+        let mut actions = Vec::new();
+        collect_focusable_actions(&self.program.root.child, self, &mut actions);
+        let valid_actions = actions.into_iter().collect::<HashSet<_>>();
+        self.input.retain_primary_captures(&valid_actions);
+    }
+
     fn reconcile_focus(&mut self, previous_order: &[String]) {
         let Some(focused) = self.focused_action.clone() else {
             return;
@@ -578,6 +585,7 @@ impl Runtime {
         // State mutations can remove or disable the focused semantic node.
         // Reconcile by stable identity first, then by deterministic traversal position.
         self.reconcile_focus(&focus_order_before);
+        self.reconcile_pointer_captures();
 
         self.revision = transaction.revision;
         let after = self.motion_targets();
@@ -2776,6 +2784,67 @@ mod tests {
         assert!(!outcome.activated);
         assert_eq!(runtime.primary_pressed_action(pointer), None);
         assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn state_mutation_prunes_pointer_capture_for_removed_action() {
+        let mut runtime =
+            Runtime::from_json(REMOVE_LAST_FOCUSED_ACTION).expect("valid focus removal program");
+        let scene = runtime.build_scene(320.0, 200.0).expect("input scene");
+        let remove = scene
+            .actions
+            .iter()
+            .find(|action| action.id == "remove")
+            .expect("remove action");
+        let point = crate::input::InputPoint::new(
+            remove.rect.x + remove.rect.width * 0.5,
+            remove.rect.y + remove.rect.height * 0.5,
+        );
+        let pointer = crate::input::PointerId(23);
+
+        runtime
+            .handle_input(
+                InputEvent::PointerMoved {
+                    pointer,
+                    position: point,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer move");
+        runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Pressed,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("pointer press");
+        assert_eq!(runtime.primary_pressed_action(pointer), Some("remove"));
+
+        runtime
+            .activate_action("stable")
+            .expect("stable action removes captured peer");
+
+        assert_eq!(runtime.focused_action(), Some("stable"));
+        assert_eq!(runtime.primary_pressed_action(pointer), None);
+
+        let release = runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Released,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("release after semantic removal");
+        assert!(!release.handled);
+        assert!(!release.activated);
     }
 
     #[test]

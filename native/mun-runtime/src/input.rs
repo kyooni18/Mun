@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct InputPoint {
@@ -167,6 +167,13 @@ impl InputState {
 
     pub(crate) fn clear_primary_capture(&mut self, pointer: PointerId) -> bool {
         self.primary_captures.remove(&pointer).is_some()
+    }
+
+    pub(crate) fn retain_primary_captures(&mut self, valid_actions: &HashSet<String>) -> bool {
+        let before = self.primary_captures.len();
+        self.primary_captures
+            .retain(|_, action| valid_actions.contains(action));
+        self.primary_captures.len() != before
     }
 
     pub(crate) fn keyboard_capture(&self) -> Option<&str> {
