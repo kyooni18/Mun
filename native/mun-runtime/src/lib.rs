@@ -29,11 +29,11 @@ pub use layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize};
 pub use retained::{
     RetainedNode, RetainedNodeKind, RetainedReconciliation, RetainedTree, RetainedTreeError,
 };
-pub use scroll::{
-    ScrollAxis, ScrollContainerState, ScrollMetrics, ScrollRange, ScrollRouteResult, ScrollState,
-    ScrollTracker,
-};
 pub use runtime::{
     Runtime, RuntimeFrame, RuntimeLoadError, SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,
 };
 pub use scene::{Color, Rect, Scene};
+pub use scroll::{
+    NestedScrollRouteResult, ScrollAxis, ScrollContainerState, ScrollMetrics, ScrollRange,
+    ScrollRouteResult, ScrollState, ScrollTracker, route_nested_content_delta,
+};

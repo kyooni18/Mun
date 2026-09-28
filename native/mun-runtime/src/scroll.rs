@@ -163,6 +163,14 @@ pub struct ScrollRouteResult {
     pub remaining: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NestedScrollRouteResult {
+    /// Total content-space delta consumed by the inner-to-outer chain.
+    pub consumed: f32,
+    /// Content-space delta still unconsumed after the outermost container.
+    pub remaining: f32,
+}
+
 #[derive(Clone, Debug)]
 pub struct ScrollContainerState {
     axis: ScrollAxis,
@@ -265,6 +273,45 @@ impl ScrollContainerState {
     }
 }
 
+/// Route one same-axis content delta from the innermost scroll container to
+/// successive ancestors. Containers are mutated in slice order.
+///
+/// This deliberately operates on already-resolved content-space delta rather
+/// than platform line/pixel units, so unit normalization happens exactly once.
+pub fn route_nested_content_delta(
+    containers: &mut [ScrollContainerState],
+    content_delta: f32,
+    time_seconds: f64,
+) -> NestedScrollRouteResult {
+    let input = finite_or(content_delta, 0.0);
+    let Some(axis) = containers.first().map(ScrollContainerState::axis) else {
+        return NestedScrollRouteResult {
+            consumed: 0.0,
+            remaining: input,
+        };
+    };
+
+    assert!(
+        containers.iter().all(|container| container.axis() == axis),
+        "nested scroll routing requires one semantic axis"
+    );
+
+    let mut remaining = input;
+    for container in containers {
+        let routed = container.route_content_delta(remaining, time_seconds);
+        remaining = routed.remaining;
+        if remaining.abs() <= f32::EPSILON {
+            remaining = 0.0;
+            break;
+        }
+    }
+
+    NestedScrollRouteResult {
+        consumed: input - remaining,
+        remaining,
+    }
+}
+
 fn finite_or(value: f32, fallback: f32) -> f32 {
     if value.is_finite() { value } else { fallback }
 }
@@ -364,6 +411,79 @@ mod tests {
         assert_eq!(result.state.offset, 0.0);
         assert_eq!(result.consumed, 0.0);
         assert_eq!(result.remaining, 15.0);
+    }
+
+    #[test]
+    fn nested_scroll_chain_routes_remainder_inner_to_outer() {
+        let mut chain = [
+            ScrollContainerState::new(
+                ScrollAxis::Y,
+                ScrollMetrics::new(100.0, 180.0),
+                10.0,
+                velocity_config(),
+                0.0,
+            ),
+            ScrollContainerState::new(
+                ScrollAxis::Y,
+                ScrollMetrics::new(200.0, 500.0),
+                80.0,
+                velocity_config(),
+                0.0,
+            ),
+        ];
+
+        let result = route_nested_content_delta(&mut chain, 50.0, 0.05);
+        assert_eq!(result.consumed, 50.0);
+        assert_eq!(result.remaining, 0.0);
+        assert_eq!(chain[0].state().offset, 0.0);
+        assert_eq!(chain[1].state().offset, 40.0);
+    }
+
+    #[test]
+    fn nested_scroll_chain_preserves_outermost_remainder() {
+        let mut chain = [
+            ScrollContainerState::new(
+                ScrollAxis::Y,
+                ScrollMetrics::new(100.0, 180.0),
+                0.0,
+                velocity_config(),
+                0.0,
+            ),
+            ScrollContainerState::new(
+                ScrollAxis::Y,
+                ScrollMetrics::new(200.0, 240.0),
+                0.0,
+                velocity_config(),
+                0.0,
+            ),
+        ];
+
+        let result = route_nested_content_delta(&mut chain, 30.0, 0.05);
+        assert_eq!(result.consumed, 0.0);
+        assert_eq!(result.remaining, 30.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "nested scroll routing requires one semantic axis")]
+    fn nested_scroll_chain_rejects_cross_axis_arbitration() {
+        let mut chain = [
+            ScrollContainerState::new(
+                ScrollAxis::Y,
+                ScrollMetrics::new(100.0, 200.0),
+                50.0,
+                velocity_config(),
+                0.0,
+            ),
+            ScrollContainerState::new(
+                ScrollAxis::X,
+                ScrollMetrics::new(100.0, 200.0),
+                50.0,
+                velocity_config(),
+                0.0,
+            ),
+        ];
+
+        let _ = route_nested_content_delta(&mut chain, 10.0, 0.05);
     }
 
     #[test]
