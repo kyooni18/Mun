@@ -87,6 +87,35 @@ struct LayoutFlip {
     delta_y: f32,
 }
 
+// Semantic fallback metrics until native text/control measurement is plumbed in.
+// They are intrinsic content sizes, not explicit Mün layout constraints.
+#[derive(Clone, Copy, Debug, Default)]
+struct IntrinsicLayoutSize {
+    width: f32,
+    height: f32,
+}
+
+impl IntrinsicLayoutSize {
+    const TEXT: Self = Self {
+        width: 240.0,
+        height: 32.0,
+    };
+
+    const PANEL: Self = Self {
+        width: 160.0,
+        height: 96.0,
+    };
+
+    fn action(label: &str) -> Self {
+        Self {
+            width: (label.chars().count() as f32 * 9.0 + 34.0).max(92.0),
+            height: 38.0,
+        }
+    }
+}
+
+type LayoutTree = TaffyTree<IntrinsicLayoutSize>;
+
 #[derive(Clone, Copy, Debug)]
 struct PresenceValues {
     opacity: f32,
@@ -600,7 +629,7 @@ impl Runtime {
 
     fn accessibility_from_layout(
         &self,
-        taffy: &TaffyTree<()>,
+        taffy: &LayoutTree,
         nodes: &HashMap<String, NodeId>,
         width: f32,
         height: f32,
@@ -654,8 +683,8 @@ impl Runtime {
         &self,
         width: f32,
         height: f32,
-    ) -> Result<(TaffyTree<()>, HashMap<String, NodeId>), taffy::TaffyError> {
-        let mut taffy: TaffyTree<()> = TaffyTree::new();
+    ) -> Result<(LayoutTree, HashMap<String, NodeId>), taffy::TaffyError> {
+        let mut taffy: LayoutTree = TaffyTree::new();
         let mut nodes = HashMap::new();
         let children = self.build_layout_nodes(&mut taffy, &self.program.root.child, &mut nodes)?;
         let wrapper = taffy.new_with_children(
@@ -668,11 +697,23 @@ impl Runtime {
             },
             &children,
         )?;
-        taffy.compute_layout(
+        taffy.compute_layout_with_measure(
             wrapper,
             Size {
                 width: AvailableSpace::Definite(width),
                 height: AvailableSpace::Definite(height),
+            },
+            |inputs, _, context, style| {
+                let intrinsic = context.copied().unwrap_or_default();
+                taffy::compute_leaf_layout(
+                    inputs,
+                    style,
+                    |_, _| 0.0,
+                    |known_dimensions, _| Size {
+                        width: known_dimensions.width.unwrap_or(intrinsic.width),
+                        height: known_dimensions.height.unwrap_or(intrinsic.height),
+                    },
+                )
             },
         )?;
         Ok((taffy, nodes))
@@ -1204,7 +1245,7 @@ impl Runtime {
 
     fn build_layout_nodes(
         &self,
-        taffy: &mut TaffyTree<()>,
+        taffy: &mut LayoutTree,
         node: &UiNode,
         nodes: &mut HashMap<String, NodeId>,
     ) -> Result<Vec<NodeId>, taffy::TaffyError> {
@@ -1260,40 +1301,28 @@ impl Runtime {
                     _ => AlignItems::FLEX_START,
                 });
             }
-            UiNode::Text { .. } => {
-                if width.is_none() {
-                    style.size.width = Dimension::length(240.0);
-                }
-                if height.is_none() {
-                    style.size.height = Dimension::length(32.0);
-                }
+            UiNode::Text { .. } | UiNode::Action { .. } | UiNode::Panel { .. } => {}
+            UiNode::Conditional { .. } => {
+                unreachable!("conditional fragments are flattened above")
             }
-            UiNode::Action { label, .. } => {
-                if width.is_none() {
-                    style.size.width =
-                        Dimension::length((label.chars().count() as f32 * 9.0 + 34.0).max(92.0));
-                }
-                if height.is_none() {
-                    style.size.height = Dimension::length(38.0);
-                }
-            }
-            UiNode::Panel { .. } => {
-                if width.is_none() {
-                    style.size.width = Dimension::length(160.0);
-                }
-                if height.is_none() {
-                    style.size.height = Dimension::length(96.0);
-                }
-            }
-            UiNode::Conditional { .. } => unreachable!("conditional fragments are flattened above"),
         }
+
+        let intrinsic = match node {
+            UiNode::Text { .. } => Some(IntrinsicLayoutSize::TEXT),
+            UiNode::Action { label, .. } => Some(IntrinsicLayoutSize::action(label)),
+            UiNode::Panel { .. } => Some(IntrinsicLayoutSize::PANEL),
+            _ => None,
+        };
 
         let mut children = Vec::new();
         for child in self.active_children(node) {
             children.extend(self.build_layout_nodes(taffy, child, nodes)?);
         }
         let id = if children.is_empty() {
-            taffy.new_leaf(style)?
+            match intrinsic {
+                Some(intrinsic) => taffy.new_leaf_with_context(style, intrinsic)?,
+                None => taffy.new_leaf(style)?,
+            }
         } else {
             taffy.new_with_children(style, &children)?
         };
@@ -1303,7 +1332,7 @@ impl Runtime {
 
     fn collect_scene(
         &self,
-        taffy: &TaffyTree<()>,
+        taffy: &LayoutTree,
         node: &UiNode,
         nodes: &HashMap<String, NodeId>,
         parent_x: f32,
@@ -1419,7 +1448,7 @@ impl Runtime {
 
     fn collect_accessibility(
         &self,
-        taffy: &TaffyTree<()>,
+        taffy: &LayoutTree,
         node: &UiNode,
         nodes: &HashMap<String, NodeId>,
         parent_x: f32,
@@ -1981,6 +2010,75 @@ mod tests {
             error,
             RuntimeLoadError::DuplicateNodeIdentity { ref id } if id == "same"
         ));
+    }
+
+    const STRETCH_INTRINSIC_LAYOUT: &str = r#"
+    {
+      "version": 1,
+      "sourceLanguage": "mun",
+      "entry": "StretchIntrinsicLayout",
+      "states": [{ "name": "armed", "initial": false }],
+      "root": {
+        "kind": "window",
+        "id": "root",
+        "title": "Layout",
+        "child": {
+          "kind": "column",
+          "id": "stack",
+          "layout": {
+            "width": { "kind": "literal", "value": 200 },
+            "height": { "kind": "literal", "value": 180 },
+            "alignment": "stretch"
+          },
+          "children": [
+            {
+              "kind": "text",
+              "id": "stretched",
+              "value": { "kind": "literal", "value": "Intrinsic" }
+            },
+            {
+              "kind": "text",
+              "id": "explicit",
+              "layout": {
+                "width": { "kind": "literal", "value": 80 }
+              },
+              "value": { "kind": "literal", "value": "Explicit" }
+            },
+            {
+              "kind": "action",
+              "id": "button",
+              "label": "Go",
+              "action": { "kind": "toggle-state", "state": "armed" }
+            }
+          ]
+        }
+      }
+    }
+    "#;
+
+    #[test]
+    fn stretch_overrides_intrinsic_width_but_preserves_explicit_width() {
+        let runtime =
+            Runtime::from_json(STRETCH_INTRINSIC_LAYOUT).expect("valid intrinsic layout program");
+        let (taffy, nodes) = runtime.build_layout_tree(400.0, 240.0).expect("layout");
+
+        let stretched = taffy
+            .layout(*nodes.get("stretched").expect("stretched layout node"))
+            .expect("stretched layout");
+        let explicit = taffy
+            .layout(*nodes.get("explicit").expect("explicit layout node"))
+            .expect("explicit layout");
+        let button = taffy
+            .layout(*nodes.get("button").expect("button layout node"))
+            .expect("button layout");
+
+
+        assert_eq!(stretched.size.width, 200.0);
+        assert_eq!(explicit.size.width, 80.0);
+        assert_eq!(stretched.size.height, IntrinsicLayoutSize::TEXT.height);
+        assert_eq!(explicit.size.height, IntrinsicLayoutSize::TEXT.height);
+        assert_eq!(button.size.width, 200.0);
+        assert_eq!(button.size.height, IntrinsicLayoutSize::action("Go").height);
     }
 
     const CONDITIONAL_BRANCH: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"ConditionalTest","states":[{"name":"expanded","initial":false}],"root":{"kind":"window","id":"root","title":"Conditional","child":{"kind":"conditional","id":"branch","condition":{"kind":"state","state":"expanded"},"then":[{"kind":"action","id":"expanded-action","label":"Expanded","action":{"kind":"toggle-state","state":"expanded"}}],"otherwise":[{"kind":"action","id":"collapsed-action","label":"Collapsed","action":{"kind":"toggle-state","state":"expanded"}}]}}}"#;
