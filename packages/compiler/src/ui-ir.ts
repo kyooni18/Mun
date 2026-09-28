@@ -579,6 +579,20 @@ function animationPlan(source: string): MunMotionExecutionPlan {
   return lowerAnimation(resolveCoreAnimation(parsedExpression(source), source), source)
 }
 
+function transitionNumberArgument(
+  expression: ts.Expression | undefined,
+  fallback: number,
+  source: string,
+  label: string,
+): number {
+  if (!expression) return fallback
+  const value = scalarFromExpression(unwrap(expression))
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new SyntaxError(`Native Transition ${label} must be a finite static number: ${source}`)
+  }
+  return value
+}
+
 function transitionEdge(expression: ts.Expression, source: string): "top" | "bottom" | "leading" | "trailing" | "left" | "right" {
   const scalar = scalarFromExpression(unwrap(expression))
   if (typeof scalar === "string" && ["top", "bottom", "leading", "trailing", "left", "right"].includes(scalar)) {
@@ -612,17 +626,12 @@ function resolveCoreTransition(expression: ts.Expression, source: string): Trans
   const owner = unwrap(current.expression.expression)
   if (ts.isIdentifier(owner) && owner.text === "Transition") {
     switch (method) {
-      case "scale": {
-        const scale = current.arguments[0]
-        const value = scale ? scalarFromExpression(unwrap(scale)) : undefined
-        return Transition.scale(typeof value === "number" && Number.isFinite(value) ? value : 0.95)
-      }
+      case "scale":
+        return Transition.scale(transitionNumberArgument(current.arguments[0], 0.95, source, "scale"))
       case "move": {
         const edge = current.arguments[0]
         if (!edge) throw new SyntaxError("Transition.move requires an edge: " + source)
-        const distanceArgument = current.arguments[1]
-        const distanceValue = distanceArgument ? scalarFromExpression(unwrap(distanceArgument)) : undefined
-        const distance = typeof distanceValue === "number" && Number.isFinite(distanceValue) ? distanceValue : 24
+        const distance = transitionNumberArgument(current.arguments[1], 24, source, "distance")
         return Transition.move(transitionEdge(edge, source), distance)
       }
       case "asymmetric": {

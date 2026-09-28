@@ -243,6 +243,36 @@ export default App()`
 })
 
 
+test("native Transition lowering rejects dynamic parameters instead of replacing them with defaults", () => {
+  const dynamicScale = `import { Rectangle, State, Transition } from "@mun/core"
+const scale = State(0.8)
+struct App: View {
+  var body: some View {
+    Rectangle().transition(Transition.scale(scale.value))
+  }
+}
+export default App()`
+
+  assert.throws(
+    () => compileMunUiProgram(dynamicScale, "dynamic-transition-scale.mun"),
+    /Native Transition scale must be a finite static number/,
+  )
+
+  const dynamicDistance = `import { Rectangle, State, Transition } from "@mun/core"
+const distance = State(24)
+struct App: View {
+  var body: some View {
+    Rectangle().transition(Transition.move(.leading, distance.value))
+  }
+}
+export default App()`
+
+  assert.throws(
+    () => compileMunUiProgram(dynamicDistance, "dynamic-transition-distance.mun"),
+    /Native Transition distance must be a finite static number/,
+  )
+})
+
 test("native compiler rejects semantic constructs it cannot represent instead of silently defaulting", () => {
   const unsupportedModifier = `import { Rectangle } from "@mun/core"
 struct App: View {
