@@ -1,5 +1,11 @@
 use std::collections::HashMap;
 
+#[path = "kinetics.rs"]
+pub mod kinetics;
+
+pub use kinetics::{DecaySpec, InertiaSpec, KineticSample, KineticSpec, KineticSpecError};
+
+use self::kinetics::KineticChannel;
 use crate::{
     ir::{MotionExecutionPlan, MotionProperty},
     timeline::{TimelineClock, TimelineDirection},
@@ -57,6 +63,7 @@ struct TimingChannel {
 enum MotionChannel {
     Spring(SpringChannel),
     Timing(TimingChannel),
+    Kinetic(KineticChannel),
 }
 
 impl MotionChannel {
@@ -64,6 +71,7 @@ impl MotionChannel {
         match self {
             Self::Spring(channel) => channel.position,
             Self::Timing(channel) => channel.position,
+            Self::Kinetic(channel) => channel.position(),
         }
     }
 
@@ -71,6 +79,7 @@ impl MotionChannel {
         match self {
             Self::Spring(channel) => channel.velocity,
             Self::Timing(channel) => channel.velocity,
+            Self::Kinetic(channel) => channel.velocity(),
         }
     }
 
@@ -78,6 +87,7 @@ impl MotionChannel {
         match self {
             Self::Spring(channel) => channel.settled,
             Self::Timing(channel) => channel.settled,
+            Self::Kinetic(channel) => channel.settled(),
         }
     }
 
@@ -87,6 +97,7 @@ impl MotionChannel {
                 channel.iterations = Some(channel.cycle.saturating_add(1));
             }
             Self::Timing(channel) => channel.clock.stop_after_current_iteration(),
+            Self::Kinetic(_) => {}
         }
     }
 }
@@ -112,6 +123,32 @@ pub struct MotionScheduler {
 }
 
 impl MotionScheduler {
+    /// Start inherited decay/inertia continuation for one renderer-neutral
+    /// node/property channel. When a live channel already owns the property,
+    /// its current presentation value and velocity become the kinetic handoff
+    /// unless the kinetic spec supplies an explicit release velocity.
+    pub fn animate_velocity(
+        &mut self,
+        key: MotionChannelKey,
+        current: f32,
+        spec: &KineticSpec,
+    ) -> Result<(), KineticSpecError> {
+        if let Some(index) = self.indices.get(&key).copied() {
+            let presentation = self.channels[index].position();
+            let inherited_velocity = self.channels[index].velocity();
+            let channel = KineticChannel::new(presentation, inherited_velocity, spec)?;
+            self.pending.remove(&index);
+            self.channels[index] = MotionChannel::Kinetic(channel);
+            return Ok(());
+        }
+
+        let index = self.channels.len();
+        let channel = KineticChannel::new(current, 0.0, spec)?;
+        self.channels.push(MotionChannel::Kinetic(channel));
+        self.indices.insert(key, index);
+        Ok(())
+    }
+
     pub fn retarget(
         &mut self,
         key: MotionChannelKey,
@@ -255,6 +292,7 @@ impl MotionScheduler {
                 channel.delay_remaining = 0.0;
                 channel.settled = true;
             }
+            MotionChannel::Kinetic(channel) => channel.snap(target),
         }
     }
 
@@ -426,6 +464,7 @@ fn step_channel(channel: &mut MotionChannel, dt_seconds: f32) {
     match channel {
         MotionChannel::Spring(channel) => step_spring(channel, dt_seconds),
         MotionChannel::Timing(channel) => step_timing(channel, dt_seconds),
+        MotionChannel::Kinetic(channel) => channel.step(dt_seconds),
     }
 }
 
@@ -883,6 +922,134 @@ mod tests {
         let value = scheduler.value(&key).unwrap();
         assert!(value > 0.0 && value < 10.0);
         assert!(scheduler.is_active());
+    }
+
+    #[test]
+    fn kinetic_decay_is_frame_rate_independent_and_settles_at_projected_target() {
+        let key = MotionChannelKey {
+            node_id: "scroll".into(),
+            property: MotionProperty::TranslationX,
+        };
+        let spec = KineticSpec::Decay(DecaySpec {
+            velocity: Some(1000.0),
+            time_constant: 0.3,
+            rest_speed: 0.001,
+            ..DecaySpec::default()
+        });
+        let mut sixty = MotionScheduler::default();
+        let mut one_forty_four = MotionScheduler::default();
+        sixty
+            .animate_velocity(key.clone(), 0.0, &spec)
+            .expect("valid decay");
+        one_forty_four
+            .animate_velocity(key.clone(), 0.0, &spec)
+            .expect("valid decay");
+
+        for _ in 0..60 {
+            sixty.step(1.0 / 60.0);
+        }
+        for _ in 0..144 {
+            one_forty_four.step(1.0 / 144.0);
+        }
+        assert!((sixty.value(&key).unwrap() - one_forty_four.value(&key).unwrap()).abs() < 0.001);
+        assert!(
+            (sixty.velocity(&key).unwrap() - one_forty_four.velocity(&key).unwrap()).abs() < 0.01
+        );
+
+        for _ in 0..2400 {
+            if !sixty.step(1.0 / 120.0) {
+                break;
+            }
+        }
+        assert!((sixty.value(&key).unwrap() - 300.0).abs() < 1e-4);
+        assert_eq!(sixty.velocity(&key).unwrap(), 0.0);
+        assert!(!sixty.is_key_active(&key));
+    }
+
+    #[test]
+    fn kinetic_inertia_carries_release_velocity_into_bounded_bounce() {
+        let key = MotionChannelKey {
+            node_id: "sheet".into(),
+            property: MotionProperty::TranslationY,
+        };
+        let spec = KineticSpec::Inertia(InertiaSpec {
+            velocity: Some(1200.0),
+            min: 0.0,
+            max: 100.0,
+            bounce_omega: std::f64::consts::TAU / 0.25,
+            bounce_damping_ratio: 0.78,
+            ..InertiaSpec::default()
+        });
+        let mut scheduler = MotionScheduler::default();
+        scheduler
+            .animate_velocity(key.clone(), 50.0, &spec)
+            .expect("valid inertia");
+
+        scheduler.step(1.0 / 60.0);
+        assert!(scheduler.value(&key).unwrap() > 50.0);
+        assert!(scheduler.velocity(&key).unwrap() > 0.0);
+
+        for _ in 0..1200 {
+            if !scheduler.step(1.0 / 120.0) {
+                break;
+            }
+        }
+        assert_eq!(scheduler.value(&key).unwrap(), 100.0);
+        assert_eq!(scheduler.velocity(&key).unwrap(), 0.0);
+        assert!(!scheduler.is_key_active(&key));
+    }
+
+    #[test]
+    fn kinetic_target_override_snaps_without_starting_a_second_animation() {
+        let key = MotionChannelKey {
+            node_id: "scrubber".into(),
+            property: MotionProperty::TranslationX,
+        };
+        let spec = KineticSpec::Inertia(InertiaSpec {
+            velocity: Some(800.0),
+            min: 0.0,
+            max: 500.0,
+            rest_speed: 0.01,
+            target_override: Some(200.0),
+            ..InertiaSpec::default()
+        });
+        let mut scheduler = MotionScheduler::default();
+        scheduler
+            .animate_velocity(key.clone(), 40.0, &spec)
+            .expect("valid inertia");
+
+        for _ in 0..1600 {
+            if !scheduler.step(1.0 / 120.0) {
+                break;
+            }
+        }
+        assert_eq!(scheduler.value(&key).unwrap(), 200.0);
+        assert!(!scheduler.is_key_active(&key));
+    }
+
+    #[test]
+    fn kinetic_handoff_inherits_live_channel_velocity_when_unspecified() {
+        let key = MotionChannelKey {
+            node_id: "drag".into(),
+            property: MotionProperty::TranslationX,
+        };
+        let mut scheduler = MotionScheduler::default();
+        scheduler.retarget(key.clone(), 0.0, 200.0, &spring());
+        scheduler.step(0.05);
+        let presentation = scheduler.value(&key).unwrap();
+        let release_velocity = scheduler.velocity(&key).unwrap();
+        assert!(release_velocity.abs() > 1.0);
+
+        let spec = KineticSpec::Decay(DecaySpec {
+            velocity: None,
+            time_constant: 0.3,
+            ..DecaySpec::default()
+        });
+        scheduler
+            .animate_velocity(key.clone(), presentation, &spec)
+            .expect("valid decay");
+        assert!((scheduler.value(&key).unwrap() - presentation).abs() < 1e-5);
+        assert!((scheduler.velocity(&key).unwrap() - release_velocity).abs() < 1e-4);
     }
 
     #[test]
