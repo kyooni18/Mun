@@ -137,7 +137,11 @@ fn build_update(tree: &AccessibilityTree, scale_factor: f32, include_tree: bool)
         }
         if item.action_id.is_some() && item.enabled {
             node.add_action(Action::Click);
-            node.add_action(Action::Focus);
+            if item.focused {
+                node.add_action(Action::Blur);
+            } else {
+                node.add_action(Action::Focus);
+            }
         }
         nodes.push((id, node));
     }
@@ -175,4 +179,152 @@ fn node_id(value: &str) -> NodeId {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     if hash == 0 { NodeId(1) } else { NodeId(hash) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mun_runtime::{AccessibilityBounds, AccessibilityNode};
+
+    fn semantic_tree() -> AccessibilityTree {
+        AccessibilityTree {
+            root_id: "root".into(),
+            focus_id: Some("primary".into()),
+            nodes: vec![
+                AccessibilityNode {
+                    id: "root".into(),
+                    role: MunAccessibilityRole::Window,
+                    label: Some("Window".into()),
+                    enabled: true,
+                    focused: false,
+                    bounds: AccessibilityBounds {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 320.0,
+                        height: 200.0,
+                    },
+                    children: vec!["primary".into(), "disabled".into(), "label".into()],
+                    action_id: None,
+                },
+                AccessibilityNode {
+                    id: "primary".into(),
+                    role: MunAccessibilityRole::Button,
+                    label: Some("Primary".into()),
+                    enabled: true,
+                    focused: true,
+                    bounds: AccessibilityBounds {
+                        x: 10.0,
+                        y: 20.0,
+                        width: 100.0,
+                        height: 40.0,
+                    },
+                    children: Vec::new(),
+                    action_id: Some("primary".into()),
+                },
+                AccessibilityNode {
+                    id: "disabled".into(),
+                    role: MunAccessibilityRole::Button,
+                    label: Some("Disabled".into()),
+                    enabled: false,
+                    focused: false,
+                    bounds: AccessibilityBounds {
+                        x: 10.0,
+                        y: 70.0,
+                        width: 100.0,
+                        height: 40.0,
+                    },
+                    children: Vec::new(),
+                    action_id: Some("disabled".into()),
+                },
+                AccessibilityNode {
+                    id: "label".into(),
+                    role: MunAccessibilityRole::Text,
+                    label: Some("Status".into()),
+                    enabled: true,
+                    focused: false,
+                    bounds: AccessibilityBounds {
+                        x: 10.0,
+                        y: 120.0,
+                        width: 80.0,
+                        height: 20.0,
+                    },
+                    children: Vec::new(),
+                    action_id: None,
+                },
+            ],
+        }
+    }
+
+    fn update_node<'a>(update: &'a TreeUpdate, semantic_id: &str) -> &'a Node {
+        let id = node_id(semantic_id);
+        &update
+            .nodes
+            .iter()
+            .find(|(candidate, _)| *candidate == id)
+            .expect("accessibility node")
+            .1
+    }
+
+    #[test]
+    fn accesskit_update_preserves_semantics_focus_and_presentation_bounds() {
+        let update = build_update(&semantic_tree(), 2.0, true);
+
+        assert_eq!(update.focus, node_id("primary"));
+        assert_eq!(
+            update.tree.as_ref().expect("initial tree").root,
+            node_id("root")
+        );
+
+        let root = update_node(&update, "root");
+        assert_eq!(root.role(), Role::Window);
+        assert_eq!(root.label(), Some("Window"));
+        assert_eq!(
+            root.children(),
+            &[node_id("primary"), node_id("disabled"), node_id("label")]
+        );
+
+        let primary = update_node(&update, "primary");
+        assert_eq!(primary.role(), Role::Button);
+        assert_eq!(primary.label(), Some("Primary"));
+        assert_eq!(
+            primary.bounds(),
+            Some(Rect {
+                x0: 20.0,
+                y0: 40.0,
+                x1: 220.0,
+                y1: 120.0,
+            })
+        );
+        assert!(primary.supports_action(Action::Click));
+        assert!(primary.supports_action(Action::Blur));
+        assert!(!primary.supports_action(Action::Focus));
+
+        let disabled = update_node(&update, "disabled");
+        assert!(disabled.is_disabled());
+        assert!(!disabled.supports_action(Action::Click));
+        assert!(!disabled.supports_action(Action::Focus));
+
+        let label = update_node(&update, "label");
+        assert_eq!(label.role(), Role::Label);
+        assert_eq!(label.value(), Some("Status"));
+    }
+
+    #[test]
+    fn unfocused_enabled_action_advertises_focus_not_blur() {
+        let mut tree = semantic_tree();
+        tree.focus_id = None;
+        let primary = tree
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == "primary")
+            .expect("primary semantic node");
+        primary.focused = false;
+
+        let update = build_update(&tree, 1.0, false);
+        let primary = update_node(&update, "primary");
+        assert!(primary.supports_action(Action::Click));
+        assert!(primary.supports_action(Action::Focus));
+        assert!(!primary.supports_action(Action::Blur));
+        assert_eq!(update.focus, node_id("root"));
+    }
 }
