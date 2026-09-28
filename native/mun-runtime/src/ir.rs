@@ -262,6 +262,8 @@ impl UiAction {
 pub struct NodeBase {
     pub id: String,
     #[serde(default)]
+    pub identity_key: Option<UiExpression>,
+    #[serde(default)]
     pub layout: Option<UiLayout>,
     #[serde(default)]
     pub visual: Option<UiVisual>,
@@ -345,9 +347,17 @@ pub struct UiWindow {
     pub id: String,
     pub title: String,
     #[serde(default)]
+    pub identity_key: Option<UiExpression>,
+    #[serde(default)]
     pub layout: Option<UiLayout>,
     #[serde(default)]
+    pub visual: Option<UiVisual>,
+    #[serde(default)]
     pub accessibility: Option<AccessibilitySemantics>,
+    #[serde(default)]
+    pub motion: Vec<UiMotionBinding>,
+    #[serde(default)]
+    pub transition: Option<UiTransition>,
     pub child: UiNode,
 }
 
@@ -359,4 +369,68 @@ pub struct UiProgram {
     pub entry: String,
     pub states: Vec<UiState>,
     pub root: UiWindow,
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn node_base_preserves_semantic_identity_key() {
+        let node: UiNode = serde_json::from_value(serde_json::json!({
+            "kind": "text",
+            "id": "@node/entry/App/body/kind/text",
+            "identityKey": { "kind": "literal", "value": "hero" },
+            "value": { "kind": "literal", "value": "Hello" }
+        }))
+        .expect("semantic node");
+
+        match node.base().identity_key.as_ref() {
+            Some(UiExpression::Literal { value }) => assert_eq!(value, "hero"),
+            other => panic!("expected literal semantic identity key, received {other:?}"),
+        }
+    }
+
+    #[test]
+    fn window_preserves_full_semantic_node_base_metadata() {
+        let program: UiProgram = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "sourceLanguage": "mun",
+            "entry": "App",
+            "states": [],
+            "root": {
+                "kind": "window",
+                "id": "window-root",
+                "identityKey": { "kind": "state", "state": "window-key" },
+                "title": "Mün",
+                "visual": {
+                    "opacity": { "kind": "literal", "value": 0.75 }
+                },
+                "motion": [{
+                    "property": "opacity",
+                    "propertyMask": 1,
+                    "value": { "kind": "state", "state": "window-opacity" }
+                }],
+                "transition": {
+                    "insertion": [{ "kind": "opacity" }],
+                    "removal": [{ "kind": "opacity" }]
+                },
+                "child": {
+                    "kind": "text",
+                    "id": "label",
+                    "value": { "kind": "literal", "value": "Hello" }
+                }
+            }
+        }))
+        .expect("semantic program");
+
+        assert!(matches!(
+            program.root.identity_key,
+            Some(UiExpression::State { ref state }) if state == "window-key"
+        ));
+        assert!(program.root.visual.is_some());
+        assert_eq!(program.root.motion.len(), 1);
+        assert!(program.root.transition.is_some());
+    }
 }
