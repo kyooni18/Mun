@@ -85,6 +85,11 @@ pub enum KeyState {
     Released,
 }
 
+/// Canonical scroll content movement.
+///
+/// Positive X/Y moves content right/down. Line deltas remain device-scale-neutral
+/// until a semantic scroll container resolves its line extent. Pixel deltas are
+/// logical points after platform-adapter normalization.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ScrollDelta {
     Lines { x: f32, y: f32 },

@@ -12,6 +12,7 @@ pub mod motion;
 pub mod retained;
 pub mod runtime;
 pub mod scene;
+pub mod scroll;
 pub mod timeline;
 
 pub use accessibility::{AccessibilityBounds, AccessibilityNode, AccessibilityTree};
@@ -25,6 +26,10 @@ pub use input::{
 };
 pub use retained::{
     RetainedNode, RetainedNodeKind, RetainedReconciliation, RetainedTree, RetainedTreeError,
+};
+pub use scroll::{
+    ScrollAxis, ScrollContainerState, ScrollMetrics, ScrollRange, ScrollRouteResult, ScrollState,
+    ScrollTracker,
 };
 pub use runtime::{
     Runtime, RuntimeFrame, RuntimeLoadError, SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,
