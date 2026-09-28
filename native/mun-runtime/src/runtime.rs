@@ -680,6 +680,7 @@ impl Runtime {
             before_layout_neighborhoods,
             after_layout_neighborhoods,
             before_layout_geometry.as_ref(),
+            &replaced_nodes,
             &transaction,
         );
 
@@ -1025,6 +1026,7 @@ impl Runtime {
         before_neighborhoods: HashMap<String, Vec<String>>,
         after_neighborhoods: HashMap<String, Vec<String>>,
         before_geometry: Option<&AccessibilityTree>,
+        replaced_nodes: &HashSet<String>,
         transaction: &Transaction,
     ) {
         let mut candidates = HashSet::new();
@@ -1042,6 +1044,7 @@ impl Runtime {
                 }
             }
         }
+        candidates.retain(|id| !replaced_nodes.contains(id));
         if candidates.is_empty() {
             return;
         }
@@ -2389,6 +2392,66 @@ mod tests {
         assert!(runtime.motion.value(&enter_progress).is_none());
         assert!(runtime.motion.value(&exit_progress).is_none());
         assert!(runtime.motion.value(&flip_progress).is_none());
+    }
+
+    #[test]
+    fn replaced_semantic_instances_are_not_structural_flip_candidates() {
+        let mut runtime =
+            Runtime::from_json(DYNAMIC_IDENTITY_KEY).expect("valid dynamic identity program");
+        let mut before_geometry = runtime
+            .build_accessibility_tree(320.0, 240.0)
+            .expect("before geometry");
+        for node in &mut before_geometry.nodes {
+            if node.id == "keyed-child" || node.id == "change" {
+                node.bounds.y -= 20.0;
+            }
+        }
+
+        let before_neighborhoods = HashMap::from([(
+            "synthetic-parent".to_owned(),
+            vec![
+                "keyed-child".to_owned(),
+                "change".to_owned(),
+                "removed".to_owned(),
+            ],
+        )]);
+        let after_neighborhoods = HashMap::from([(
+            "synthetic-parent".to_owned(),
+            vec!["keyed-child".to_owned(), "change".to_owned()],
+        )]);
+        let replaced = HashSet::from(["keyed-child".to_owned()]);
+        let transaction = Transaction {
+            revision: 1,
+            mutations: Vec::new(),
+            animation: Some(MotionExecutionPlan::Timing {
+                duration: 0.2,
+                curve: [0.0, 0.0, 1.0, 1.0],
+                delay_ms: 0.0,
+                repeat_count: serde_json::json!(1),
+                autoreverses: false,
+            }),
+            disables_animations: false,
+            is_continuous: false,
+        };
+
+        runtime.reconcile_layout_flips(
+            before_neighborhoods,
+            after_neighborhoods,
+            Some(&before_geometry),
+            &replaced,
+            &transaction,
+        );
+
+        assert!(!runtime.layout_flips.contains_key("keyed-child"));
+        assert!(runtime.layout_flips.contains_key("change"));
+        assert!(runtime.motion.value(&MotionChannelKey {
+            node_id: "__layout-flip:change".to_owned(),
+            property: MotionProperty::TranslationX,
+        }).is_some());
+        assert!(runtime.motion.value(&MotionChannelKey {
+            node_id: "__layout-flip:keyed-child".to_owned(),
+            property: MotionProperty::TranslationX,
+        }).is_none());
     }
 
     const DYNAMIC_ROOT_IDENTITY_KEY: &str = r#"
