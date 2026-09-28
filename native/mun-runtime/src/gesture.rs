@@ -174,6 +174,60 @@ pub fn rubber_band_distance(distance: f32, dimension: f32, constant: f32) -> f32
     sign * ((distance * constant * dimension) / (dimension + constant * distance))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DragAxisConstraint {
+    pub min: f32,
+    pub max: f32,
+    pub rubber_band: bool,
+    pub rubber_band_constant: f32,
+    pub rubber_band_dimension: Option<f32>,
+}
+
+impl Default for DragAxisConstraint {
+    fn default() -> Self {
+        Self {
+            min: f32::NEG_INFINITY,
+            max: f32::INFINITY,
+            rubber_band: true,
+            rubber_band_constant: 0.55,
+            rubber_band_dimension: None,
+        }
+    }
+}
+
+/// Apply the inherited live-drag value rule: start value plus pointer translation,
+/// constrained by optional rubber-band bounds.
+pub fn constrained_drag_axis_value(
+    start_value: f32,
+    translation: f32,
+    constraint: DragAxisConstraint,
+) -> Result<f32, KineticSpecError> {
+    let start_value = finite_f32_or(start_value, 0.0);
+    let translation = finite_f32_or(translation, 0.0);
+    let min = if constraint.min.is_finite() {
+        constraint.min
+    } else {
+        f32::NEG_INFINITY
+    };
+    let max = if constraint.max.is_finite() {
+        constraint.max
+    } else {
+        f32::INFINITY
+    };
+    if min > max {
+        return Err(KineticSpecError::InvalidBounds);
+    }
+
+    Ok(constrain_with_rubber_band(
+        start_value + translation,
+        min,
+        max,
+        constraint.rubber_band,
+        constraint.rubber_band_constant,
+        constraint.rubber_band_dimension,
+    ))
+}
+
 pub fn constrain_with_rubber_band(
     value: f32,
     min: f32,
@@ -631,6 +685,52 @@ mod tests {
         tracker.add(10.0, 1.0);
 
         assert_eq!(tracker.sample_count(), 2);
+    }
+
+    #[test]
+    fn constrained_drag_value_preserves_start_value_and_rubber_band() {
+        let constraint = DragAxisConstraint {
+            min: 0.0,
+            max: 100.0,
+            ..Default::default()
+        };
+
+        let value = constrained_drag_axis_value(40.0, 80.0, constraint).unwrap();
+        assert!(value > 100.0);
+        assert!(value < 120.0);
+
+        assert_eq!(
+            constrained_drag_axis_value(
+                40.0,
+                80.0,
+                DragAxisConstraint {
+                    rubber_band: false,
+                    ..constraint
+                }
+            )
+            .unwrap(),
+            100.0
+        );
+        assert_eq!(
+            constrained_drag_axis_value(40.0, 80.0, DragAxisConstraint::default()).unwrap(),
+            120.0
+        );
+    }
+
+    #[test]
+    fn constrained_drag_value_rejects_invalid_bounds() {
+        assert_eq!(
+            constrained_drag_axis_value(
+                0.0,
+                10.0,
+                DragAxisConstraint {
+                    min: 20.0,
+                    max: -20.0,
+                    ..Default::default()
+                }
+            ),
+            Err(KineticSpecError::InvalidBounds)
+        );
     }
 
     #[test]
