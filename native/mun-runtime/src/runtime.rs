@@ -2081,6 +2081,121 @@ mod tests {
         assert_eq!(button.size.height, IntrinsicLayoutSize::action("Go").height);
     }
 
+    const CONTAINER_LAYOUT_SEMANTICS: &str = r#"
+    {
+      "version": 1,
+      "sourceLanguage": "mun",
+      "entry": "ContainerLayoutSemantics",
+      "states": [],
+      "root": {
+        "kind": "window",
+        "id": "root",
+        "title": "Layout Semantics",
+        "child": {
+          "kind": "column",
+          "id": "root-stack",
+          "children": [
+            {
+              "kind": "column",
+              "id": "column",
+              "layout": {
+                "width": { "kind": "literal", "value": 200 },
+                "height": { "kind": "literal", "value": 160 },
+                "padding": 10,
+                "spacing": 6,
+                "alignment": "center"
+              },
+              "children": [
+                {
+                  "kind": "panel",
+                  "id": "column-a",
+                  "layout": {
+                    "width": { "kind": "literal", "value": 50 },
+                    "height": { "kind": "literal", "value": 20 }
+                  }
+                },
+                {
+                  "kind": "panel",
+                  "id": "column-b",
+                  "layout": {
+                    "width": { "kind": "literal", "value": 70 },
+                    "height": { "kind": "literal", "value": 30 }
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "row",
+              "id": "row",
+              "layout": {
+                "width": { "kind": "literal", "value": 160 },
+                "height": { "kind": "literal", "value": 50 },
+                "padding": 8,
+                "spacing": 5,
+                "alignment": "trailing"
+              },
+              "children": [
+                {
+                  "kind": "panel",
+                  "id": "row-a",
+                  "layout": {
+                    "width": { "kind": "literal", "value": 20 },
+                    "height": { "kind": "literal", "value": 10 }
+                  }
+                },
+                {
+                  "kind": "panel",
+                  "id": "row-b",
+                  "layout": {
+                    "width": { "kind": "literal", "value": 30 },
+                    "height": { "kind": "literal", "value": 20 }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+    "#;
+
+    #[test]
+    fn column_padding_spacing_and_center_alignment_are_semantic() {
+        let runtime =
+            Runtime::from_json(CONTAINER_LAYOUT_SEMANTICS).expect("valid container layout program");
+        let (taffy, nodes) = runtime.build_layout_tree(400.0, 320.0).expect("layout");
+        let first = taffy
+            .layout(*nodes.get("column-a").expect("first column child"))
+            .expect("first column layout");
+        let second = taffy
+            .layout(*nodes.get("column-b").expect("second column child"))
+            .expect("second column layout");
+
+        assert_eq!(first.location.x, 75.0);
+        assert_eq!(first.location.y, 10.0);
+        assert_eq!(second.location.x, 65.0);
+        assert_eq!(second.location.y, 36.0);
+    }
+
+    #[test]
+    fn row_padding_spacing_and_trailing_alignment_are_semantic() {
+        let runtime =
+            Runtime::from_json(CONTAINER_LAYOUT_SEMANTICS).expect("valid container layout program");
+        let (taffy, nodes) = runtime.build_layout_tree(400.0, 320.0).expect("layout");
+        let first = taffy
+            .layout(*nodes.get("row-a").expect("first row child"))
+            .expect("first row layout");
+        let second = taffy
+            .layout(*nodes.get("row-b").expect("second row child"))
+            .expect("second row layout");
+
+        assert_eq!(first.location.x, 8.0);
+        assert_eq!(first.location.y, 32.0);
+        assert_eq!(second.location.x, 33.0);
+        assert_eq!(second.location.y, 22.0);
+    }
+
+
     const CONDITIONAL_BRANCH: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"ConditionalTest","states":[{"name":"expanded","initial":false}],"root":{"kind":"window","id":"root","title":"Conditional","child":{"kind":"conditional","id":"branch","condition":{"kind":"state","state":"expanded"},"then":[{"kind":"action","id":"expanded-action","label":"Expanded","action":{"kind":"toggle-state","state":"expanded"}}],"otherwise":[{"kind":"action","id":"collapsed-action","label":"Collapsed","action":{"kind":"toggle-state","state":"expanded"}}]}}}"#;
 
     const TWO_ACTIONS: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"InputTest","states":[{"name":"armed","initial":false}],"root":{"kind":"window","id":"root","title":"Input","child":{"kind":"column","id":"actions","children":[{"kind":"action","id":"first","label":"First","action":{"kind":"toggle-state","state":"armed"}},{"kind":"action","id":"second","label":"Second","action":{"kind":"toggle-state","state":"armed"}}]}}}"#;
