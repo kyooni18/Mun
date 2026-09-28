@@ -366,26 +366,55 @@ impl Runtime {
                         .focus_next_action(self.input.modifiers().shift)
                         .is_some();
                 }
-                LogicalKey::Enter | LogicalKey::Space if !repeat => {
+                LogicalKey::Enter if !repeat => {
                     if self.focused_action().is_none() {
                         self.focus_next_action(false);
                     }
                     outcome.activated = self.activate_focused().is_some();
                     outcome.handled = outcome.activated || self.focused_action().is_some();
                 }
+                LogicalKey::Space if !repeat => {
+                    if self.focused_action().is_none() {
+                        self.focus_next_action(false);
+                    }
+                    if let Some(id) = self.focused_action().map(str::to_owned) {
+                        outcome.handled = true;
+                        outcome.pressed_changed = self.input.capture_keyboard(id);
+                    }
+                }
+                LogicalKey::Space => {
+                    outcome.handled = self.input.keyboard_capture().is_some();
+                }
                 LogicalKey::Escape => {
-                    outcome.handled = self.focused_action().is_some();
+                    outcome.pressed_changed = self.input.clear_keyboard_capture();
+                    outcome.handled = self.focused_action().is_some() || outcome.pressed_changed;
                     self.clear_focus();
                 }
                 _ => {}
             },
+            InputEvent::Key {
+                logical: LogicalKey::Space,
+                state: KeyState::Released,
+                ..
+            } => {
+                let Some(captured) = self.input.take_keyboard_capture() else {
+                    return Ok(outcome);
+                };
+                outcome.handled = true;
+                outcome.pressed_changed = true;
+                if self.focused_action() == Some(captured.as_str()) && self.focus_action(&captured) {
+                    outcome.activated = self.activate_action(&captured).is_some();
+                }
+            }
             InputEvent::Key { .. } | InputEvent::TextInput { .. } | InputEvent::Scroll { .. } => {}
             InputEvent::Cancel { pointer } => {
                 outcome.pressed_changed = self.input.cancel_pointer(pointer);
                 outcome.handled = outcome.pressed_changed;
             }
             InputEvent::WindowFocusChanged(false) => {
-                outcome.pressed_changed = self.input.cancel_pointer(None);
+                let pointer_changed = self.input.cancel_pointer(None);
+                let keyboard_changed = self.input.clear_keyboard_capture();
+                outcome.pressed_changed = pointer_changed || keyboard_changed;
                 outcome.handled = outcome.pressed_changed;
             }
             InputEvent::WindowFocusChanged(true) => {}
@@ -405,6 +434,10 @@ impl Runtime {
 
     pub fn primary_pressed_action(&self, pointer: crate::input::PointerId) -> Option<&str> {
         self.input.primary_capture(pointer)
+    }
+
+    pub fn keyboard_pressed_action(&self) -> Option<&str> {
+        self.input.keyboard_capture()
     }
 
     pub fn clear_focus(&mut self) {
@@ -2359,6 +2392,15 @@ mod tests {
         }
     }
 
+    fn key_event(logical: LogicalKey, state: KeyState, repeat: bool) -> InputEvent {
+        InputEvent::Key {
+            logical,
+            physical: crate::input::PhysicalKey::Other,
+            state,
+            repeat,
+        }
+    }
+
     #[test]
     fn semantic_keyboard_input_owns_focus_traversal_and_activation() {
         let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
@@ -2397,6 +2439,94 @@ mod tests {
         assert!(outcome.activated);
         assert_eq!(runtime.focused_action(), Some("first"));
         assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn space_key_uses_press_release_capture_without_repeat_activation() {
+        let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
+
+        let pressed = runtime
+            .handle_input(pressed_key(LogicalKey::Space), 320.0, 200.0)
+            .expect("space press");
+        assert!(pressed.handled);
+        assert!(pressed.pressed_changed);
+        assert!(!pressed.activated);
+        assert_eq!(runtime.focused_action(), Some("first"));
+        assert_eq!(runtime.keyboard_pressed_action(), Some("first"));
+        assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(false)));
+
+        let repeated = runtime
+            .handle_input(
+                key_event(LogicalKey::Space, KeyState::Pressed, true),
+                320.0,
+                200.0,
+            )
+            .expect("space repeat");
+        assert!(repeated.handled);
+        assert!(!repeated.pressed_changed);
+        assert!(!repeated.activated);
+
+        let released = runtime
+            .handle_input(
+                key_event(LogicalKey::Space, KeyState::Released, false),
+                320.0,
+                200.0,
+            )
+            .expect("space release");
+        assert!(released.handled);
+        assert!(released.pressed_changed);
+        assert!(released.activated);
+        assert_eq!(runtime.keyboard_pressed_action(), None);
+        assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(true)));
+
+        let duplicate_release = runtime
+            .handle_input(
+                key_event(LogicalKey::Space, KeyState::Released, false),
+                320.0,
+                200.0,
+            )
+            .expect("duplicate release");
+        assert!(!duplicate_release.handled);
+        assert!(!duplicate_release.activated);
+    }
+
+    #[test]
+    fn escape_and_window_focus_loss_cancel_keyboard_press() {
+        let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
+        runtime
+            .handle_input(pressed_key(LogicalKey::Space), 320.0, 200.0)
+            .expect("space press");
+        assert_eq!(runtime.keyboard_pressed_action(), Some("first"));
+
+        let escaped = runtime
+            .handle_input(pressed_key(LogicalKey::Escape), 320.0, 200.0)
+            .expect("escape");
+        assert!(escaped.handled);
+        assert!(escaped.pressed_changed);
+        assert_eq!(runtime.keyboard_pressed_action(), None);
+        assert_eq!(runtime.focused_action(), None);
+
+        runtime
+            .handle_input(pressed_key(LogicalKey::Space), 320.0, 200.0)
+            .expect("second space press");
+        assert_eq!(runtime.keyboard_pressed_action(), Some("first"));
+
+        let blurred = runtime
+            .handle_input(InputEvent::WindowFocusChanged(false), 320.0, 200.0)
+            .expect("window blur");
+        assert!(blurred.handled);
+        assert!(blurred.pressed_changed);
+        assert_eq!(runtime.keyboard_pressed_action(), None);
+
+        let release = runtime
+            .handle_input(
+                key_event(LogicalKey::Space, KeyState::Released, false),
+                320.0,
+                200.0,
+            )
+            .expect("release after blur");
+        assert!(!release.activated);
+        assert_eq!(runtime.state.get("armed"), Some(&Value::Bool(false)));
     }
 
     #[test]

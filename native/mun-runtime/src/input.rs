@@ -140,6 +140,7 @@ pub struct InputOutcome {
 pub(crate) struct InputState {
     pointer_positions: HashMap<PointerId, InputPoint>,
     primary_captures: HashMap<PointerId, String>,
+    keyboard_capture: Option<String>,
     modifiers: Modifiers,
 }
 
@@ -166,6 +167,24 @@ impl InputState {
 
     pub(crate) fn clear_primary_capture(&mut self, pointer: PointerId) -> bool {
         self.primary_captures.remove(&pointer).is_some()
+    }
+
+    pub(crate) fn keyboard_capture(&self) -> Option<&str> {
+        self.keyboard_capture.as_deref()
+    }
+
+    pub(crate) fn capture_keyboard(&mut self, action: String) -> bool {
+        let changed = self.keyboard_capture.as_deref() != Some(action.as_str());
+        self.keyboard_capture = Some(action);
+        changed
+    }
+
+    pub(crate) fn take_keyboard_capture(&mut self) -> Option<String> {
+        self.keyboard_capture.take()
+    }
+
+    pub(crate) fn clear_keyboard_capture(&mut self) -> bool {
+        self.keyboard_capture.take().is_some()
     }
 
     pub(crate) fn set_modifiers(&mut self, modifiers: Modifiers) {
