@@ -5,7 +5,10 @@
 
 use std::collections::VecDeque;
 
-use crate::input::{InputPoint, PointerId};
+use crate::{
+    input::{InputPoint, PointerId},
+    motion::{InertiaSpec, KineticSpec, KineticSpecError},
+};
 
 const DEFAULT_WINDOW_SECONDS: f64 = 0.120;
 const DEFAULT_MAX_SAMPLES: usize = 12;
@@ -253,6 +256,143 @@ pub struct GestureAxisRelease {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DragSettleSpec {
+    pub response: f32,
+    pub damping_ratio: f32,
+}
+
+impl Default for DragSettleSpec {
+    fn default() -> Self {
+        Self {
+            response: 0.28,
+            damping_ratio: 0.82,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DragReleaseOptions {
+    pub momentum: bool,
+    pub min: f32,
+    pub max: f32,
+    pub inertia: InertiaSpec,
+    pub settle: DragSettleSpec,
+}
+
+impl Default for DragReleaseOptions {
+    fn default() -> Self {
+        Self {
+            momentum: true,
+            min: f32::NEG_INFINITY,
+            max: f32::INFINITY,
+            inertia: InertiaSpec::default(),
+            settle: DragSettleSpec::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DragReleasePlan {
+    Hold {
+        position: f32,
+    },
+    Settle {
+        current: f32,
+        target: f32,
+        initial_velocity: f32,
+        response: f32,
+        damping_ratio: f32,
+    },
+    Inertia {
+        current: f32,
+        spec: KineticSpec,
+    },
+}
+
+pub fn nearest_snap(target: f32, points: &[f32]) -> f32 {
+    let target = finite_f32_or(target, 0.0);
+    let mut best = target;
+    let mut best_distance = f32::INFINITY;
+
+    for &point in points {
+        if !point.is_finite() {
+            continue;
+        }
+        let distance = (point - target).abs();
+        if distance < best_distance {
+            best = point;
+            best_distance = distance;
+        }
+    }
+
+    best
+}
+
+/// Resolve inherited drag-release semantics without starting an animation.
+///
+/// The caller owns the current motion value. This planner returns either a
+/// stable hold, an explicit spring-back contract, or an inertia spec ready for
+/// the existing MotionScheduler velocity continuation path.
+pub fn plan_drag_axis_release(
+    current: f32,
+    velocity: f32,
+    options: DragReleaseOptions,
+    snap_points: &[f32],
+) -> Result<DragReleasePlan, KineticSpecError> {
+    let current = finite_f32_or(current, 0.0);
+    let velocity = finite_f32_or(velocity, 0.0);
+    let min = if options.min.is_finite() {
+        options.min
+    } else {
+        f32::NEG_INFINITY
+    };
+    let max = if options.max.is_finite() {
+        options.max
+    } else {
+        f32::INFINITY
+    };
+    if min > max {
+        return Err(KineticSpecError::InvalidBounds);
+    }
+
+    let outside = current < min || current > max;
+    if !options.momentum {
+        if !outside {
+            return Ok(DragReleasePlan::Hold { position: current });
+        }
+
+        let settle = options.settle;
+        return Ok(DragReleasePlan::Settle {
+            current,
+            target: current.clamp(min, max),
+            initial_velocity: velocity,
+            response: finite_f32_or(settle.response, 0.28).max(f32::EPSILON),
+            damping_ratio: finite_f32_or(settle.damping_ratio, 0.82).max(0.0),
+        });
+    }
+
+    let mut inertia = options.inertia;
+    let projected = crate::motion::kinetics::project_decay_target(
+        current as f64,
+        velocity as f64,
+        inertia.time_constant,
+        inertia.power,
+        inertia.target_override,
+    ) as f32;
+    let snapped = nearest_snap(projected, snap_points);
+
+    inertia.velocity = Some(velocity as f64);
+    inertia.min = min as f64;
+    inertia.max = max as f64;
+    inertia.target_override = Some(snapped as f64);
+
+    Ok(DragReleasePlan::Inertia {
+        current,
+        spec: KineticSpec::Inertia(inertia),
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DragState {
     pub phase: GesturePhase,
     pub pointer: PointerId,
@@ -448,7 +588,7 @@ mod tests {
     use super::*;
     use crate::{
         ir::MotionProperty,
-        motion::{InertiaSpec, KineticSpec, MotionChannelKey, MotionScheduler},
+        motion::{MotionChannelKey, MotionScheduler},
     };
 
     fn point(x: f32, y: f32) -> InputPoint {
@@ -543,6 +683,105 @@ mod tests {
     }
 
     #[test]
+    fn nearest_snap_matches_inherited_first_nearest_semantics() {
+        assert_eq!(nearest_snap(40.0, &[]), 40.0);
+        assert_eq!(
+            nearest_snap(40.0, &[f32::NAN, 20.0, 60.0, f32::INFINITY]),
+            20.0
+        );
+    }
+
+    #[test]
+    fn release_without_momentum_holds_inside_bounds_and_settles_outside() {
+        let options = DragReleaseOptions {
+            momentum: false,
+            min: 0.0,
+            max: 100.0,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            plan_drag_axis_release(40.0, 120.0, options, &[0.0, 100.0]).unwrap(),
+            DragReleasePlan::Hold { position: 40.0 }
+        );
+
+        assert_eq!(
+            plan_drag_axis_release(120.0, 75.0, options, &[0.0, 100.0]).unwrap(),
+            DragReleasePlan::Settle {
+                current: 120.0,
+                target: 100.0,
+                initial_velocity: 75.0,
+                response: 0.28,
+                damping_ratio: 0.82,
+            }
+        );
+    }
+
+    #[test]
+    fn momentum_release_projects_then_snaps_before_kinetic_handoff() {
+        let options = DragReleaseOptions {
+            min: 0.0,
+            max: 100.0,
+            inertia: InertiaSpec {
+                velocity: Some(-999.0),
+                time_constant: 0.325,
+                power: 0.8,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let plan = plan_drag_axis_release(10.0, 100.0, options, &[0.0, 50.0, 100.0]).unwrap();
+        let DragReleasePlan::Inertia { current, spec } = plan else {
+            panic!("expected inertia release");
+        };
+        assert_eq!(current, 10.0);
+
+        let KineticSpec::Inertia(spec) = spec else {
+            panic!("expected inertia spec");
+        };
+        assert_eq!(spec.velocity, Some(100.0));
+        assert_eq!(spec.min, 0.0);
+        assert_eq!(spec.max, 100.0);
+        assert_eq!(spec.target_override, Some(50.0));
+    }
+
+    #[test]
+    fn pre_resolved_modify_target_is_snapped_after_projection() {
+        let options = DragReleaseOptions {
+            inertia: InertiaSpec {
+                target_override: Some(72.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let plan = plan_drag_axis_release(0.0, 10.0, options, &[50.0, 100.0]).unwrap();
+        let DragReleasePlan::Inertia { spec, .. } = plan else {
+            panic!("expected inertia release");
+        };
+        let KineticSpec::Inertia(spec) = spec else {
+            panic!("expected inertia spec");
+        };
+        assert_eq!(spec.target_override, Some(50.0));
+    }
+
+    #[test]
+    fn release_planner_rejects_invalid_bounds_before_motion_mutation() {
+        let result = plan_drag_axis_release(
+            0.0,
+            0.0,
+            DragReleaseOptions {
+                min: 10.0,
+                max: -10.0,
+                ..Default::default()
+            },
+            &[],
+        );
+        assert_eq!(result, Err(KineticSpecError::InvalidBounds));
+    }
+
+    #[test]
     fn drag_release_velocity_hands_off_to_existing_motion_scheduler() {
         let mut drag = DragRecognizer::new(DragRecognizerConfig {
             axis: DragAxis::X,
@@ -563,15 +802,26 @@ mod tests {
             property: MotionProperty::TranslationX,
         };
         let mut scheduler = MotionScheduler::default();
-        let spec = KineticSpec::Inertia(InertiaSpec {
-            velocity: Some(release.velocity as f64),
-            power: 1.0,
-            min: -500.0,
-            max: 500.0,
-            ..Default::default()
-        });
+        let plan = plan_drag_axis_release(
+            release.position,
+            release.velocity,
+            DragReleaseOptions {
+                min: -500.0,
+                max: 500.0,
+                inertia: InertiaSpec {
+                    power: 1.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &[],
+        )
+        .expect("release plan");
+        let DragReleasePlan::Inertia { current, spec } = plan else {
+            panic!("expected kinetic handoff");
+        };
         scheduler
-            .animate_velocity(key.clone(), release.position, &spec)
+            .animate_velocity(key.clone(), current, &spec)
             .expect("kinetic handoff");
 
         let start = scheduler.value(&key).expect("kinetic presentation");
