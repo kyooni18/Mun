@@ -23,6 +23,31 @@ impl RetainedNodeKind {
     }
 }
 
+/// Finite Mün number normalized for semantic identity comparison.
+#[derive(Clone, Copy, Debug)]
+pub struct RetainedNumberKey(f64);
+
+impl RetainedNumberKey {
+    pub fn new(value: f64) -> Option<Self> {
+        if !value.is_finite() {
+            return None;
+        }
+        Some(Self(if value == 0.0 { 0.0 } else { value }))
+    }
+
+    pub fn get(self) -> f64 {
+        self.0
+    }
+}
+
+impl PartialEq for RetainedNumberKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for RetainedNumberKey {}
+
 /// Runtime value of Mün's semantic `.id(_:)` boundary.
 ///
 /// Structural node IDs remain the stable location anchor. A changed semantic
@@ -31,14 +56,17 @@ impl RetainedNodeKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RetainedIdentityKey {
     String(String),
-    Number(serde_json::Number),
+    Number(RetainedNumberKey),
 }
 
 impl RetainedIdentityKey {
     pub fn from_value(value: &serde_json::Value) -> Option<Self> {
         match value {
             serde_json::Value::String(value) => Some(Self::String(value.clone())),
-            serde_json::Value::Number(value) => Some(Self::Number(value.clone())),
+            serde_json::Value::Number(value) => value
+                .as_f64()
+                .and_then(RetainedNumberKey::new)
+                .map(Self::Number),
             _ => None,
         }
     }
@@ -401,10 +429,18 @@ mod tests {
     fn string_and_number_identity_keys_are_distinct() {
         let string =
             RetainedIdentityKey::from_value(&serde_json::json!("1")).expect("string identity key");
-        let number =
-            RetainedIdentityKey::from_value(&serde_json::json!(1)).expect("number identity key");
+        let integer =
+            RetainedIdentityKey::from_value(&serde_json::json!(1)).expect("integer identity key");
+        let float =
+            RetainedIdentityKey::from_value(&serde_json::json!(1.0)).expect("float identity key");
+        let zero =
+            RetainedIdentityKey::from_value(&serde_json::json!(0)).expect("zero identity key");
+        let negative_zero = RetainedIdentityKey::from_value(&serde_json::json!(-0.0))
+            .expect("negative zero identity key");
 
-        assert_ne!(string, number);
+        assert_ne!(string, integer);
+        assert_eq!(integer, float);
+        assert_eq!(zero, negative_zero);
         assert!(RetainedIdentityKey::from_value(&serde_json::json!(true)).is_none());
     }
 
