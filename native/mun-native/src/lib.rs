@@ -10,7 +10,7 @@ use glyphon::{
     SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
 };
 use mun_runtime::accessibility::AccessibilityAction as MunAccessibilityAction;
-use mun_runtime::scene::{ScenePresentation, SceneTransform};
+use mun_runtime::scene::{Rect, ScenePresentation, SceneTransform};
 use mun_runtime::{
     ButtonState as MunButtonState, Color, InputEvent, InputPoint, KeyState as MunKeyState,
     LogicalKey, Modifiers, PhysicalKey as MunPhysicalKey, PointerButton as MunPointerButton,
@@ -212,10 +212,26 @@ struct TextTransformPlan {
     viewport_height: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ScissorRect {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RectDrawBatch {
+    start: u32,
+    end: u32,
+    scissor: ScissorRect,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct PreparedTextBatch {
     slot: usize,
     plan: TextTransformPlan,
+    scissor: ScissorRect,
 }
 
 struct GpuRenderer {
@@ -373,14 +389,16 @@ impl GpuRenderer {
         presentation: &ScenePresentation,
         scale_factor: f32,
     ) {
-        let physical_width = self.config.width.max(1) as f32;
-        let physical_height = self.config.height.max(1) as f32;
+        let surface_width = self.config.width.max(1);
+        let surface_height = self.config.height.max(1);
+        let physical_width = surface_width as f32;
+        let physical_height = surface_height as f32;
 
-        let vertices = scene_vertices(
+        let (vertices, rect_batches) = scene_geometry(
             scene,
             presentation,
-            physical_width,
-            physical_height,
+            surface_width,
+            surface_height,
             scale_factor,
         );
         if !vertices.is_empty() {
@@ -420,19 +438,38 @@ impl GpuRenderer {
         let mut groups = Vec::new();
         let mut start = 0;
         while start < scene.texts.len() {
-            let transform = presentation.transform_for(&scene.texts[start].id);
+            let text = &scene.texts[start];
+            let transform = presentation.transform_for(&text.id);
+            let Some(scissor) = scissor_for_clip(
+                presentation.clip_for(&text.id),
+                surface_width,
+                surface_height,
+                scale_factor,
+            ) else {
+                start += 1;
+                continue;
+            };
             let mut end = start + 1;
-            while end < scene.texts.len()
-                && presentation.transform_for(&scene.texts[end].id) == transform
-            {
+            while end < scene.texts.len() {
+                let next = &scene.texts[end];
+                if presentation.transform_for(&next.id) != transform
+                    || scissor_for_clip(
+                        presentation.clip_for(&next.id),
+                        surface_width,
+                        surface_height,
+                        scale_factor,
+                    ) != Some(scissor)
+                {
+                    break;
+                }
                 end += 1;
             }
-            groups.push((start, end, transform));
+            groups.push((start, end, transform, scissor));
             start = end;
         }
 
         let mut prepared_batches = Vec::with_capacity(groups.len());
-        for (start, end, transform) in groups {
+        for (start, end, transform, scissor) in groups {
             let Some(plan) =
                 text_transform_plan(transform, physical_width, physical_height, scale_factor)
                     .expect("Mün text transforms require finite, non-negative scales")
@@ -495,7 +532,11 @@ impl GpuRenderer {
                     swash_cache,
                 )
                 .expect("prepare Mün text");
-            prepared_batches.push(PreparedTextBatch { slot, plan });
+            prepared_batches.push(PreparedTextBatch {
+                slot,
+                plan,
+                scissor,
+            });
         }
 
         let frame = match self.surface.get_current_texture() {
@@ -544,14 +585,28 @@ impl GpuRenderer {
                 multiview_mask: None,
             });
 
-            if !vertices.is_empty() {
+            if !rect_batches.is_empty() {
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_vertex_buffer(0, self.rect_vertex_buffer.slice(..));
-                pass.draw(0..vertices.len() as u32, 0..1);
+                for batch in rect_batches {
+                    pass.set_scissor_rect(
+                        batch.scissor.x,
+                        batch.scissor.y,
+                        batch.scissor.width,
+                        batch.scissor.height,
+                    );
+                    pass.draw(batch.start..batch.end, 0..1);
+                }
             }
 
             for prepared in prepared_batches {
                 let batch = &self.text_batches[prepared.slot];
+                pass.set_scissor_rect(
+                    prepared.scissor.x,
+                    prepared.scissor.y,
+                    prepared.scissor.width,
+                    prepared.scissor.height,
+                );
                 pass.set_viewport(
                     prepared.plan.viewport_x,
                     prepared.plan.viewport_y,
@@ -621,15 +676,71 @@ fn text_transform_plan(
     }))
 }
 
-fn scene_vertices(
+fn scissor_for_clip(
+    clip: Option<Rect>,
+    surface_width: u32,
+    surface_height: u32,
+    scale: f32,
+) -> Option<ScissorRect> {
+    if surface_width == 0 || surface_height == 0 || !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    let Some(clip) = clip else {
+        return Some(ScissorRect {
+            x: 0,
+            y: 0,
+            width: surface_width,
+            height: surface_height,
+        });
+    };
+    if !clip.x.is_finite()
+        || !clip.y.is_finite()
+        || !clip.width.is_finite()
+        || !clip.height.is_finite()
+        || clip.width <= 0.0
+        || clip.height <= 0.0
+    {
+        return None;
+    }
+
+    let max_x = surface_width as f32;
+    let max_y = surface_height as f32;
+    let left = (clip.x * scale).floor().clamp(0.0, max_x);
+    let top = (clip.y * scale).floor().clamp(0.0, max_y);
+    let right = ((clip.x + clip.width) * scale).ceil().clamp(0.0, max_x);
+    let bottom = ((clip.y + clip.height) * scale).ceil().clamp(0.0, max_y);
+    if right <= left || bottom <= top {
+        return None;
+    }
+
+    Some(ScissorRect {
+        x: left as u32,
+        y: top as u32,
+        width: (right - left) as u32,
+        height: (bottom - top) as u32,
+    })
+}
+
+fn scene_geometry(
     scene: &Scene,
     presentation: &ScenePresentation,
-    width: f32,
-    height: f32,
+    surface_width: u32,
+    surface_height: u32,
     scale: f32,
-) -> Vec<Vertex> {
+) -> (Vec<Vertex>, Vec<RectDrawBatch>) {
+    let width = surface_width.max(1) as f32;
+    let height = surface_height.max(1) as f32;
     let mut vertices = Vec::with_capacity(scene.rects.len() * 6);
+    let mut batches: Vec<RectDrawBatch> = Vec::new();
     for item in &scene.rects {
+        let Some(scissor) = scissor_for_clip(
+            presentation.clip_for(&item.id),
+            surface_width,
+            surface_height,
+            scale,
+        ) else {
+            continue;
+        };
         let transform = presentation.transform_for(&item.id);
         let (left, top) = transform.transform_point(item.rect.x, item.rect.y);
         let (right, bottom) = transform.transform_point(
@@ -650,6 +761,7 @@ fn scene_vertices(
             rect_size,
             corner_radius: radius,
         };
+        let start = vertices.len() as u32;
         vertices.extend_from_slice(&[
             vertex([x0, y0], [0.0, 0.0]),
             vertex([x1, y0], [item.rect.width, 0.0]),
@@ -658,14 +770,44 @@ fn scene_vertices(
             vertex([x1, y1], [item.rect.width, item.rect.height]),
             vertex([x0, y1], [0.0, item.rect.height]),
         ]);
+        let end = vertices.len() as u32;
+        if let Some(previous) = batches.last_mut() {
+            if previous.scissor == scissor && previous.end == start {
+                previous.end = end;
+                continue;
+            }
+        }
+        batches.push(RectDrawBatch {
+            start,
+            end,
+            scissor,
+        });
     }
-    vertices
+    (vertices, batches)
+}
+
+#[cfg(test)]
+fn scene_vertices(
+    scene: &Scene,
+    presentation: &ScenePresentation,
+    width: f32,
+    height: f32,
+    scale: f32,
+) -> Vec<Vertex> {
+    scene_geometry(
+        scene,
+        presentation,
+        width.max(1.0) as u32,
+        height.max(1.0) as u32,
+        scale,
+    )
+    .0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mun_runtime::{Rect, scene::SceneRect};
+    use mun_runtime::scene::SceneRect;
 
     #[test]
     fn platform_key_mapping_stays_inside_the_native_adapter() {
@@ -705,6 +847,99 @@ mod tests {
         assert_eq!(
             rect_vertex_buffer_capacity(INITIAL_RECT_VERTEX_BUFFER_BYTES + 1),
             INITIAL_RECT_VERTEX_BUFFER_BYTES * 2
+        );
+    }
+
+    #[test]
+    fn scissor_for_clip_rounds_outward_and_intersects_surface() {
+        assert_eq!(
+            scissor_for_clip(None, 20, 10, 2.0),
+            Some(ScissorRect {
+                x: 0,
+                y: 0,
+                width: 20,
+                height: 10,
+            })
+        );
+        assert_eq!(
+            scissor_for_clip(
+                Some(Rect {
+                    x: -0.25,
+                    y: 1.25,
+                    width: 10.5,
+                    height: 4.1,
+                }),
+                20,
+                10,
+                2.0,
+            ),
+            Some(ScissorRect {
+                x: 0,
+                y: 2,
+                width: 20,
+                height: 8,
+            })
+        );
+        assert_eq!(
+            scissor_for_clip(
+                Some(Rect {
+                    x: 30.0,
+                    y: 0.0,
+                    width: 5.0,
+                    height: 5.0,
+                }),
+                20,
+                10,
+                1.0,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn scene_geometry_batches_equal_clips() {
+        let item = |id: &str| SceneRect {
+            id: id.into(),
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            color: Color([1.0; 4]),
+            corner_radius: 0.0,
+        };
+        let scene = Scene {
+            rects: vec![item("a"), item("b")],
+            ..Default::default()
+        };
+        let mut presentation = ScenePresentation::default();
+        let clip = presentation.push_clip(
+            None,
+            Rect {
+                x: 5.0,
+                y: 6.0,
+                width: 20.0,
+                height: 10.0,
+            },
+            None,
+        );
+        presentation.bind_clip("a", clip);
+        presentation.bind_clip("b", clip);
+
+        let (vertices, batches) = scene_geometry(&scene, &presentation, 100, 80, 2.0);
+        assert_eq!(vertices.len(), 12);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].start, 0);
+        assert_eq!(batches[0].end, 12);
+        assert_eq!(
+            batches[0].scissor,
+            ScissorRect {
+                x: 10,
+                y: 12,
+                width: 40,
+                height: 20
+            }
         );
     }
 
