@@ -13,10 +13,17 @@ impl InputPoint {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct PointerId(pub u64);
+pub struct PointerId(pub u128);
 
 impl PointerId {
     pub const MOUSE: Self = Self(0);
+    const TOUCH_NAMESPACE: u128 = 1_u128 << 64;
+
+    /// Construct a touch pointer identity without aliasing the mouse or ordinary
+    /// runtime-local pointer IDs representable by a u64.
+    pub const fn touch(id: u64) -> Self {
+        Self(Self::TOUCH_NAMESPACE | id as u128)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

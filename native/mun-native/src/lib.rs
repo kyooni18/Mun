@@ -19,7 +19,7 @@ use mun_runtime::{
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition},
-    event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey as WinitPhysicalKey},
     window::{Window, WindowId},
@@ -826,6 +826,72 @@ mod tests {
     }
 
     #[test]
+    fn touch_pointer_namespace_never_aliases_mouse_or_u64_local_ids() {
+        assert_ne!(PointerId::touch(0), PointerId::MOUSE);
+        assert_ne!(PointerId::touch(u64::MAX), PointerId(u64::MAX as u128));
+        assert_ne!(PointerId::touch(7), PointerId(7));
+    }
+
+    #[test]
+    fn touch_events_translate_to_canonical_pointer_capture_sequence() {
+        let pointer = PointerId::touch(42);
+        assert_eq!(
+            input_touch_events(
+                42,
+                TouchPhase::Started,
+                PhysicalPosition::new(20.0, 40.0),
+                2.0,
+            ),
+            vec![
+                InputEvent::PointerMoved {
+                    pointer,
+                    position: InputPoint::new(10.0, 20.0),
+                },
+                InputEvent::PointerButton {
+                    pointer,
+                    button: MunPointerButton::Primary,
+                    state: MunButtonState::Pressed,
+                },
+            ]
+        );
+
+        assert_eq!(
+            input_touch_events(
+                42,
+                TouchPhase::Ended,
+                PhysicalPosition::new(24.0, 44.0),
+                2.0,
+            ),
+            vec![
+                InputEvent::PointerMoved {
+                    pointer,
+                    position: InputPoint::new(12.0, 22.0),
+                },
+                InputEvent::PointerButton {
+                    pointer,
+                    button: MunPointerButton::Primary,
+                    state: MunButtonState::Released,
+                },
+                InputEvent::Cancel {
+                    pointer: Some(pointer),
+                },
+            ]
+        );
+
+        assert_eq!(
+            input_touch_events(
+                42,
+                TouchPhase::Cancelled,
+                PhysicalPosition::new(0.0, 0.0),
+                2.0,
+            ),
+            vec![InputEvent::Cancel {
+                pointer: Some(pointer),
+            }]
+        );
+    }
+
+    #[test]
     fn platform_scroll_pixels_are_normalized_to_logical_points() {
         let delta = input_scroll_delta(
             MouseScrollDelta::PixelDelta(PhysicalPosition::new(20.0, -10.0)),
@@ -1131,6 +1197,46 @@ fn input_scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> ScrollDelta
     }
 }
 
+fn input_touch_events(
+    id: u64,
+    phase: TouchPhase,
+    position: PhysicalPosition<f64>,
+    scale_factor: f64,
+) -> Vec<InputEvent> {
+    let pointer = PointerId::touch(id);
+    let position = InputPoint::new(
+        (position.x / scale_factor) as f32,
+        (position.y / scale_factor) as f32,
+    );
+    let moved = InputEvent::PointerMoved { pointer, position };
+
+    match phase {
+        TouchPhase::Started => vec![
+            moved,
+            InputEvent::PointerButton {
+                pointer,
+                button: MunPointerButton::Primary,
+                state: MunButtonState::Pressed,
+            },
+        ],
+        TouchPhase::Moved => vec![moved],
+        TouchPhase::Ended => vec![
+            moved,
+            InputEvent::PointerButton {
+                pointer,
+                button: MunPointerButton::Primary,
+                state: MunButtonState::Released,
+            },
+            InputEvent::Cancel {
+                pointer: Some(pointer),
+            },
+        ],
+        TouchPhase::Cancelled => vec![InputEvent::Cancel {
+            pointer: Some(pointer),
+        }],
+    }
+}
+
 struct WindowState {
     runtime: Runtime,
     renderer: GpuRenderer,
@@ -1317,6 +1423,16 @@ impl ApplicationHandler<NativeEvent> for Application {
                     pointer: Some(PointerId::MOUSE),
                     delta: input_scroll_delta(delta, state.window.scale_factor()),
                 });
+            }
+            WindowEvent::Touch(touch) => {
+                for event in input_touch_events(
+                    touch.id,
+                    touch.phase,
+                    touch.location,
+                    state.window.scale_factor(),
+                ) {
+                    state.dispatch_input(event);
+                }
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 state.dispatch_input(InputEvent::Key {
