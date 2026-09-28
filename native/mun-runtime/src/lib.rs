@@ -27,7 +27,8 @@ pub use input::{
 };
 pub use layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize};
 pub use retained::{
-    RetainedNode, RetainedNodeKind, RetainedReconciliation, RetainedTree, RetainedTreeError,
+    RetainedIdentityKey, RetainedNode, RetainedNodeKind, RetainedReconciliation, RetainedTree,
+    RetainedTreeError,
 };
 pub use runtime::{
     Runtime, RuntimeFrame, RuntimeLoadError, SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,

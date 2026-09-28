@@ -23,11 +23,33 @@ impl RetainedNodeKind {
     }
 }
 
+/// Runtime value of Mün's semantic `.id(_:)` boundary.
+///
+/// Structural node IDs remain the stable location anchor. A changed semantic
+/// identity key at that anchor replaces the retained instance without changing
+/// the structural ID used by layout, focus, accessibility, or scene lookup.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RetainedIdentityKey {
+    String(String),
+    Number(serde_json::Number),
+}
+
+impl RetainedIdentityKey {
+    pub fn from_value(value: &serde_json::Value) -> Option<Self> {
+        match value {
+            serde_json::Value::String(value) => Some(Self::String(value.clone())),
+            serde_json::Value::Number(value) => Some(Self::Number(value.clone())),
+            _ => None,
+        }
+    }
+}
+
 /// A stable runtime instance attached to one semantic UI IR identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RetainedNode {
     pub id: String,
     pub kind: RetainedNodeKind,
+    pub identity_key: Option<RetainedIdentityKey>,
     pub instance_id: u64,
     pub parent: Option<String>,
     pub children: Vec<String>,
@@ -69,6 +91,7 @@ pub enum RetainedTreeError {
 pub(crate) struct RetainedNodeSpec {
     pub id: String,
     pub kind: RetainedNodeKind,
+    pub identity_key: Option<RetainedIdentityKey>,
     pub parent: Option<String>,
     pub children: Vec<String>,
 }
@@ -83,6 +106,7 @@ impl RetainedNodeSpec {
         Self {
             id: id.into(),
             kind,
+            identity_key: None,
             parent,
             children,
         }
@@ -91,10 +115,11 @@ impl RetainedNodeSpec {
 
 /// Active framework-owned semantic tree.
 ///
-/// Semantic UI IR node IDs are the canonical identity. Runtime instance IDs are
-/// allocated only when an identity first appears or when the same semantic ID
-/// changes node kind, which is an explicit replacement. Taffy IDs and scene
-/// primitive indices never participate in reconciliation.
+/// Structural Semantic UI IR node IDs are the canonical location anchors.
+/// Runtime instance IDs survive reconciliation only while the node kind and
+/// optional semantic identity key remain stable. Changing `.id(_:)` therefore
+/// replaces the runtime instance at the same structural anchor. Taffy IDs and
+/// scene primitive indices never participate in reconciliation.
 #[derive(Clone, Debug, Default)]
 pub struct RetainedTree {
     nodes: HashMap<String, RetainedNode>,
@@ -156,7 +181,9 @@ impl RetainedTree {
             next_order.push(id.clone());
 
             let node = match previous_nodes.get(&id) {
-                Some(previous) if previous.kind == spec.kind => {
+                Some(previous)
+                    if previous.kind == spec.kind && previous.identity_key == spec.identity_key =>
+                {
                     diff.retained.push(id.clone());
                     if previous.parent != spec.parent {
                         diff.reparented.push(id.clone());
@@ -167,6 +194,7 @@ impl RetainedTree {
                     RetainedNode {
                         id: id.clone(),
                         kind: spec.kind,
+                        identity_key: spec.identity_key.clone(),
                         instance_id: previous.instance_id,
                         parent: spec.parent,
                         children: spec.children,
@@ -177,6 +205,7 @@ impl RetainedTree {
                     RetainedNode {
                         id: id.clone(),
                         kind: spec.kind,
+                        identity_key: spec.identity_key.clone(),
                         instance_id: self.allocate_instance_id(),
                         parent: spec.parent,
                         children: spec.children,
@@ -187,6 +216,7 @@ impl RetainedTree {
                     RetainedNode {
                         id: id.clone(),
                         kind: spec.kind,
+                        identity_key: spec.identity_key.clone(),
                         instance_id: self.allocate_instance_id(),
                         parent: spec.parent,
                         children: spec.children,
@@ -227,6 +257,12 @@ mod tests {
             parent.map(str::to_owned),
             children.iter().map(|child| (*child).to_owned()).collect(),
         )
+    }
+
+    fn keyed_text_spec(id: &str, key: RetainedIdentityKey) -> RetainedNodeSpec {
+        let mut spec = spec(id, RetainedNodeKind::Text, None, &[]);
+        spec.identity_key = Some(key);
+        spec
     }
 
     #[test]
@@ -310,6 +346,66 @@ mod tests {
 
         assert_eq!(diff.replaced, vec!["node"]);
         assert_ne!(tree.node("node").expect("node").instance_id, first);
+    }
+
+    #[test]
+    fn stable_semantic_identity_key_preserves_instance_and_revision() {
+        let mut tree = RetainedTree::default();
+        let key = RetainedIdentityKey::String("hero".to_owned());
+        tree.reconcile(vec![keyed_text_spec("node", key.clone())])
+            .expect("initial keyed identity");
+        let instance = tree.node("node").expect("node").instance_id;
+        let revision = tree.revision();
+
+        let diff = tree
+            .reconcile(vec![keyed_text_spec("node", key.clone())])
+            .expect("same keyed identity");
+
+        let node = tree.node("node").expect("node");
+        assert_eq!(node.instance_id, instance);
+        assert_eq!(node.identity_key, Some(key));
+        assert_eq!(diff.retained, vec!["node"]);
+        assert!(diff.is_empty());
+        assert_eq!(tree.revision(), revision);
+    }
+
+    #[test]
+    fn changed_semantic_identity_key_replaces_instance_at_same_anchor() {
+        let mut tree = RetainedTree::default();
+        tree.reconcile(vec![keyed_text_spec(
+            "node",
+            RetainedIdentityKey::String("alpha".to_owned()),
+        )])
+        .expect("initial keyed identity");
+        let instance = tree.node("node").expect("node").instance_id;
+        let revision = tree.revision();
+
+        let diff = tree
+            .reconcile(vec![keyed_text_spec(
+                "node",
+                RetainedIdentityKey::String("beta".to_owned()),
+            )])
+            .expect("changed keyed identity");
+
+        let node = tree.node("node").expect("node");
+        assert_ne!(node.instance_id, instance);
+        assert_eq!(
+            node.identity_key,
+            Some(RetainedIdentityKey::String("beta".to_owned()))
+        );
+        assert_eq!(diff.replaced, vec!["node"]);
+        assert_eq!(tree.revision(), revision + 1);
+    }
+
+    #[test]
+    fn string_and_number_identity_keys_are_distinct() {
+        let string =
+            RetainedIdentityKey::from_value(&serde_json::json!("1")).expect("string identity key");
+        let number =
+            RetainedIdentityKey::from_value(&serde_json::json!(1)).expect("number identity key");
+
+        assert_ne!(string, number);
+        assert!(RetainedIdentityKey::from_value(&serde_json::json!(true)).is_none());
     }
 
     #[test]
