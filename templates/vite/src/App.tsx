@@ -10,12 +10,12 @@ import {
   Toggle,
   VStack,
   view,
-} from 'vune-ui/legacy'
+} from '@mun/ui/legacy'
 import './App.css'
 
 const codeSample = `const App = view({
   state: () => ({
-    name: State('Vune'),
+    name: State('Mun'),
     volume: State(60),
   }),
   body: ({ name, volume }) => VStack(
@@ -35,14 +35,14 @@ function ComponentRow(label: string, content: any) {
 
 const App = view({
   state: () => ({
-    text: State('Vune'),
+    text: State('Mun'),
     value: State(60),
     checked: State(true),
   }),
   body: ({ text, value, checked }) => VStack(
     { alignment: 'leading', spacing: 24 },
     Text('DEMO').className('demo-title'),
-    Text('Vune is a small SwiftUI-like declarative UI layer for React.')
+    Text('Mun is a small SwiftUI-like declarative UI layer for React.')
       .className('demo-description'),
     Text(codeSample).className('code-sample'),
     VStack(
@@ -76,7 +76,7 @@ const App = view({
     VStack(
       { alignment: 'leading', spacing: 10 },
       Text('Components').className('section-label'),
-      ComponentRow('Text', Text('Hello, Vune').className('object-preview')),
+      ComponentRow('Text', Text('Hello, Mun').className('object-preview')),
       ComponentRow('Button', Button('Button', () => {}).className('demo-button')),
       ComponentRow(
         'ProgressView',

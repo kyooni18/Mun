@@ -16,9 +16,10 @@ for (const name of readdirSync(out)) {
 }
 
 function pnpm(args, cwd) {
-  const cli = process.env.VUNE_PNPM_CLI || process.env.npm_execpath
-  const command = cli ? process.execPath : 'pnpm'
-  const commandArgs = cli ? [cli, ...args] : args
+  const cli = process.env.MUN_PNPM_CLI || process.env.npm_execpath
+  const cliIsJavaScript = Boolean(cli && /\.(?:cjs|mjs|js)$/u.test(cli))
+  const command = cli ? (cliIsJavaScript ? process.execPath : cli) : 'pnpm'
+  const commandArgs = cliIsJavaScript ? [cli, ...args] : args
   return spawnSync(command, commandArgs, { cwd, stdio: 'inherit', env: process.env })
 }
 

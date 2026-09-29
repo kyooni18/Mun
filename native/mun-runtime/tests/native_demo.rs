@@ -2,13 +2,29 @@ use mun_runtime::Runtime;
 
 const PROGRAM: &str = include_str!("../../generated/NativeDemo.json");
 
+fn parsed_program() -> serde_json::Value {
+    serde_json::from_str(PROGRAM).expect("parse compiler UI IR")
+}
+
+fn child_id(program: &serde_json::Value, index: usize) -> &str {
+    program["root"]["child"]["children"][index]["id"]
+        .as_str()
+        .expect("compiled semantic node identity")
+}
+
+fn demo_child_id(index: usize) -> String {
+    let program = parsed_program();
+    child_id(&program, index).to_owned()
+}
+
 fn panel_width(runtime: &Runtime) -> f32 {
+    let panel_id = demo_child_id(2);
     runtime
         .build_scene(640.0, 420.0)
         .expect("build scene")
         .rects
         .iter()
-        .find(|item| item.id == "panel-3")
+        .find(|item| item.id == panel_id)
         .expect("animated panel")
         .rect
         .width
@@ -17,10 +33,11 @@ fn panel_width(runtime: &Runtime) -> f32 {
 #[test]
 fn state_transaction_drives_motion_layout_and_scene() {
     let mut runtime = Runtime::from_json(PROGRAM).expect("load compiler UI IR");
+    let action_id = demo_child_id(1);
     assert!((panel_width(&runtime) - 160.0).abs() < 0.01);
 
     let transaction = runtime
-        .activate_action("action-2")
+        .activate_action(&action_id)
         .expect("activate semantic action");
     assert_eq!(transaction.mutations.len(), 1);
     let program: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse compiler UI IR");
@@ -46,6 +63,9 @@ fn accessibility_tree_tracks_semantics_focus_and_animated_layout() {
     use mun_runtime::ir::AccessibilityRole;
 
     let mut runtime = Runtime::from_json(PROGRAM).expect("load compiler UI IR");
+    let text_id = demo_child_id(0);
+    let action_id = demo_child_id(1);
+    let panel_id = demo_child_id(2);
     let initial = runtime
         .build_accessibility_tree(640.0, 420.0)
         .expect("build accessibility tree");
@@ -56,17 +76,17 @@ fn accessibility_tree_tracks_semantics_focus_and_animated_layout() {
         AccessibilityRole::Window
     );
     assert_eq!(
-        initial.node("text-1").unwrap().label.as_deref(),
+        initial.node(&text_id).unwrap().label.as_deref(),
         Some("Mün")
     );
-    let action = initial.node("action-2").expect("accessible action");
+    let action = initial.node(&action_id).expect("accessible action");
     assert_eq!(action.role, AccessibilityRole::Button);
     assert_eq!(action.label.as_deref(), Some("Toggle"));
     assert!(action.enabled);
-    assert_eq!(action.action_id.as_deref(), Some("action-2"));
-    assert!((initial.node("panel-3").unwrap().bounds.width - 160.0).abs() < 0.01);
+    assert_eq!(action.action_id.as_deref(), Some(action_id.as_str()));
+    assert!((initial.node(&panel_id).unwrap().bounds.width - 160.0).abs() < 0.01);
 
-    assert!(runtime.focus_action("action-2"));
+    assert!(runtime.focus_action(&action_id));
     runtime
         .activate_focused()
         .expect("activate accessible action");
@@ -75,15 +95,16 @@ fn accessibility_tree_tracks_semantics_focus_and_animated_layout() {
     let animated = runtime
         .build_accessibility_tree(640.0, 420.0)
         .expect("build animated accessibility tree");
-    assert_eq!(animated.focus_id.as_deref(), Some("action-2"));
-    assert!(animated.node("action-2").unwrap().focused);
-    let width = animated.node("panel-3").unwrap().bounds.width;
+    assert_eq!(animated.focus_id.as_deref(), Some(action_id.as_str()));
+    assert!(animated.node(&action_id).unwrap().focused);
+    let width = animated.node(&panel_id).unwrap().bounds.width;
     assert!(width > 160.0 && width < 320.0);
 }
 
 #[test]
 fn disabled_semantic_action_cannot_activate_from_any_backend() {
     let mut value: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse demo IR");
+    let action_id = child_id(&value, 1).to_owned();
     value["root"]["child"]["children"][1]["accessibility"]["enabled"] = serde_json::json!({
         "kind": "literal",
         "value": false
@@ -94,14 +115,15 @@ fn disabled_semantic_action_cannot_activate_from_any_backend() {
     let tree = runtime
         .build_accessibility_tree(640.0, 420.0)
         .expect("build disabled accessibility tree");
-    assert!(!tree.node("action-2").expect("action node").enabled);
-    assert!(runtime.activate_action("action-2").is_none());
+    assert!(!tree.node(&action_id).expect("action node").enabled);
+    assert!(runtime.activate_action(&action_id).is_none());
     assert!((panel_width(&runtime) - 160.0).abs() < 0.01);
 }
 
 #[test]
 fn animation_value_trigger_must_change_before_target_motion_starts() {
     let mut value: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse demo IR");
+    let action_id = child_id(&value, 1).to_owned();
     value["root"]["child"]["children"][2]["motion"][0]["trigger"] = serde_json::json!({
         "kind": "literal",
         "value": false
@@ -110,7 +132,7 @@ fn animation_value_trigger_must_change_before_target_motion_starts() {
     let mut runtime = Runtime::from_json(&json).expect("load fixed-trigger compiler UI IR");
 
     runtime
-        .activate_action("action-2")
+        .activate_action(&action_id)
         .expect("toggle width state");
     assert!(!runtime.has_active_motion());
     assert!((panel_width(&runtime) - 320.0).abs() < 0.01);
@@ -119,6 +141,7 @@ fn animation_value_trigger_must_change_before_target_motion_starts() {
 #[test]
 fn semantic_focus_traversal_skips_disabled_actions_and_wraps() {
     let mut value: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse demo IR");
+    let first_id = child_id(&value, 1).to_owned();
     let first = value["root"]["child"]["children"][1].clone();
 
     let mut disabled = first.clone();
@@ -144,7 +167,7 @@ fn semantic_focus_traversal_skips_disabled_actions_and_wraps() {
 
     assert_eq!(
         runtime.focus_next_action(false).as_deref(),
-        Some("action-2")
+        Some(first_id.as_str())
     );
     assert_eq!(
         runtime.focus_next_action(false).as_deref(),
@@ -152,7 +175,7 @@ fn semantic_focus_traversal_skips_disabled_actions_and_wraps() {
     );
     assert_eq!(
         runtime.focus_next_action(false).as_deref(),
-        Some("action-2")
+        Some(first_id.as_str())
     );
     assert_eq!(
         runtime.focus_next_action(true).as_deref(),
@@ -165,6 +188,7 @@ fn semantic_focus_traversal_skips_disabled_actions_and_wraps() {
 #[test]
 fn transaction_animation_is_fallback_for_dynamic_property_without_local_plan() {
     let mut value: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse demo IR");
+    let action_id = child_id(&value, 1).to_owned();
     let panel_binding = &mut value["root"]["child"]["children"][2]["motion"][0];
     let plan = panel_binding["plan"].take();
     panel_binding
@@ -180,7 +204,7 @@ fn transaction_animation_is_fallback_for_dynamic_property_without_local_plan() {
     let json = serde_json::to_string(&value).expect("serialize transaction IR");
     let mut runtime = Runtime::from_json(&json).expect("load transaction IR");
     let transaction = runtime
-        .activate_action("action-2")
+        .activate_action(&action_id)
         .expect("activate transaction action");
     assert!(transaction.animation.is_some());
     assert!(runtime.has_active_motion());
@@ -193,6 +217,7 @@ fn transaction_animation_is_fallback_for_dynamic_property_without_local_plan() {
 #[test]
 fn local_animation_override_wins_over_surrounding_transaction() {
     let mut value: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse demo IR");
+    let action_id = child_id(&value, 1).to_owned();
     let mut delayed = value["root"]["child"]["children"][2]["motion"][0]["plan"].clone();
     delayed["delayMs"] = serde_json::json!(1000.0);
     value["root"]["child"]["children"][1]["action"]["transaction"] = serde_json::json!({
@@ -204,7 +229,7 @@ fn local_animation_override_wins_over_surrounding_transaction() {
     let json = serde_json::to_string(&value).expect("serialize override IR");
     let mut runtime = Runtime::from_json(&json).expect("load override IR");
     runtime
-        .activate_action("action-2")
+        .activate_action(&action_id)
         .expect("activate override action");
     runtime.step(0.08);
 
@@ -217,6 +242,7 @@ fn local_animation_override_wins_over_surrounding_transaction() {
 #[test]
 fn null_transaction_animation_snaps_property_without_local_override() {
     let mut value: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse demo IR");
+    let action_id = child_id(&value, 1).to_owned();
     value["root"]["child"]["children"][2]["motion"][0]
         .as_object_mut()
         .expect("motion binding")
@@ -230,7 +256,7 @@ fn null_transaction_animation_snaps_property_without_local_override() {
     let json = serde_json::to_string(&value).expect("serialize null transaction IR");
     let mut runtime = Runtime::from_json(&json).expect("load null transaction IR");
     let transaction = runtime
-        .activate_action("action-2")
+        .activate_action(&action_id)
         .expect("activate null transaction action");
     assert!(transaction.animation.is_none());
     assert!(!runtime.has_active_motion());
@@ -240,6 +266,7 @@ fn null_transaction_animation_snaps_property_without_local_override() {
 #[test]
 fn disabling_transaction_suppresses_even_property_local_animation() {
     let mut value: serde_json::Value = serde_json::from_str(PROGRAM).expect("parse demo IR");
+    let action_id = child_id(&value, 1).to_owned();
     value["root"]["child"]["children"][1]["action"]["transaction"] = serde_json::json!({
         "animation": value["root"]["child"]["children"][2]["motion"][0]["plan"].clone(),
         "disablesAnimations": true,
@@ -249,7 +276,7 @@ fn disabling_transaction_suppresses_even_property_local_animation() {
     let json = serde_json::to_string(&value).expect("serialize disabled transaction IR");
     let mut runtime = Runtime::from_json(&json).expect("load disabled transaction IR");
     let transaction = runtime
-        .activate_action("action-2")
+        .activate_action(&action_id)
         .expect("activate disabled transaction action");
     assert!(transaction.disables_animations);
     assert!(transaction.is_continuous);

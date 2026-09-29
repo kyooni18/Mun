@@ -1,24 +1,24 @@
 # Local development
 
-This is the recommended workflow while Vune packages are not published to npm.
-The Vune checkout and the application remain completely separate projects.
+This is the recommended workflow while Mün packages are not published to npm.
+The Mün checkout and the application remain completely separate projects.
 
-## 1. Prepare the Vune checkout
+## 1. Prepare the Mün checkout
 
 ```bash
-cd ~/Code/Web/React/Vune
+cd ~/Code/Web/React/Mun
 pnpm install
 pnpm build
 ```
 
 Internal workspace dependencies use `workspace:*`. This guarantees that
-building Vune itself never depends on a previously published `@vune-ui/*`
+building Mün itself never depends on a previously published `@mun/*`
 version. `pnpm pack` rewrites those workspace dependencies to the package
 version for release archives.
 
 ## 2. Link an existing app
 
-From the Vune checkout:
+From the Mün checkout:
 
 ```bash
 pnpm dev:link ~/Code/Web/React/MyApp
@@ -29,13 +29,13 @@ The command edits the target `package.json` with direct source links:
 ```json
 {
   "dependencies": {
-    "vune-ui": "link:/absolute/path/to/Vune",
-    "@vune-ui/react": "link:/absolute/path/to/Vune/packages/react"
+    "@mun/ui": "link:/absolute/path/to/Mun",
+    "@mun/react": "link:/absolute/path/to/Mun/packages/react"
   },
   "devDependencies": {
-    "@vune-ui/core": "link:/absolute/path/to/Vune/packages/core",
-    "@vune-ui/compiler": "link:/absolute/path/to/Vune/packages/compiler",
-    "@vune-ui/vite": "link:/absolute/path/to/Vune/packages/vite"
+    "@mun/core": "link:/absolute/path/to/Mun/packages/core",
+    "@mun/compiler": "link:/absolute/path/to/Mun/packages/compiler",
+    "@mun/vite": "link:/absolute/path/to/Mun/packages/vite"
   }
 }
 ```
@@ -43,8 +43,8 @@ The command edits the target `package.json` with direct source links:
 `link:` packages do not install their own dependency graph, so the linker also
 adds the internal packages needed by the selected renderer directly as development
 dependencies. It writes `overrides:` to the target `pnpm-workspace.yaml` for all
-internal Vune packages as a second guard. This prevents a linked `@vune-ui/vite` from trying to download `@vune-ui/compiler`, or a linked
-React renderer from trying to download `@vune-ui/core`, from npm.
+internal Mün packages as a second guard. This prevents a linked `@mun/vite` from trying to download `@mun/compiler`, or a linked
+React renderer from trying to download `@mun/core`, from npm.
 
 Use another renderer explicitly when needed:
 
@@ -55,7 +55,7 @@ pnpm dev:link /path/to/web-app --renderer web
 
 Pass `--no-install` if you only want the manifest changed.
 
-## 3. Keep Vune outputs fresh
+## 3. Keep Mün outputs fresh
 
 ```bash
 pnpm dev:watch
@@ -63,23 +63,23 @@ pnpm dev:watch
 
 The watch command performs one clean build and then watches the root package and
 each TypeScript workspace package. A linked app can stay open in its own Vite
-dev server while Vune is edited.
+dev server while Mün is edited.
 
 ## 4. Create a separate app directly from the checkout
 
 ```bash
-pnpm dev:create ~/Code/Web/React/MyVuneApp
+pnpm dev:create ~/Code/Web/React/MyMunApp
 ```
 
 This is equivalent to:
 
 ```bash
-node bin/vune-ui.mjs create ~/Code/Web/React/MyVuneApp --local
+node bin/mun.mjs create ~/Code/Web/React/MyMunApp --local
 ```
 
 The generated project uses the direct Web renderer, does not install React or
-Vue, and is not a Vune workspace member. Its dependencies point back to the
-Vune checkout through `link:` paths.
+Vue, and is not a Mün workspace member. Its dependencies point back to the
+Mün checkout through `link:` paths.
 
 ## 5. Local tarballs when links are undesirable
 
@@ -108,11 +108,11 @@ React:
 ```ts
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import { vunePlugin } from '@vune-ui/vite'
+import { munPlugin } from '@mun/vite'
 
 export default defineConfig({
-  plugins: [vunePlugin(), react()],
+  plugins: [munPlugin(), react()],
 })
 ```
 
-The Vune transform must run before the renderer plugin.
+The Mün transform must run before the renderer plugin.

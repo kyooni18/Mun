@@ -11,8 +11,8 @@ import {
   VStack,
   renderViewNode,
   type ModifiableViewNode,
-  type VuneRenderer,
-} from '../src/index.js'
+  type MunRenderer,
+} from '../packages/core/dist/compat.js'
 import { Component, foreignComponent, reactComponent, view } from '../packages/react/src/index.js'
 
 Text.viewType.name
@@ -34,7 +34,7 @@ GenericBadge({ label: 'React' })
 Component(Badge)
 // @ts-expect-error required React props must be supplied to an adapted component
 AdaptedBadge({})
-Text('Theme').style({ '--vune-accent': '#7c3aed' })
+Text('Theme').style({ '--mun-accent': '#7c3aed' })
 Text('Conditional').className(['card', false && 'featured'])
 
 export const StaticView = view(() =>
@@ -57,7 +57,7 @@ Button('Missing action')
 // @ts-expect-error Button titles cannot be arbitrary objects
 Button({ title: 'Invalid' }, () => undefined)
 
-const graphRenderer: VuneRenderer<{ kind: 'node'; type: unknown; children: unknown[] }> = {
+const graphRenderer: MunRenderer<{ kind: 'node'; type: unknown; children: unknown[] }> = {
   element(type, _props, ...children) { return { kind: 'node', type, children } },
   fragment(children) { return { kind: 'node', type: 'fragment', children: [...children] } },
   modifier(content) { return content },
@@ -76,7 +76,7 @@ export const GreetingView = view((props: { name: string }) =>
   Text(`Hello, ${props.name}`),
 )
 
-createElement(GreetingView, { name: 'Vune' })
+createElement(GreetingView, { name: 'Mun' })
 // @ts-expect-error name is required
 createElement(GreetingView, {})
 

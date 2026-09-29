@@ -1,4 +1,4 @@
-import { Button, State, Text, VStack } from "vune-ui"
+import { Button, State, Text, VStack } from "@mun/core/compat"
 
 const count = State(0)
 

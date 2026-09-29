@@ -1,4 +1,4 @@
-const vectorSymbolBrand = Symbol.for("vune.vector-symbol")
+const vectorSymbolBrand = Symbol.for("mun.vector-symbol")
 
 export interface VectorSymbolLayer {
   readonly id?: string
@@ -165,7 +165,7 @@ function layersFromIconNodes(nodes: readonly SVGIconNode[], defaults: SVGIconOpt
     // particular reuses these keys across related symbols, so preserving them
     // lets Magic Replace keep genuinely common geometry alive instead of
     // degrading every imported icon to ordinal layer identity.
-    const explicitId = stringAttribute(attributes, "data-vune-symbol-layer", "id", "key")
+    const explicitId = stringAttribute(attributes, "data-mun-symbol-layer", "id", "key")
     const rawOpacity = attribute(attributes, "opacity")
     const parsedOpacity = rawOpacity === undefined ? undefined : finiteOpacity(finiteNumber(rawOpacity, 1))
     result.push({
@@ -232,7 +232,7 @@ export class VectorSymbol {
     Object.freeze(this)
   }
 
-  /** Convert ordinary SVG geometry nodes into a morphable Vune symbol. */
+  /** Convert ordinary SVG geometry nodes into a morphable Mün symbol. */
   static fromSVGNodes(nodes: readonly SVGIconNode[], options: SVGIconOptions = {}): VectorSymbol {
     const width = typeof options.width === "number" && Number.isFinite(options.width) && options.width > 0 ? options.width : 24
     const height = typeof options.height === "number" && Number.isFinite(options.height) && options.height > 0 ? options.height : width
@@ -246,7 +246,7 @@ export class VectorSymbol {
   /**
    * Adapt official `@lucide/icons` data without depending on Lucide at runtime.
    * Geometry primitives are normalized to paths so unrelated Lucide icons can
-   * use the same path-morph engine as custom Vune symbols.
+   * use the same path-morph engine as custom Mün symbols.
    */
   static fromLucide(icon: LucideIconDataLike, options: Omit<SVGIconOptions, "name" | "width" | "height"> = {}): VectorSymbol {
     if (!icon || typeof icon !== "object" || typeof icon.name !== "string" || !Array.isArray(icon.node)) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import test from "node:test"
-import * as core from "../packages/core/dist/index.js"
+import * as core from "../packages/core/dist/compat.js"
 import * as nodes from "../packages/core/dist/graph/nodes.js"
 import * as modifiers from "../packages/core/dist/graph/modifiers.js"
 import * as renderer from "../packages/core/dist/graph/renderer.js"

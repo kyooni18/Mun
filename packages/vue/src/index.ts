@@ -1,7 +1,7 @@
 /** Public Vue adapter. Renderer implementation stays behind a focused module. */
 export {
   Component,
-  VuneView,
+  MunView,
   createVueView,
   foreignComponent,
   fromVueRef,
@@ -11,8 +11,8 @@ export {
   vueComponent,
 } from "./renderer.js"
 export type {
-  VuneViewProps,
-  VuneVueSlot,
+  MunViewProps,
+  MunVueSlot,
   VueComponentProps,
   VueComponentView,
   VueMountOptions,

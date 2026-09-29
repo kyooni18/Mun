@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { JSDOM } from "jsdom"
-import { ForEach, GeometryReader, State, Text, defineView, initializer, viewElement } from "../packages/core/dist/index.js"
+import { ForEach, GeometryReader, State, Text, defineView, initializer, viewElement } from "../packages/core/dist/compat.js"
 import { compiledCollectionContent } from "../packages/core/dist/internal-runtime.js"
 
 test("Vue consumes core keyed View identity for reorder and remount State semantics", async () => {
@@ -14,7 +14,7 @@ test("Vue consumes core keyed View identity for reorder and remount State semant
   globalThis.Node = dom.window.Node
   try {
     const { createApp, nextTick } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
+    const { MunView } = await import("../packages/vue/dist/index.js")
     const items = State([{ id: "a" }, { id: "b" }])
     const Row = defineView("VueIdentityRow", {
       initializers: [initializer("Row(id)", args => args.length === 1, args => ({ id: args[0] }))],
@@ -25,7 +25,7 @@ test("Vue consumes core keyed View identity for reorder and remount State semant
       initializers: [initializer("App()", args => args.length === 0)],
       body: () => viewElement("section", null, [ForEach(items.value, item => item.id, item => Row(item.id))]),
     })
-    const app = createApp(VuneView, { render: () => App() })
+    const app = createApp(MunView, { render: () => App() })
     app.mount(dom.window.document.getElementById("app"))
     dom.window.document.querySelector('[data-row="a"]')?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }))
     await nextTick()
@@ -59,7 +59,7 @@ test("Vue owns compiler-planned State collections without rebuilding the parent 
   globalThis.Node = dom.window.Node
   try {
     const { createApp, nextTick } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
+    const { MunView } = await import("../packages/vue/dist/index.js")
     const items = State([{ id: "a", value: "A" }, { id: "b", value: "B" }])
     let parentRuns = 0
     let genericRuns = 0
@@ -83,7 +83,7 @@ test("Vue owns compiler-planned State collections without rebuilding the parent 
         return viewElement("section", null, [ForEach.viewType.createNodeCompiled(1, [items, item => item.id, content])])
       },
     })
-    const app = createApp(VuneView, { render: () => App() })
+    const app = createApp(MunView, { render: () => App() })
     app.mount(dom.window.document.getElementById("app"))
     assert.equal(parentRuns, 1)
     assert.equal(genericRuns, 0)
@@ -157,7 +157,7 @@ test("Vue prunes conservative declared State dependencies owned by compiled coll
   globalThis.Node = dom.window.Node
   try {
     const { createApp, nextTick } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
+    const { MunView } = await import("../packages/vue/dist/index.js")
     const items = State([{ id: "a", value: "A" }, { id: "b", value: "B" }])
     let parentRuns = 0
     let rowRuns = 0
@@ -176,7 +176,7 @@ test("Vue prunes conservative declared State dependencies owned by compiled coll
         return viewElement("section", null, [ForEach.viewType.createNodeCompiled(1, [items, item => item.id, content])])
       },
     })
-    const app = createApp(VuneView, { render: () => App() })
+    const app = createApp(MunView, { render: () => App() })
     app.mount(dom.window.document.getElementById("app"))
     rowRuns = 0
     items.value[1].value = "B2"
@@ -205,7 +205,7 @@ test("Vue collection fallback keeps source and row State dependencies below the 
   globalThis.Node = dom.window.Node
   try {
     const { createApp, nextTick } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
+    const { MunView } = await import("../packages/vue/dist/index.js")
     const items = State([{ id: "a" }])
     const suffix = State("0")
     let parentRuns = 0
@@ -220,7 +220,7 @@ test("Vue collection fallback keeps source and row State dependencies below the 
         })])
       },
     })
-    const app = createApp(VuneView, { render: () => App() })
+    const app = createApp(MunView, { render: () => App() })
     app.mount(dom.window.document.getElementById("app"))
     assert.equal(parentRuns, 1)
     assert.equal(rowRuns, 1)
@@ -248,7 +248,7 @@ test("Vue collection fallback keeps source and row State dependencies below the 
   }
 })
 
-test("Vue reevaluates a Vune body when an independently-owned State changes", async () => {
+test("Vue reevaluates a Mun body when an independently-owned State changes", async () => {
   const dom = new JSDOM("<!doctype html><div id=app></div>")
   const previousWindow = globalThis.window
   const previousDocument = globalThis.document
@@ -264,9 +264,9 @@ test("Vue reevaluates a Vune body when an independently-owned State changes", as
   globalThis.Node = dom.window.Node
   try {
     const { createApp, nextTick } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
+    const { MunView } = await import("../packages/vue/dist/index.js")
     const state = State(0)
-    const app = createApp(VuneView, { render: () => Text(`Count: ${state.value}`) })
+    const app = createApp(MunView, { render: () => Text(`Count: ${state.value}`) })
     app.mount(dom.window.document.getElementById("app"))
     assert.match(dom.window.document.body.textContent ?? "", /Count: 0/)
     state.value = 1
@@ -284,7 +284,7 @@ test("Vue reevaluates a Vune body when an independently-owned State changes", as
   }
 })
 
-test("Vue drops stale Vune State subscriptions and releases them on unmount", async () => {
+test("Vue drops stale Mun State subscriptions and releases them on unmount", async () => {
   const dom = new JSDOM("<!doctype html><div id=app></div>")
   const previous = {
     window: globalThis.window,
@@ -302,12 +302,12 @@ test("Vue drops stale Vune State subscriptions and releases them on unmount", as
   globalThis.Node = dom.window.Node
   try {
     const { createApp, nextTick } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
+    const { MunView } = await import("../packages/vue/dist/index.js")
     const usePrimary = State(true)
     const primary = State("primary-0")
     const secondary = State("secondary-0")
     let renders = 0
-    const app = createApp(VuneView, {
+    const app = createApp(MunView, {
       render: () => {
         renders += 1
         return Text(usePrimary.value ? primary.value : secondary.value)
@@ -351,7 +351,7 @@ test("Vue drops stale Vune State subscriptions and releases them on unmount", as
   }
 })
 
-test("Vue materialization preserves Vune events and refs at the live DOM boundary", async () => {
+test("Vue materialization preserves Mun events and refs at the live DOM boundary", async () => {
   const dom = new JSDOM("<!doctype html><div id=app></div>")
   const previousWindow = globalThis.window
   const previousDocument = globalThis.document
@@ -365,10 +365,10 @@ test("Vue materialization preserves Vune events and refs at the live DOM boundar
   globalThis.Node = dom.window.Node
   try {
     const { createApp, nextTick, ref } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
+    const { MunView } = await import("../packages/vue/dist/index.js")
     const state = State(0)
     const buttonRef = ref(null)
-    const app = createApp(VuneView, {
+    const app = createApp(MunView, {
       render: () => viewElement("button", { onclick: () => { state.value += 1 }, ref: buttonRef }, [`Count: ${state.value}`]),
     })
     app.mount(dom.window.document.getElementById("app"))
@@ -411,8 +411,8 @@ test("Vue GeometryReader measures CSS safe-area insets at the DOM boundary", asy
   }
   try {
     const { createApp, nextTick } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
-    const app = createApp(VuneView, { render: () => GeometryReader(geometry => Text(String(geometry.safeAreaInsets.top))) })
+    const { MunView } = await import("../packages/vue/dist/index.js")
+    const app = createApp(MunView, { render: () => GeometryReader(geometry => Text(String(geometry.safeAreaInsets.top))) })
     app.mount(dom.window.document.getElementById("app"))
     await nextTick()
     await nextTick()
@@ -448,8 +448,8 @@ test("Vue GeometryReader falls back to zero geometry when layout measurement thr
   dom.window.HTMLElement.prototype.getBoundingClientRect = () => { throw new Error("layout unavailable") }
   try {
     const { createApp, nextTick } = await import("vue")
-    const { VuneView } = await import("../packages/vue/dist/index.js")
-    const app = createApp(VuneView, { render: () => GeometryReader(geometry => Text(`${geometry.size.width}:${geometry.safeAreaInsets.top}`)) })
+    const { MunView } = await import("../packages/vue/dist/index.js")
+    const app = createApp(MunView, { render: () => GeometryReader(geometry => Text(`${geometry.size.width}:${geometry.safeAreaInsets.top}`)) })
     app.mount(dom.window.document.getElementById("app"))
     await nextTick()
     await nextTick()
@@ -468,7 +468,7 @@ test("Vue GeometryReader falls back to zero geometry when layout measurement thr
   }
 })
 
-test("Vue component lifecycle remains Vue-owned inside a Vune graph", async () => {
+test("Vue component lifecycle remains Vue-owned inside a Mün graph", async () => {
   const dom = new JSDOM("<!doctype html><div id=app></div>")
   const previousWindow = globalThis.window
   const previousDocument = globalThis.document
@@ -482,7 +482,7 @@ test("Vue component lifecycle remains Vue-owned inside a Vune graph", async () =
   globalThis.Node = dom.window.Node
   try {
     const { createApp, defineComponent, h, nextTick, onBeforeUnmount, onMounted } = await import("vue")
-    const { Component, VuneView } = await import("../packages/vue/dist/index.js")
+    const { Component, MunView } = await import("../packages/vue/dist/index.js")
     let mounted = 0
     let unmounted = 0
     const Child = defineComponent({
@@ -492,7 +492,7 @@ test("Vue component lifecycle remains Vue-owned inside a Vune graph", async () =
         return () => h("strong", null, "Vue child")
       },
     })
-    const app = createApp(VuneView, { value: Component(Child) })
+    const app = createApp(MunView, { value: Component(Child) })
     app.mount(dom.window.document.getElementById("app"))
     await nextTick()
     assert.equal(mounted, 1)
@@ -508,7 +508,7 @@ test("Vue component lifecycle remains Vue-owned inside a Vune graph", async () =
   }
 })
 
-test("Vue Transition and Teleport remain native boundaries inside a Vune graph", async () => {
+test("Vue Transition and Teleport remain native boundaries inside a Mün graph", async () => {
   const dom = new JSDOM("<!doctype html><div id=app></div><div id=portal></div>")
   const previous = { window: globalThis.window, document: globalThis.document, Element: globalThis.Element, SVGElement: globalThis.SVGElement, Node: globalThis.Node }
   globalThis.window = dom.window
@@ -518,12 +518,12 @@ test("Vue Transition and Teleport remain native boundaries inside a Vune graph",
   globalThis.Node = dom.window.Node
   try {
     const { Teleport, Transition, createApp, nextTick } = await import("vue")
-    const { Component, VuneView } = await import("../packages/vue/dist/index.js")
+    const { Component, MunView } = await import("../packages/vue/dist/index.js")
     const value = viewElement("main", null, [
       Component(Transition, { name: "fade" }, Component("span", { "data-transition": true }, "Transitioned")),
       Component(Teleport, { to: dom.window.document.getElementById("portal") }, Component("strong", { "data-teleport": true }, "Teleported")),
     ])
-    const app = createApp(VuneView, { value })
+    const app = createApp(MunView, { value })
     app.mount(dom.window.document.getElementById("app"))
     await nextTick()
     assert.equal(dom.window.document.querySelector('[data-transition]')?.textContent, "Transitioned")
@@ -540,7 +540,7 @@ test("Vue Transition and Teleport remain native boundaries inside a Vune graph",
   }
 })
 
-test("Vue mount can hydrate SSR Vune markup and keep State updates live", async () => {
+test("Vue mount can hydrate SSR Mun markup and keep State updates live", async () => {
   const dom = new JSDOM("<!doctype html><div id=app></div>")
   const previousWindow = globalThis.window
   const previousDocument = globalThis.document
@@ -557,7 +557,7 @@ test("Vue mount can hydrate SSR Vune markup and keep State updates live", async 
   try {
     const { createSSRApp, h, nextTick } = await import("vue")
     const { renderToString } = await import("@vue/server-renderer")
-    const { VuneView, mount } = await import("../packages/vue/dist/index.js")
+    const { MunView, mount } = await import("../packages/vue/dist/index.js")
     const Counter = defineView("HydrateCounter", {
       initializers: [initializer("HydrateCounter()", args => args.length === 0)],
       state: () => ({ count: State(0) }),
@@ -567,7 +567,7 @@ test("Vue mount can hydrate SSR Vune markup and keep State updates live", async 
       }, [Text(`Hydrate ${count.value}`)]),
     })
     const value = Counter()
-    const markup = await renderToString(createSSRApp({ render: () => h(VuneView, { value }) }))
+    const markup = await renderToString(createSSRApp({ render: () => h(MunView, { value }) }))
     const target = dom.window.document.getElementById("app")
     target.innerHTML = markup
     const serverButton = target.querySelector("button")

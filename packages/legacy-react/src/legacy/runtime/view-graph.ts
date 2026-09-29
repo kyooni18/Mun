@@ -12,7 +12,7 @@ import {
   type ViewHostNode,
   type ViewModifierNode,
   type ViewNode,
-} from "@vune-ui/core"
+} from "@mun/core/compat"
 import { snapshotArrayValues } from "./arrays.js"
 
 /** Legacy-only graph leaves retain direct ReactNode compatibility. */

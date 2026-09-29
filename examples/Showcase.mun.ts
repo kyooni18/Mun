@@ -1,5 +1,5 @@
-import { Binding, Button, Element, ForEach, Grid, LazyVStack, ProgressView, State, Text, TextField, Toggle, VStack } from "vune-ui"
-import { view } from "@vune-ui/react"
+import { Binding, Button, Element, ForEach, Grid, LazyVStack, ProgressView, State, Text, TextField, Toggle, VStack } from "@mun/core/compat"
+import { view } from "@mun/react"
 
 type ShowcaseItem = { id: string; title: string; detail: string }
 
@@ -37,12 +37,12 @@ export default view(() => VStack(spacing: 18) {
   const refreshLabel = loading.value ? "Refreshing…" : "Refresh"
 
   <header class="showcase-hero" data-testid="showcase-hero">
-    <span class="showcase-kicker">VUNE SHOWCASE</span>
+    <span class="showcase-kicker">MUN SHOWCASE</span>
   </header>
 
   Text("Framework health dashboard")
     .className("showcase-title")
-  Text("A medium-sized Vune app exercising state, builders, collections, modifiers, HTML, and async actions.")
+  Text("A medium-sized Mun app exercising state, builders, collections, modifiers, HTML, and async actions.")
     .className("showcase-subtitle")
 
   Grid({ columns: 3 }) {

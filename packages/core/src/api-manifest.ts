@@ -23,15 +23,15 @@ export interface SwiftUIModifierSpec {
   readonly kind: "modifier"
   readonly name: string
   readonly fidelity?: SwiftUIParityFidelity
-  /** Every Vune source signature accepted for this modifier name. */
+  /** Every Mün source signature accepted for this modifier name. */
   readonly signatures: readonly string[]
   /**
-   * Public SwiftUI signatures when Vune also exposes same-name extensions.
+   * Public SwiftUI signatures when Mun also exposes same-name extensions.
    * Omitted means every signature above is part of the SwiftUI parity claim.
    */
   readonly swiftUISignatures?: readonly string[]
   readonly animatable?: boolean
-  /** Vune-only compatibility API. It is intentionally excluded from parity counts. */
+  /** Mun-only compatibility API. It is intentionally excluded from parity counts. */
   readonly compatibility?: boolean
   /** How Swift-style labeled arguments lower to the JavaScript runtime call. */
   readonly lowering?: SwiftUIModifierLoweringSpec

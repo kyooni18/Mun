@@ -1,7 +1,7 @@
 {
-  "name": "@vune-ui/vue",
+  "name": "@mun/vue",
   "version": "0.1.20",
-  "description": "Vue renderer and explicit interop bridges for the renderer-independent Vune core.",
+  "description": "Vue renderer and explicit interop bridges for the renderer-independent Mün core.",
   "type": "module",
   "files": [
     "dist"
@@ -20,7 +20,7 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@vune-ui/core": "workspace:*"
+    "@mun/core": "workspace:*"
   },
   "peerDependencies": {
     "vue": ">=3.4 <4"

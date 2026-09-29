@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 const jsdomModule = await import("jsdom").catch(() => null)
-import { Animation, State, Text, Transition, defineView, initializer, viewFragment } from "../packages/core/dist/index.js"
+import { Animation, State, Text, Transition, defineView, initializer, viewFragment } from "../packages/core/dist/compat.js"
 import { mount } from "../packages/web/dist/index.js"
 import { playWebTransition, transitionDurationMs, transitionFrames } from "../packages/web/dist/transition.js"
 
@@ -61,9 +61,9 @@ test("exit transitions leave the live reconciliation tree immediately and clean 
   visible.value = false
   await Promise.resolve()
   assert.equal(target.textContent, "")
-  assert.ok(dom.window.document.querySelector("[data-vune-transition-layer]"))
+  assert.ok(dom.window.document.querySelector("[data-mun-transition-layer]"))
   await new Promise(resolve => setTimeout(resolve, 5))
-  assert.equal(dom.window.document.querySelector("[data-vune-transition-layer]"), null)
+  assert.equal(dom.window.document.querySelector("[data-mun-transition-layer]"), null)
   assert.equal(dom.window.document.body.textContent, "")
 
   unmount()

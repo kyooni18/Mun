@@ -1,36 +1,36 @@
-export { transformVuneBuilderSyntax } from './builder-transform.js'
-export { transformVuneStructSyntax } from './struct-transform.js'
-export { lowerVuneBuilderAst, parseVuneBuilder, parseVuneStructs } from './ast.js'
+export { transformMunBuilderSyntax } from './builder-transform.js'
+export { transformMunStructSyntax } from './struct-transform.js'
+export { lowerMunBuilderAst, parseMunBuilder, parseMunStructs } from './ast.js'
 export type {
-  VuneArgument,
-  VuneAstLowering,
-  VuneBuilderNode,
-  VuneBuilderProgram,
-  VuneCallExpression,
-  VuneClosureExpression,
-  VuneConditionalExpression,
-  VuneRawExpression,
-  VuneSourceRange,
-  VuneStructDeclaration,
-  VuneStructField,
-  VuneStructInitializer,
+  MunArgument,
+  MunAstLowering,
+  MunBuilderNode,
+  MunBuilderProgram,
+  MunCallExpression,
+  MunClosureExpression,
+  MunConditionalExpression,
+  MunRawExpression,
+  MunSourceRange,
+  MunStructDeclaration,
+  MunStructField,
+  MunStructInitializer,
 } from './ast.js'
-export { diagnoseVuneSource, formatVuneSource } from './language-tools.js'
-export type { VuneDiagnostic } from './language-tools.js'
-export { createVuneLanguageService } from './language-service.js'
+export { diagnoseMunSource, formatMunSource } from './language-tools.js'
+export type { MunDiagnostic } from './language-tools.js'
+export { createMunLanguageService } from './language-service.js'
 export type {
-  VuneLanguageService,
-  VuneLanguageTransform,
-  VuneSourcePosition,
+  MunLanguageService,
+  MunLanguageTransform,
+  MunSourcePosition,
 } from './language-service.js'
-export { createVuneTypeScriptLanguageService } from './typescript-language-service.js'
-export type { VuneTypeScriptLanguageServiceOptions } from './typescript-language-service.js'
+export { createMunTypeScriptLanguageService } from './typescript-language-service.js'
+export type { MunTypeScriptLanguageServiceOptions } from './typescript-language-service.js'
 export {
-  createVuneSourceMap,
+  createMunSourceMap,
   mapGeneratedPosition,
   mapOriginalPosition,
 } from './source-map.js'
-export type { VuneSourceMap } from './source-map.js'
-export { createVuneVitePlugin } from './vite-builder.js'
+export type { MunSourceMap } from './source-map.js'
+export { createMunVitePlugin } from './vite-builder.js'
 
 export * from './swc-transform.js'

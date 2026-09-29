@@ -1,214 +1,178 @@
-# Vune architecture
+# Mün architecture
 
-Vune is split into a language/runtime core and renderer packages. The important
-boundary is:
+Mün is a native-first standalone UI language and runtime. The canonical source
+format is `.mun`, and the canonical cross-backend contract is Mün Semantic UI
+IR.
 
 ```text
-Vune source (.vune or .vune.ts)
-        |
-        v
-@vune-ui/compiler -----> Vune View graph / compiled template IR -----> renderer adapter -----> runtime
-                                        |                                |
-                                        +-----------------------------> @vune-ui/web -> DOM/HTML
-                                        +-----------------------------> @vune-ui/vue -> Vue VNode/DOM
+.mun
+  |
+  v
+parser / semantic analysis
+  |
+  v
+Semantic UI IR
+  |
+  +--> native runtime/backend        primary
+  |      +--> state + transactions
+  |      +--> layout + motion
+  |      +--> input + accessibility
+  |      +--> retained scene
+  |      +--> platform renderer
+  |
+  +--> Web / Astro lowering          secondary
 ```
 
-## Package responsibilities
+The language does not use DOM nodes, HTML tags, CSS properties, React elements,
+Vue VNodes, WebView, or Chromium as core concepts.
 
-| Package | Owns | Must not import |
-| --- | --- | --- |
-| `@vune-ui/core` | `View`, `ViewType`, initializer resolution, `ViewBuilder`, `State`, `Binding`, native controls and layout primitives, `GeometryProxy`, closure roles, immutable `ModifiedContent` | React, React DOM, browser APIs |
-| `@vune-ui/compiler` | `.vune` and `.vune.ts` builder lowering, labeled arguments, shorthand binding/modifiers, diagnostics, source-map contract | renderer implementations |
-| `@vune-ui/react` | React materialization, React component identity, React external-store subscriptions, React component interop and compatibility re-exports | compiler internals |
-| `@vune-ui/vue` | Vue VNode materialization, Vue component/slot bridges, explicit State/Ref bridges | React |
-| `@vune-ui/web` | HTML serialization, DOM materialization, events, refs, and State-driven mount invalidation | React |
-| `@vune-ui/vite` | Vite plugin entry point for the compiler | View implementation details |
+See [NATIVE_ARCHITECTURE.md](./NATIVE_ARCHITECTURE.md) for the native runtime
+details and [MOTION_MIGRATION.md](./MOTION_MIGRATION.md) for the reused motion
+subsystems.
 
-The `vune-ui` package is the renderer-independent canonical authoring entry point.
-The repository root publishes the canonical `vune-ui` authoring package. New
-language and graph behavior belongs in `@vune-ui/core`; behavior that requires a
-specific runtime belongs in that renderer package.
+## Canonical package boundary
 
-SwiftUI-compatible authoring declarations are centralized in the core API manifest;
-compiler and runtime consumers must not maintain parallel modifier or initializer
-allow-lists. See [SwiftUI API parity](./SWIFTUI_PARITY.md) for the SDK snapshot and
-animation transaction contracts.
+`@mun/core` is the backend-neutral canonical surface. It exposes Semantic UI
+IR, semantic symbol resolution, closures used by language analysis, and the
+renderer-neutral animation/transaction/transition values required by
+compilation. It must not expose the historical HTML graph as the canonical
+language model.
 
-The canonical imports are `vune-ui`, `@vune-ui/core`, `@vune-ui/compiler`, `@vune-ui/react`,
-`@vune-ui/vue`, `@vune-ui/web`, and `@vune-ui/vite`. The root package also exposes
-`vune-ui/core` and `vune-ui/vune` for explicit core and React entry points. Legacy
-React APIs live under the opt-in `vune-ui/legacy` subpath, keeping compatibility
-code inside the React renderer package.
+The older TypeScript View graph remains available explicitly through
+`@mun/core/compat`. Existing React, Vue, Astro, and direct Web compatibility
+adapters may depend on that subpath while they migrate. New language semantics
+must not be defined there.
 
-### Core graph internals
+`@mun/compiler` owns parsing, semantic analysis, diagnostics, and lowering from
+canonical `.mun` source into Semantic UI IR. TypeScript machinery may remain an
+implementation technique for analysis and compatibility transforms, but
+`.mun.ts` is not a canonical language format.
 
-The public `@vune-ui/core` graph barrel is intentionally thin. Its implementation
-is split into focused, renderer-neutral modules:
+`@mun/web` is a secondary backend. It owns browser output and may therefore use
+HTML, DOM, CSS, hydration, browser events, and browser layout internally. Those
+concepts must not flow back into `@mun/core`, Semantic UI IR, or canonical Mün
+source.
 
-| Module | Internal contract |
-| --- | --- |
-| `graph/types` and `graph/symbols` | Recursive graph types and stable metadata symbols |
-| `graph/environment` | Zero geometry, safe-area normalization, and class value helpers |
-| `graph/nodes` | Element, compiled-template, foreign-component, View host, geometry, and lazy node constructors |
-| `graph/modifiers` | Immutable modifier decoration, flattening, and modifier graph inspection |
-| `graph/renderer` | Identity-aware graph traversal through `VuneRenderer` |
-| `graph/initializers` | Declaration metadata, overload resolution, ViewBuilder, and View construction |
+`@mun/react`, `@mun/vue`, and the current Astro integration are compatibility
+or host-integration surfaces. They consume Mün; they do not define Mün.
 
-Adapters may consume the public barrel, but these modules must remain free of
-React, Vue, and DOM imports. The barrel re-exports the same symbols so this
-structural split does not create a second public API or a second identity
-implementation.
+## Semantic UI IR
 
-The compiler keeps its TypeScript specialization machinery separate from the
-source scanner and lowering pipeline. Its internal contracts are:
+Semantic UI IR represents UI meaning rather than a renderer tree. Current nodes
+cover window, row, column, conditional, text, panel, and action semantics.
+State expressions, layout, visual properties, accessibility metadata,
+transitions, actions, transaction metadata, and motion bindings are attached as
+backend-neutral data.
 
-| Module | Internal contract |
-| --- | --- |
-| `compiler/scanner` | Quote/comment/regex-safe source scanning, builder/raw-HTML discovery, and top-level delimiter parsing |
-| `compiler/pipeline` | Binding shorthand, closures, builder/struct lowering, HTML expression lowering, and syntax detection |
-| `compiler/specialization` | Type-checker-backed AOT initializer lowering, compact modifier fusion, compiled template/slot lowering, and static-subtree hoisting |
-| `compiler/effect-analysis` | Shared syntax-level purity, capture, row/index dependency, and access-shape proof used by data-oriented optimizations |
-| `compiler/kernel-ir` | Small backend-neutral scalar/map compute IR that can later be typed and lowered to JS/WASM/WGSL without recovering semantics from generated closures |
-| `compiler/execution-plan` | Post-specialization compute-region plan, sink/residency classification, and backend eligibility exposed to opt-in build tooling |
-| `compiler/resident-js` | Compile-time lowering from proven packed ResidentRegionIR into a fused direct TypedArray loop |
-| `compiler/diagnostics` | Original-source syntax, TypeScript, and semantic HTML diagnostics |
-| `compiler/vite` | Vue SFC and `.vune`/`.vune.ts` Vite transformation orchestration |
-| `compiler/index` | Public API barrel, source maps, and language-service composition |
+A backend chooses its representation only after this boundary. The native
+backend projects the program into runtime state, layout, a retained visual
+scene, and a separate accessibility tree. The Web backend may project the same
+program into browser output.
 
-If static type resolution is not unique, the specialization pass leaves the
-source for the guarded or dynamic runtime resolver. These modules remain
-renderer-neutral; only the Vite adapter knows how to attach the compiler to a
-host build.
+Unsupported canonical constructs fail explicitly rather than silently acquiring
+Web-specific meaning.
 
-Packed execution is an internal residency boundary, not an alternate View
-model. `core/resident-execution` owns packed layouts/storage and the shared IR
-contract. Only packed-to-packed regions qualify; object State and DOM sinks do
-not become native candidates merely because Kernel IR can describe their math.
-See [RESIDENT_COMPUTE.md](RESIDENT_COMPUTE.md).
+## Native runtime
 
-### AOT specialization contract
+The native runtime is the primary execution architecture. It owns state
+mutation, transaction resolution, presentation values, motion scheduling,
+layout, hit testing, focus, accessibility projection, retained scene
+construction, and rendering integration.
 
-Compiler optimization is proof-driven rather than optimistic. A call may use
-`ViewType.createNodeCompiled(index, args)` only when the compiler has fixed the
-runtime initializer and can safely provide its normalized argument payload.
-The trusted path deliberately skips overload selection, named-argument
-normalization, closure-role wrapping, and runtime type scoring. Therefore calls
-containing unresolved `any`/`unknown` values, unsafe callable return types,
-variadics, or an initializer mapping the compiler cannot prove must stay on
-`createNodeSpecialized` or the ordinary callable View path.
+Platform libraries are downstream implementation details. Their object models
+must not become Mün syntax or Semantic UI IR types.
 
-The same proof boundary applies to other optimizations:
-
-- simple zero-argument `@ViewBuilder` closures become their child arrays, but
-  opaque builders remain closures;
-- compiler-generated labeled-argument carriers are converted to positional
-  runtime slots only when label/property mapping is unique;
-- static modifier chains use compact immutable tuple descriptors, while
-  receiver typing must prove that the chain belongs to a Vune View;
-- proven intrinsic host structure is frozen as a renderer-neutral compiled
-  template; dynamic primitive/custom-View children become identity-preserving
-  slots, and React/Vue/Web can materialize the template without generic host
-  graph traversal;
-- immutable compiled View subtrees with no dynamic reads/calls are hoisted to
-  module scope and reused;
-- declared State dependencies are only marked `dependenciesComplete` when the
-  compiler proves a closed set of reads. Metadata that is not complete is only
-  a seed, and renderers continue runtime dependency discovery.
-
-This keeps development/runtime correctness independent from optimization: every
-optimization has a conservative fallback with the same public semantics. See
-[Compiler optimization](./COMPILER_OPTIMIZATION.md) for the pass-level model.
-
-The Web adapter follows the same boundary: `web/ssr` owns deterministic HTML
-serialization, `web/props` owns DOM attributes/events/refs, `web/hydration`
-owns server-to-client activation and structural checks, and `web/dom` owns
-live reconciliation, lazy ranges, geometry measurement, and mount cleanup.
-Only `web/index` is the package entry point; these implementation modules are
-not additional authoring APIs.
-
-## View values
-
-`Text("Hello")` in `vune-ui` returns a frozen graph node. It is not a React or Vue
-element. A modifier returns a new graph node:
-
-```ts
-const original = Text("Hello")
-const styled = original.font("title").padding(12)
-// original !== styled
+```text
+state mutation
+    |
+    v
+Transaction
+    |
+    v
+motion resolution
+    |
+    v
+presentation state
+    |
+    v
+layout
+    |
+    +--> retained visual Scene --> native renderer
+    |
+    +--> AccessibilityTree     --> platform a11y
 ```
 
-The graph can be rendered by multiple renderer implementations through the
-`VuneRenderer` interface. This keeps initializer selection, builder flattening,
-modifier value semantics, and state ownership independent from React.
+## Motion reuse
 
-`ForeignComponent` is the explicit graph boundary for a non-Vune component. It
-stores props, events, slots, and refs as one renderer-neutral descriptor;
-React, Vue, and Web choose only how to materialize that descriptor.
+Mün reuses the existing renderer-neutral animation assets rather than creating a
+native-only animation model. `Animation`, `Transaction`,
+`withAnimation`, `withTransaction`, transition semantics, and
+`@mun/animation/core` planning remain above backends.
 
-The core also owns the renderer-neutral semantic symbols used by this graph:
-`ViewType`/`StructSymbol`, `InitializerSymbol`, `State<T>`, `Binding<T>`,
-`ViewBuilder`, and `ForeignComponentType`. `@vune-ui/compiler` adapts Vune AST and
-the TypeScript `TypeChecker` into the same symbol table; its static initializer
-selection calls the core semantic resolver, so IDE and runtime do not invent a
-second overload contract.
+The compiler serializes compact motion execution plans and semantic property
+masks into the IR. Native Rust execution preserves spring/timing behavior,
+velocity-preserving retargeting, delay, repetition, autoreverse, and transaction
+precedence. Web lowering may realize the same plans with browser mechanisms, but
+browser timing APIs are not the semantic authority.
 
-Raw HTML is graph input too. In a `.vune` or `.vune.ts` file the compiler lowers this
-without a tag allow-list, retaining attributes such as `class`, `for`, `aria-*`,
-and `data-*`:
+## Web and Astro
 
-The core semantic schema describes standard tags, global/event attributes, and
-custom-element extension points. The compiler records
-`SemanticHtmlElementSymbol` symbols and source-ranged diagnostics from that schema; the VS Code completion
-and hover providers consume the same exported schema rather than maintaining a
-second HTML attribute list.
+Web output is intentionally downstream:
 
-```ts
-VStack() {
-  <section class="card">
-    <h1>{title}</h1>
-    <button onclick={save}>Save</button>
-  </section>
-}
+```text
+.mun
+  -> @mun/compiler
+  -> Semantic UI IR
+  -> @mun/web
+  -> browser representation
 ```
 
-Normal CSS remains a Vite concern: `import "./style.css"` works unchanged, and
-CSS Modules, Sass, PostCSS, and Tailwind remain renderer/build-tool features.
-The Vite adapter also lowers Vune code in Vue SFC script blocks without touching
-Vue templates or stylesheet modules.
+Astro follows the same direction. An `@mun { ... }` region is Mün source
+embedded in an Astro host file; it must pass through the same compiler and
+Semantic UI IR as standalone `.mun` before Web lowering.
 
-`ScrollView` and `SafeArea` are core graph Views whose overflow and
-`env(safe-area-inset-*)` behavior is expressed by each renderer. `GeometryReader`
-is also core-owned, but measurement is renderer-owned: React, Vue, and direct
-DOM mount measure the host and re-evaluate the body with the resulting
-`GeometryProxy`. DOM adapters normalize measured CSS safe-area paddings into
-`safeAreaInsets`; SSR and renderer-less traversal use zero geometry.
+Host HTML remains host HTML. Raw HTML is not canonical Mün syntax.
 
-## Initializers and builders
+## Compatibility graph
 
-Initializer metadata is attached to a callable View and selected from the
-actual arguments. Closure roles are marked as `value`, `viewBuilder`, or
-`action`, so the compiler does not need a `Button`-specific syntax branch.
+The historical graph, initializer manifest, host styling helpers, HTML element
+types, renderer traversal, and framework bridges remain valuable migration
+assets. They are compatibility implementation, not the core contract.
 
-Canonical `.vune` and `.vune.ts` source expose exactly two Button shapes:
+The explicit boundary is:
 
-```ts
-Button("Save") { save() }
-Button(action: { save() }, label: { Text("Save") })
+```text
+@mun/core          Semantic UI IR + semantic language contract
+@mun/core/compat   historical TypeScript View graph
+@mun/web           secondary browser backend
+@mun/react         compatibility React adapter
+@mun/vue           compatibility Vue adapter
 ```
 
-Missing titles, unlabeled closure pairs, trailing custom labels, and reversed
-`label:`/`action:` order are compiler diagnostics. The historical React DSL
-forms remain available only through the explicit `vune-ui` compatibility
-entry point; they are not part of the canonical compiler or editor surface.
+Compatibility code can continue to evolve for maintenance, but a new canonical
+feature should be specified first in Mün semantics and Semantic UI IR, then
+implemented in the native runtime, and only then lowered by secondary backends.
 
-At the React boundary, call `render(viewValue)` or use `VuneView`; do not pass a
-core graph object directly to `react-dom`. React components enter the graph
-with `Component` or the typed `reactComponent`/`foreignComponent` adapter. A
-graph enters an existing React tree through `VuneView` or `createReactView`;
-`mount` owns the React root and can hydrate markup produced by
-`react-dom/server`. Props, children, hooks, refs, context, and lifecycle remain
-React-owned.
+## Compiler and optimization rule
 
-At the Vue boundary, use `@vune-ui/vue`'s `VuneView` or `createVueView`. Vue
-components enter the graph with `Component`; `toVueRef` and `fromVueRef` are
-the explicit reactivity bridges.
+Compiler optimizations may specialize, fuse, cache, or precompute a program only
+when they preserve the canonical semantic result. Existing packed execution,
+resident compute, GPU eligibility, and compatibility graph specialization are
+optimization layers; none of them define a second UI language.
+
+Likewise, editor tooling should offer Mün views and language constructs for
+canonical `.mun` source. Host tag names and browser attributes belong to
+host-language tooling, not Mün completions.
+
+## Architectural invariants
+
+1. `.mun` is the canonical source format.
+2. Semantic UI IR is the canonical cross-backend UI contract.
+3. `@mun/core` is backend-neutral and does not expose HTML semantics.
+4. Native execution is the primary architecture.
+5. `@mun/web` is a secondary lowering target.
+6. Astro consumes Mün through the same compiler and IR.
+7. The historical View graph is explicit compatibility at `@mun/core/compat`.
+8. Motion/runtime assets are reused wherever their behavior is renderer-neutral.
+9. New features are not specified in terms of a particular backend's object
+   model.

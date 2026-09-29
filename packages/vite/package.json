@@ -1,7 +1,7 @@
 {
-  "name": "@vune-ui/vite",
+  "name": "@mun/vite",
   "version": "0.1.20",
-  "description": "Vite integration for the Vune compiler.",
+  "description": "Vite integration for the Mün compiler.",
   "type": "module",
   "files": [
     "dist"
@@ -20,7 +20,7 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@vune-ui/compiler": "workspace:*"
+    "@mun/compiler": "workspace:*"
   },
   "sideEffects": false,
   "publishConfig": {

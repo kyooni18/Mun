@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
-import { vunePlugin } from '@vune-ui/vite'
+import { munPlugin } from '@mun/vite'
 
 export default defineConfig({
-  plugins: [vunePlugin()],
+  plugins: [munPlugin()],
 })

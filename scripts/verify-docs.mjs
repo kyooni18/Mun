@@ -16,7 +16,7 @@ function collect(dir) {
 collect(resolve(root, "docs"))
 
 const staleCanonicalNames = [
-  /canonical compiler[^\n]*createVuneTypeScriptLanguageService/i,
+  /canonical compiler[^\n]*createMunTypeScriptLanguageService/i,
   /try adding a task, completing it/i,
 ]
 

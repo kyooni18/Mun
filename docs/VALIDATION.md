@@ -1,6 +1,6 @@
 # Validation
 
-This file records the release-hardening checks expected before a Vune alpha is
+This file records the release-hardening checks expected before a Mün alpha is
 published. The commands are intentionally reproducible and are also represented
 in CI where they need network or real-browser support.
 
@@ -37,7 +37,7 @@ A local system Chromium may be unavailable or policy-restricted; that is not a
 reason to skip the CI Playwright gate.
 
 The standalone browser benchmark prefers Playwright's bundled Chromium, then
-falls back to an installed Chrome or Edge channel. Set `VUNE_BROWSER_EXECUTABLE`
+falls back to an installed Chrome or Edge channel. Set `MUN_BROWSER_EXECUTABLE`
 when validation needs to use a specific compatible Chromium binary.
 
 ## Package/release gate
@@ -58,14 +58,14 @@ View/ForEach construction, State propagation, Web DOM reconciliation, keyed
 updates, hydration, React/Vue rerenders, conditional subtrees, burst updates,
 and LazyVStack scrolling. `benchmark:browser:ci` builds a minified production
 bundle and measures the same hot collection paths in headless Chromium at 5,000
-rows, including raw DOM, raw React/Vue, generic Vune, compiler-owned Vune,
+rows, including raw DOM, raw React/Vue, generic Mün, compiler-owned Mün,
 precise State mutations, full replacements, keyed reverse, and Web hydration.
 
 Client renderer measurements include matching raw React and raw Vue fixtures
 for three update shapes: a full-tree value change, a single-item change, and a
-keyed reverse. Vune adapter timings are reported beside those baselines and CI
-can enforce `VUNE_BENCH_REACT_CLIENT_RATIO` and
-`VUNE_BENCH_VUE_CLIENT_RATIO`. The suite also compares the guarded initializer
+keyed reverse. Mün adapter timings are reported beside those baselines and CI
+can enforce `MUN_BENCH_REACT_CLIENT_RATIO` and
+`MUN_BENCH_VUE_CLIENT_RATIO`. The suite also compares the guarded initializer
 path with the trusted compiler-resolved `createNodeCompiled` path so a future
 semantic change cannot silently reintroduce runtime overload work. It also
 compares ordinary dynamic host-graph construction with compiled template
@@ -86,7 +86,7 @@ and reorder. It is the authoritative renderer-performance regression gate;
 JSDOM remains useful for deterministic logic coverage and relative development
 microbenchmarks, but its large keyed-reorder timings are not treated as browser
 performance. The browser gate also asserts that compiler-owned paths do not
-regress behind the corresponding generic Vune path by more than the configured
+regress behind the corresponding generic Mün path by more than the configured
 noise allowance.
 
 These numbers are regression budgets, not cross-framework marketing claims;

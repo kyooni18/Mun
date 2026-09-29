@@ -1,49 +1,40 @@
 {
-  "name": "Vune",
-  "scopeName": "source.vune",
+  "name": "Mün",
+  "scopeName": "source.mun",
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#keywords" },
     { "include": "#views" },
-    { "include": "#html" },
     { "include": "#modifiers" },
     { "include": "#labels" }
   ],
   "repository": {
     "comments": {
       "patterns": [
-        { "name": "comment.line.double-slash.vune", "match": "//.*$" },
-        { "name": "comment.block.vune", "begin": "/\\*", "end": "\\*/" }
+        { "name": "comment.line.double-slash.mun", "match": "//.*$" },
+        { "name": "comment.block.mun", "begin": "/\\*", "end": "\\*/" }
       ]
     },
     "strings": {
       "patterns": [
-        { "name": "string.quoted.double.vune", "begin": "\"", "end": "\"", "patterns": [{ "name": "constant.character.escape.vune", "match": "\\\\." }] },
-        { "name": "string.quoted.single.vune", "begin": "'", "end": "'", "patterns": [{ "name": "constant.character.escape.vune", "match": "\\\\." }] },
-        { "name": "string.template.vune", "begin": "`", "end": "`" }
+        { "name": "string.quoted.double.mun", "begin": "\"", "end": "\"", "patterns": [{ "name": "constant.character.escape.mun", "match": "\\\\." }] },
+        { "name": "string.quoted.single.mun", "begin": "'", "end": "'", "patterns": [{ "name": "constant.character.escape.mun", "match": "\\\\." }] },
+        { "name": "string.template.mun", "begin": "`", "end": "`" }
       ]
     },
     "keywords": {
-      "patterns": [{ "name": "keyword.control.vune", "match": "\\b(struct|var|let|init|if|else|for|in|true|false|nil)\\b" }, { "name": "storage.type.vune", "match": "\\b(View|State|Binding)\\b" }]
+      "patterns": [{ "name": "keyword.control.mun", "match": "\\b(struct|var|let|init|if|else|for|in|true|false|nil)\\b" }, { "name": "storage.type.mun", "match": "\\b(View|State|Binding)\\b" }]
     },
     "views": {
-      "patterns": [{ "name": "entity.name.type.view.vune", "match": "\\b[A-Z][A-Za-z0-9_$]*(?=\\s*\\()" }]
+      "patterns": [{ "name": "entity.name.type.view.mun", "match": "\\b[A-Z][A-Za-z0-9_$]*(?=\\s*\\()" }]
     },
-    "html": {
-      "patterns": [
-        { "name": "comment.block.html.vune", "begin": "<!--", "end": "-->" },
-        { "name": "entity.name.tag.html.vune", "match": "</?[A-Za-z][A-Za-z0-9:._-]*" },
-        { "name": "entity.other.attribute-name.html.vune", "match": "\\b(?:class|for|aria-[A-Za-z0-9_-]+|data-[A-Za-z0-9_-]+|on[A-Za-z]+)(?=\\s*=|\\s|>)" },
-        { "name": "string.quoted.double.html.vune", "begin": "\\\"", "end": "\\\"" },
-        { "name": "string.quoted.single.html.vune", "begin": "'", "end": "'" }
-      ]
-    },
+
     "modifiers": {
-      "patterns": [{ "name": "support.function.modifier.vune", "match": "\\.[a-zA-Z_$][A-Za-z0-9_$]*" }]
+      "patterns": [{ "name": "support.function.modifier.mun", "match": "\\.[a-zA-Z_$][A-Za-z0-9_$]*" }]
     },
     "labels": {
-      "patterns": [{ "name": "entity.name.label.vune", "match": "\\b[a-zA-Z_$][A-Za-z0-9_$]*(?=\\s*:)" }]
+      "patterns": [{ "name": "entity.name.label.mun", "match": "\\b[a-zA-Z_$][A-Za-z0-9_$]*(?=\\s*:)" }]
     }
   }
 }

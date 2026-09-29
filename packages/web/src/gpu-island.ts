@@ -330,34 +330,34 @@ async function sharedParticlePipelines(device: UnknownRecord, format: string): P
   if (pending) return pending
   pending = (async () => {
     const createShaderModule = requiredMethod(device, "createShaderModule", "GPU Island device")
-    const computeModule = record(createShaderModule({ label: "Vune particle compute shader", code: COMPUTE_SHADER }), "GPU compute shader module")
-    const renderModule = record(createShaderModule({ label: "Vune particle render shader", code: RENDER_SHADER }), "GPU render shader module")
+    const computeModule = record(createShaderModule({ label: "Mun particle compute shader", code: COMPUTE_SHADER }), "GPU compute shader module")
+    const renderModule = record(createShaderModule({ label: "Mun particle render shader", code: RENDER_SHADER }), "GPU render shader module")
     await Promise.all([
       validateShaderModule(computeModule, "GPU Island compute"),
       validateShaderModule(renderModule, "GPU Island render"),
     ])
     const computeBindGroupLayout = requiredMethod(device, "createBindGroupLayout", "GPU Island device")({
-      label: "Vune particle compute bindings",
+      label: "Mun particle compute bindings",
       entries: [
         { binding: 0, visibility: SHADER_STAGE.COMPUTE, buffer: { type: "storage", minBindingSize: PARTICLE_STRIDE } },
         { binding: 1, visibility: SHADER_STAGE.COMPUTE, buffer: { type: "uniform", minBindingSize: FRAME_PARAMETER_BYTES } },
       ],
     })
     const computeLayout = requiredMethod(device, "createPipelineLayout", "GPU Island device")({
-      label: "Vune particle compute layout",
+      label: "Mun particle compute layout",
       bindGroupLayouts: [computeBindGroupLayout],
     })
     const renderLayout = requiredMethod(device, "createPipelineLayout", "GPU Island device")({
-      label: "Vune particle render layout",
+      label: "Mun particle render layout",
       bindGroupLayouts: [],
     })
     const computePipeline = requiredMethod(device, "createComputePipeline", "GPU Island device")({
-      label: "Vune particle compute pipeline",
+      label: "Mun particle compute pipeline",
       layout: computeLayout,
       compute: { module: computeModule, entryPoint: "computeParticles" },
     })
     const renderPipeline = requiredMethod(device, "createRenderPipeline", "GPU Island device")({
-      label: "Vune particle render pipeline",
+      label: "Mun particle render pipeline",
       layout: renderLayout,
       vertex: {
         module: renderModule,
@@ -400,34 +400,34 @@ async function sharedLineChartPipelines(device: UnknownRecord, format: string): 
   if (pending) return pending
   pending = (async () => {
     const createShaderModule = requiredMethod(device, "createShaderModule", "GPU Island device")
-    const computeModule = record(createShaderModule({ label: "Vune chart compute shader", code: CHART_COMPUTE_SHADER }), "GPU chart compute shader module")
-    const renderModule = record(createShaderModule({ label: "Vune chart render shader", code: CHART_RENDER_SHADER }), "GPU chart render shader module")
+    const computeModule = record(createShaderModule({ label: "Mun chart compute shader", code: CHART_COMPUTE_SHADER }), "GPU chart compute shader module")
+    const renderModule = record(createShaderModule({ label: "Mun chart render shader", code: CHART_RENDER_SHADER }), "GPU chart render shader module")
     await Promise.all([
       validateShaderModule(computeModule, "GPU LineChart compute"),
       validateShaderModule(renderModule, "GPU LineChart render"),
     ])
     const computeBindGroupLayout = requiredMethod(device, "createBindGroupLayout", "GPU Island device")({
-      label: "Vune chart compute bindings",
+      label: "Mun chart compute bindings",
       entries: [
         { binding: 0, visibility: SHADER_STAGE.COMPUTE, buffer: { type: "storage", minBindingSize: CHART_POINT_STRIDE } },
         { binding: 1, visibility: SHADER_STAGE.COMPUTE, buffer: { type: "uniform", minBindingSize: FRAME_PARAMETER_BYTES } },
       ],
     })
     const computeLayout = requiredMethod(device, "createPipelineLayout", "GPU Island device")({
-      label: "Vune chart compute layout",
+      label: "Mun chart compute layout",
       bindGroupLayouts: [computeBindGroupLayout],
     })
     const renderLayout = requiredMethod(device, "createPipelineLayout", "GPU Island device")({
-      label: "Vune chart render layout",
+      label: "Mun chart render layout",
       bindGroupLayouts: [],
     })
     const computePipeline = requiredMethod(device, "createComputePipeline", "GPU Island device")({
-      label: "Vune chart compute pipeline",
+      label: "Mun chart compute pipeline",
       layout: computeLayout,
       compute: { module: computeModule, entryPoint: "computeChartPoints" },
     })
     const renderPipeline = requiredMethod(device, "createRenderPipeline", "GPU Island device")({
-      label: "Vune chart render pipeline",
+      label: "Mun chart render pipeline",
       layout: renderLayout,
       vertex: {
         module: renderModule,
@@ -492,7 +492,7 @@ export class ParticleFieldGPUIsland {
     this.count = options.count
     this.format = options.format
     this.byteLength = byteLength
-    this.label = options.label ?? "Vune ParticleField GPU Island"
+    this.label = options.label ?? "Mun ParticleField GPU Island"
     this.clearColor = normalizedClearColor(options.clearColor)
     this.onFailure = options.onFailure
 
@@ -640,7 +640,7 @@ export class LineChartGPUIsland {
     this.count = options.count
     this.format = options.format
     this.byteLength = byteLength
-    this.label = options.label ?? "Vune LineChart GPU Island"
+    this.label = options.label ?? "Mun LineChart GPU Island"
     this.clearColor = normalizedClearColor(options.clearColor)
     this.onFailure = options.onFailure
     const amplitude = options.amplitude ?? 0.03
@@ -735,7 +735,7 @@ export async function createLineChartGPUIsland(
   validateLineChartInitialData(options.initialData, count)
   const { context, device, queue, lost } = validateDeviceAndContext(deviceValue, contextValue)
   const byteLength = validateLineChartCapacity(device, count)
-  const label = options.label ?? "Vune LineChart GPU Island"
+  const label = options.label ?? "Mun LineChart GPU Island"
   const createBuffer = requiredMethod(device, "createBuffer", "GPU Island device")
   const pointBuffer = record(createBuffer({
     label: `${label} resident points`,
@@ -787,7 +787,7 @@ export async function createParticleFieldGPUIsland(
   validateInitialData(options.initialData, count)
   const { context, device, queue, lost } = validateDeviceAndContext(deviceValue, contextValue)
   const byteLength = validateCapacity(device, count)
-  const label = options.label ?? "Vune ParticleField GPU Island"
+  const label = options.label ?? "Mun ParticleField GPU Island"
   const createBuffer = requiredMethod(device, "createBuffer", "GPU Island device")
   const particleBuffer = record(createBuffer({
     label: `${label} resident particles`,
@@ -921,7 +921,7 @@ function runLineChartCanvasFallback(
   node: GPUIslandViewNode,
   data: Float32Array,
 ): () => void {
-  canvas.dataset.vuneGpuBackend = node.ir.fallback === "canvas" ? "cpu-canvas" : "static"
+  canvas.dataset.munGpuBackend = node.ir.fallback === "canvas" ? "cpu-canvas" : "static"
   let context: CanvasRenderingContext2D | null = null
   try { context = canvas.getContext("2d") } catch { /* synthetic DOM or an existing WebGPU context may reject 2D */ }
   if (!context) return () => undefined
@@ -966,7 +966,7 @@ function runCanvasFallback(
   data: Float32Array,
 ): () => void {
   if (node.ir.kind === "line-chart") return runLineChartCanvasFallback(canvas, node, data)
-  canvas.dataset.vuneGpuBackend = node.ir.fallback === "canvas" ? "cpu-canvas" : "static"
+  canvas.dataset.munGpuBackend = node.ir.fallback === "canvas" ? "cpu-canvas" : "static"
   let context: CanvasRenderingContext2D | null = null
   try { context = canvas.getContext("2d") } catch { /* synthetic DOM or a prior WebGPU context may reject 2D */ }
   if (!context) return () => undefined
@@ -1024,7 +1024,7 @@ export function mountParticleFieldGPUIslandCanvas(
     : seededParticleData(node.ir.render.vertexCount, node.options.initialData)
   const owner = canvas.ownerDocument.defaultView
   if (options.experimentalResidentCompute !== true) {
-    canvas.dataset.vuneGpuBackend = "disabled"
+    canvas.dataset.munGpuBackend = "disabled"
     const cleanup = runCanvasFallback(canvas, node, data)
     const dispose = () => { cleanup(); mountedParticleFields.delete(canvas) }
     mountedParticleFields.set(canvas, dispose)
@@ -1043,7 +1043,7 @@ export function mountParticleFieldGPUIslandCanvas(
     stopFrame()
     island?.dispose()
     island = undefined
-    canvas.dataset.vuneGpuFailure = reason instanceof Error ? reason.message : String(reason)
+    canvas.dataset.munGpuFailure = reason instanceof Error ? reason.message : String(reason)
     fallbackCleanup = runCanvasFallback(canvas, node, data)
   }
   const activate = async () => {
@@ -1063,7 +1063,7 @@ export function mountParticleFieldGPUIslandCanvas(
           format,
           initialData: data,
           clearColor: node.options.clearColor,
-          label: `Vune GPU LineChart ${node.ir.id}`,
+          label: `Mun GPU LineChart ${node.ir.id}`,
           onFailure: error => fallback(error),
         })
         : await createParticleFieldGPUIsland(device, context, {
@@ -1071,11 +1071,11 @@ export function mountParticleFieldGPUIslandCanvas(
           format,
           initialData: data,
           clearColor: node.options.clearColor,
-          label: `Vune GPU Island ${node.ir.id}`,
+          label: `Mun GPU Island ${node.ir.id}`,
           onFailure: error => fallback(error),
         })
       if (stopped) { island.dispose(); island = undefined; return }
-      canvas.dataset.vuneGpuBackend = "webgpu"
+      canvas.dataset.munGpuBackend = "webgpu"
       let previous: number | undefined
       const render = (timestamp: number) => {
         if (stopped || island?.status !== "active") return
@@ -1106,4 +1106,4 @@ export function mountParticleFieldGPUIslandCanvas(
 export function disposeParticleFieldGPUIslandCanvas(canvas: HTMLCanvasElement): void {
   mountedParticleFields.get(canvas)?.()
 }
-import type { GPUIslandViewNode } from "@vune-ui/core/internal/runtime"
+import type { GPUIslandViewNode } from "@mun/core/internal/runtime"

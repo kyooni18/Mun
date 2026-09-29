@@ -4,7 +4,7 @@
   "entry": "NativeDemo",
   "states": [
     {
-      "name": "@component/NativeDemo-0/expanded",
+      "name": "@component/entry/NativeDemo/expanded",
       "initial": false
     }
   ],
@@ -28,7 +28,7 @@
     },
     "child": {
       "kind": "column",
-      "id": "column-0",
+      "id": "@node/entry/NativeDemo/body/kind/column",
       "layout": {
         "spacing": 16,
         "padding": 24
@@ -39,7 +39,7 @@
       "children": [
         {
           "kind": "text",
-          "id": "text-1",
+          "id": "@node/entry/NativeDemo/body/content/child/#0/kind/text",
           "value": {
             "kind": "literal",
             "value": "Mün"
@@ -51,11 +51,11 @@
         },
         {
           "kind": "action",
-          "id": "action-2",
+          "id": "@node/entry/NativeDemo/body/content/child/#1/component/ToggleControl/body/kind/action",
           "label": "Toggle",
           "action": {
             "kind": "toggle-state",
-            "state": "@component/NativeDemo-0/expanded"
+            "state": "@component/entry/NativeDemo/expanded"
           },
           "accessibility": {
             "role": "button",
@@ -64,13 +64,13 @@
         },
         {
           "kind": "panel",
-          "id": "panel-3",
+          "id": "@node/entry/NativeDemo/body/content/child/#2/component/ExpandingPanel/body/kind/panel",
           "layout": {
             "width": {
               "kind": "conditional",
               "condition": {
                 "kind": "state",
-                "state": "@component/NativeDemo-0/expanded"
+                "state": "@component/entry/NativeDemo/expanded"
               },
               "then": {
                 "kind": "literal",
@@ -98,7 +98,7 @@
                 "kind": "conditional",
                 "condition": {
                   "kind": "state",
-                  "state": "@component/NativeDemo-0/expanded"
+                  "state": "@component/entry/NativeDemo/expanded"
                 },
                 "then": {
                   "kind": "literal",
@@ -111,7 +111,7 @@
               },
               "trigger": {
                 "kind": "state",
-                "state": "@component/NativeDemo-0/expanded"
+                "state": "@component/entry/NativeDemo/expanded"
               },
               "plan": {
                 "kind": "spring",
@@ -127,15 +127,15 @@
         },
         {
           "kind": "conditional",
-          "id": "conditional-4",
+          "id": "@node/entry/NativeDemo/body/content/child/#3/kind/conditional",
           "condition": {
             "kind": "state",
-            "state": "@component/NativeDemo-0/expanded"
+            "state": "@component/entry/NativeDemo/expanded"
           },
           "then": [
             {
               "kind": "text",
-              "id": "text-5",
+              "id": "@node/entry/NativeDemo/body/content/child/#3/then/child/#0/kind/text",
               "value": {
                 "kind": "literal",
                 "value": "Expanded"
@@ -147,7 +147,7 @@
             },
             {
               "kind": "text",
-              "id": "text-6",
+              "id": "@node/entry/NativeDemo/body/content/child/#3/then/child/#1/kind/text",
               "value": {
                 "kind": "literal",
                 "value": "Native conditional branches are live"
@@ -161,7 +161,7 @@
           "otherwise": [
             {
               "kind": "text",
-              "id": "text-7",
+              "id": "@node/entry/NativeDemo/body/content/child/#3/otherwise/child/#0/kind/text",
               "value": {
                 "kind": "literal",
                 "value": "Collapsed"

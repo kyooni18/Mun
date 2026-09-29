@@ -36,7 +36,7 @@ import {
   type BindingRef,
   type ViewBuilderClosure,
   type ViewGraphValue,
-} from '../packages/core/src/index.js'
+} from '../packages/core/src/compat.js'
 import { Svg } from '../packages/core/src/web-primitives.js'
 
 const bigintLeaf: ViewGraphValue = 1n
@@ -47,7 +47,7 @@ const functionLeaf: ViewGraphValue = () => undefined
 // @ts-expect-error symbols are not renderable View graph leaves
 const symbolLeaf: ViewGraphValue = Symbol('invalid')
 
-Text('Vune')
+Text('Mun')
 Text(1)
 VStack(() => Text('Builder'))
 VStack({ alignment: 'leading', spacing: 8 }, () => Text('Options'))
@@ -61,25 +61,25 @@ SafeArea(['top', 'left'], () => Text('Inset'))
 GeometryReader(geometry => Text(geometry.size.width))
 Text('Frame').frame({ minWidth: 120, maxWidth: 'infinity', height: '3rem', alignment: 'center' })
 Text('Ideal frame').frame({ idealWidth: 100, idealHeight: 44 })
-Text('Styled').foreground('CanvasText').background('Canvas').style({ borderRadius: 8, '--vune-accent': '#7c3aed' })
+Text('Styled').foreground('CanvasText').background('Canvas').style({ borderRadius: 8, '--mun-accent': '#7c3aed' })
 // @ts-expect-error inline style names are checked while CSS custom properties stay extensible
 Text('Invalid style').style({ colro: 'tomato' })
 Element('button', { onPointerMove: event => event.preventDefault?.(), onKeyDown: event => event.currentTarget?.key })
 // @ts-expect-error standard HTML event names are checked
 Element('button', { onClic: () => undefined })
-Element('vune-chart', { onAnything: () => undefined, 'data-series': 'revenue', 'aria-label': 'Chart' })
+Element('mun-chart', { onAnything: () => undefined, 'data-series': 'revenue', 'aria-label': 'Chart' })
 Button('Save', () => undefined)
 Button(namedArguments({ action: () => undefined, label: () => Text('Label') }))
 const count = State(0)
 const countBinding = Binding(count)
 const enabled = State(false)
-const name = State('Vune')
+const name = State('Mun')
 const selection = State<'one' | 'two'>('one')
 Toggle('Enabled', Binding(enabled))
 TextField(Binding(name), 'Name')
 TextArea(Binding(name), 'Description')
 Slider(countBinding, { min: 0, max: 10, step: 1 })
-Image('/vune.png', { alt: 'Vune' })
+Image('/mun.png', { alt: 'Mun' })
 const statusSymbol = new VectorSymbol({
   name: 'status',
   viewBox: '0 0 24 24',
@@ -125,7 +125,7 @@ Element('button', {
   onclick: event => event.currentTarget?.value,
 }, 'Save')
 Element('input', { type: 'checkbox', checked: true, onchange: event => event.target?.checked })
-Element('img', { src: '/vune.png', alt: 'Vune', loading: 'lazy' })
+Element('img', { src: '/mun.png', alt: 'Mun', loading: 'lazy' })
 Element('x-card', { value: count.value, theme: 'dark', 'aria-label': 'Card' }, Text('Custom'))
 const requiresBinding = (_value: BindingRef<number>) => undefined
 requiresBinding(countBinding)
@@ -141,7 +141,7 @@ TextField(countBinding)
 // @ts-expect-error Slider options are numeric
 Slider(countBinding, { min: 'zero' })
 // @ts-expect-error Image options reject unknown properties
-Image('/vune.png', { title: 'Invalid' })
+Image('/mun.png', { title: 'Invalid' })
 // @ts-expect-error Link href must resolve to a string
 Link('Invalid', 42)
 // @ts-expect-error Grid options reject unknown keys
@@ -179,7 +179,7 @@ Element('notarealtag', null)
 Text({ invalid: true })
 // @ts-expect-error ViewBuilder closures cannot produce primitive strings
 const invalidBuilder: ViewBuilderClosure = () => 'not a View'
-// @ts-expect-error VStack ViewBuilder closures must produce Vune Views
+// @ts-expect-error VStack ViewBuilder closures must produce Mün Views
 VStack(() => 'not a View')
 // @ts-expect-error VStack alignment is a closed layout semantic
 VStack({ alignment: 'baseline' }, () => Text('Invalid'))

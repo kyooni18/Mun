@@ -360,11 +360,7 @@ impl KineticChannel {
 }
 
 fn finite_or(value: f64, fallback: f64) -> f64 {
-    if value.is_finite() {
-        value
-    } else {
-        fallback
-    }
+    if value.is_finite() { value } else { fallback }
 }
 
 fn finite_option(value: Option<f64>) -> Option<f64> {

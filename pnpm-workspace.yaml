@@ -4,13 +4,14 @@ packages:
   - "editors/*"
 allowBuilds:
   '@parcel/watcher': false
+  esbuild: true
 minimumReleaseAgeExclude:
   - sass@1.103.1
-  - '@vune-ui/compiler@0.1.1'
-  - '@vune-ui/core@0.1.1'
-  - '@vune-ui/execution@0.1.1'
-  - '@vune-ui/legacy-react@0.1.1'
-  - '@vune-ui/react@0.1.1'
-  - '@vune-ui/vite@0.1.1'
-  - '@vune-ui/vue@0.1.1'
-  - '@vune-ui/web@0.1.1'
+  - '@mun/compiler@0.1.1'
+  - '@mun/core@0.1.1'
+  - '@mun/execution@0.1.1'
+  - '@mun/legacy-react@0.1.1'
+  - '@mun/react@0.1.1'
+  - '@mun/vite@0.1.1'
+  - '@mun/vue@0.1.1'
+  - '@mun/web@0.1.1'

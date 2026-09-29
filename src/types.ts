@@ -1,1 +1,1 @@
-export * from "@vune-ui/react/legacy/types"
+export * from "@mun/react/legacy/types"

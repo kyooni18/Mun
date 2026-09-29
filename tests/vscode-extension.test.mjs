@@ -5,15 +5,15 @@ import test from "node:test"
 
 const root = new URL("../editors/vscode/", import.meta.url)
 
-test("VS Code extension declares Vune language, grammar, and formatter entry points", () => {
+test("VS Code extension declares Mün language, grammar, and formatter entry points", () => {
   const manifest = JSON.parse(readFileSync(new URL("package.json", root), "utf8"))
   assert.equal(manifest.main, "./extension.cjs")
-  assert.deepEqual(manifest.activationEvents, ["onLanguage:vune-ui", "onLanguage:vue"])
-  assert.deepEqual(manifest.contributes.languages[0].extensions, [".vune", ".vune.ts"])
-  assert.equal(manifest.contributes.grammars[0].scopeName, "source.vune")
-  assert.equal(manifest.contributes.commands[0].command, "vune.formatDocument")
+  assert.deepEqual(manifest.activationEvents, ["onLanguage:mun", "onLanguage:vue"])
+  assert.deepEqual(manifest.contributes.languages[0].extensions, [".mun"])
+  assert.equal(manifest.contributes.grammars[0].scopeName, "source.mun")
+  assert.equal(manifest.contributes.commands[0].command, "mun.formatDocument")
   const extension = readFileSync(new URL("extension.cjs", root), "utf8")
-  assert.match(extension, /createDiagnosticCollection\('vune-ui'\)/)
+  assert.match(extension, /createDiagnosticCollection\('mun'\)/)
   assert.match(extension, /registerDocumentFormattingEditProvider\(languages/)
   assert.match(extension, /registerCompletionItemProvider/)
   assert.match(extension, /registerHoverProvider/)
@@ -22,11 +22,11 @@ test("VS Code extension declares Vune language, grammar, and formatter entry poi
   assert.match(extension, /registerRenameProvider/)
   assert.match(extension, /registerDocumentSemanticTokensProvider/)
   assert.match(extension, /enableVue/)
-  const grammar = JSON.parse(readFileSync(new URL("syntaxes/vune.tmLanguage.json", root), "utf8"))
-  assert.ok(grammar.patterns.some(pattern => pattern.include === "#html"))
+  const grammar = JSON.parse(readFileSync(new URL("syntaxes/mun.tmLanguage.json", root), "utf8"))
+  assert.equal(grammar.patterns.some(pattern => pattern.include === "#html"), false)
 })
 
-test("VS Code providers return Vune and HTML tooling results", async () => {
+test("VS Code providers return canonical Mün tooling results", async () => {
   const registrations = { formatting: [], completion: [], hover: [], signature: [], definition: [], rename: [], semantic: [] }
   let openDocument
   let diagnosticRuns = []
@@ -101,11 +101,11 @@ test("VS Code providers return Vune and HTML tooling results", async () => {
     const extension = require(extensionPath)
     const context = { subscriptions: [] }
     extension.activate(context)
-    const lines = ["const local = true", "VStack()", "<div class=\"Card\" />", "Card()", "// Card must not be renamed"]
+    const lines = ["const local = true", "VStack()", "Text(\"Card\")", "Card()", "// Card must not be renamed"]
     const source = lines.join("\n")
     const document = {
-      uri: "file:///Card.vune.ts",
-      languageId: "vune-ui",
+      uri: "file:///Card.mun",
+      languageId: "mun",
       lineCount: lines.length,
       lineAt: line => ({ text: lines[line] }),
       getText: () => source,
@@ -121,31 +121,23 @@ test("VS Code providers return Vune and HTML tooling results", async () => {
     const declarationSource = "struct Card: View { init(title: string) { self.title = title } }"
     const declarationDocument = {
       ...document,
-      uri: "file:///CardDefinition.vune.ts",
+      uri: "file:///CardDefinition.mun",
       lineCount: 1,
       lineAt: () => ({ text: declarationSource }),
       getText: () => declarationSource,
       positionAt: offset => new Position(0, offset),
     }
     workspaceDocuments.push(document, declarationDocument)
-    const vunePosition = new Position(1, 3)
-    const htmlPosition = new Position(2, 4)
+    const munPosition = new Position(1, 3)
     const completionProvider = registrations.completion[0]
-    const viewCompletions = completionProvider.provideCompletionItems(document, vunePosition)
-    const htmlCompletions = completionProvider.provideCompletionItems(document, htmlPosition)
+    const viewCompletions = completionProvider.provideCompletionItems(document, munPosition)
     assert.ok(viewCompletions.some(item => item.label === "VStack"))
     const buttonCompletion = viewCompletions.find(item => item.label === "Button")
     assert.equal(buttonCompletion?.detail, "Button(_ title: string, @Action action) | Button(action: @Action, @ViewBuilder label)")
     assert.doesNotMatch(buttonCompletion?.detail ?? "", /Button\(@Action action\)/)
     assert.match(viewCompletions.find(item => item.label === "Card")?.detail ?? "", /Card\(title: string\)/)
-    assert.ok(htmlCompletions.some(item => item.label === "div"))
-    const htmlAttributeCompletions = completionProvider.provideCompletionItems(document, new Position(2, 10))
-    assert.match(htmlAttributeCompletions.find(item => item.label === "class")?.detail ?? "", /HTML attribute/)
-    assert.ok(htmlAttributeCompletions.some(item => item.label === "data-*"))
-    const hoverResult = registrations.hover[0].provideHover(document, vunePosition)
+    const hoverResult = registrations.hover[0].provideHover(document, munPosition)
     assert.match(hoverResult.contents.value, /VStack/)
-    const htmlHover = registrations.hover[0].provideHover(document, new Position(2, 7))
-    assert.match(htmlHover.contents.value, /HTML attribute `class`.*string/)
     const signatureResult = registrations.signature[0].provideSignatureHelp(document, new Position(1, 7))
     assert.ok(signatureResult.signatures.some(item => /ViewBuilder/.test(item.label)))
     const customSignature = registrations.signature[0].provideSignatureHelp(document, new Position(3, 5))
@@ -173,7 +165,6 @@ test("VS Code providers return Vune and HTML tooling results", async () => {
     assert.equal(workspaceRename.edits.length, 3)
     const semanticResult = registrations.semantic[0].provider.provideDocumentSemanticTokens(document)
     assert.ok(semanticResult.tokens.some(token => token.tokenType === "function" && token.line === 1))
-    assert.ok(semanticResult.tokens.some(token => token.tokenType === "property" && token.line === 2))
     const declarationTokens = registrations.semantic[0].provider.provideDocumentSemanticTokens(declarationDocument)
     assert.ok(declarationTokens.tokens.some(token => token.tokenType === "class" && token.line === 0))
 
@@ -186,7 +177,7 @@ test("VS Code providers return Vune and HTML tooling results", async () => {
     const lexicalSource = lexicalLines.join("\n")
     const lexicalDocument = {
       ...document,
-      uri: "file:///Lexical.vune.ts",
+      uri: "file:///Lexical.mun",
       lineCount: lexicalLines.length,
       lineAt: line => ({ text: lexicalLines[line] }),
       getText: () => lexicalSource,
@@ -201,7 +192,7 @@ test("VS Code providers return Vune and HTML tooling results", async () => {
     const malformedSource = "Text('ok')\n/* unfinished"
     const malformedDocument = {
       ...document,
-      uri: "file:///Malformed.vune.ts",
+      uri: "file:///Malformed.mun",
       lineCount: 2,
       lineAt: line => ({ text: malformedSource.split("\n")[line] }),
       getText: () => malformedSource,
@@ -216,17 +207,6 @@ test("VS Code providers return Vune and HTML tooling results", async () => {
     assert.equal(malformedDiagnostic.range.start.line, 1)
     assert.equal(malformedDiagnostic.range.start.character, 0)
 
-    const malformedHtmlSource = "<section><span></section>"
-    const malformedHtmlDocument = {
-      ...document,
-      uri: "file:///MalformedHtml.vune.ts",
-      lineCount: 1,
-      lineAt: () => ({ text: malformedHtmlSource }),
-      getText: () => malformedHtmlSource,
-      positionAt(offset) { return new Position(0, offset) },
-    }
-    openDocument(malformedHtmlDocument)
-    assert.match(diagnosticRuns.at(-1).diagnostics[0].message, /Mismatched raw HTML closing tag/)
 
     const vueSource = `<template><div :class="{ active: enabled"></div></template>\n<script setup>\nconst count=State(0)\nif(count.value){\nText('ready')\n}\n</script>`
     const vueDocument = {
@@ -254,7 +234,7 @@ test("VS Code providers return Vune and HTML tooling results", async () => {
   }
 })
 
-test("VS Code semantic diagnostics render Vune warnings as warnings", () => {
+test("VS Code semantic diagnostics render Mun warnings as warnings", () => {
   const source = readFileSync(new URL("extension.cjs", root), "utf8")
   assert.match(source, /diagnostic\.severity === 'warning' \? vscode\.DiagnosticSeverity\.Warning/)
 })

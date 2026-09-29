@@ -1,6 +1,6 @@
 /**
  * Compatibility module: advanced native Views are renderer-independent and
- * owned by @vune-ui/core.
+ * owned by @mun/core.
  */
 export {
   Box,
@@ -18,7 +18,7 @@ export {
   ScrollView,
   Stepper,
   TextArea,
-} from "@vune-ui/core"
+} from "@mun/core/compat"
 export type {
   BoxProps,
   GridOptions,
@@ -31,4 +31,4 @@ export type {
   RoundedRectangleProps,
   StepperProps,
   TextAreaProps,
-} from "@vune-ui/core"
+} from "@mun/core/compat"

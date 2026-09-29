@@ -1,30 +1,30 @@
 import * as ts from "typescript"
-import type { ResidentRegionIR } from "@vune-ui/core/internal/execution"
+import type { ResidentRegionIR } from "@mun/core/internal/execution"
 import {
-  analyzeVuneMapperFunction,
-  analyzeVuneScalarFunction,
-  type VuneScalarEffectFacts,
+  analyzeMunMapperFunction,
+  analyzeMunScalarFunction,
+  type MunScalarEffectFacts,
   unwrapCompilerExpression,
 } from "./effect-analysis.js"
 import {
-  lowerVuneMapKernel,
-  lowerVuneScalarKernel,
-  type VuneKernelIR,
+  lowerMunMapKernel,
+  lowerMunScalarKernel,
+  type MunKernelIR,
 } from "./kernel-ir.js"
 
-export type VuneExecutionBackend = "js" | "packed-js" | "wasm" | "worker-wasm" | "webgpu"
-export type VuneExecutionBackendStatus = "ready" | "candidate" | "blocked"
-export type VuneExecutionRegionKind = "state-array-map" | "collection-row"
-export type VuneExecutionSink = "state" | "dom"
-export type VuneExecutionResidency = "js-object" | "cpu-state" | "dom-patch"
+export type MunExecutionBackend = "js" | "packed-js" | "wasm" | "worker-wasm" | "webgpu"
+export type MunExecutionBackendStatus = "ready" | "candidate" | "blocked"
+export type MunExecutionRegionKind = "state-array-map" | "collection-row"
+export type MunExecutionSink = "state" | "dom"
+export type MunExecutionResidency = "js-object" | "cpu-state" | "dom-patch"
 
-export interface VuneExecutionBackendPlan {
-  readonly backend: VuneExecutionBackend
-  readonly status: VuneExecutionBackendStatus
+export interface MunExecutionBackendPlan {
+  readonly backend: MunExecutionBackend
+  readonly status: MunExecutionBackendStatus
   readonly reason?: string
 }
 
-export interface VuneExecutionEffectSummary {
+export interface MunExecutionEffectSummary {
   readonly pure: boolean
   readonly itemDependent: boolean
   readonly indexDependent: boolean
@@ -34,28 +34,28 @@ export interface VuneExecutionEffectSummary {
   readonly allocatesObject: boolean
 }
 
-export interface VuneExecutionResidencyPlan {
-  readonly input: VuneExecutionResidency
-  readonly output: VuneExecutionResidency
+export interface MunExecutionResidencyPlan {
+  readonly input: MunExecutionResidency
+  readonly output: MunExecutionResidency
   readonly gpuResident: boolean
   readonly webgpuReadbackRequired: boolean
 }
 
-export interface VuneExecutionRegion {
+export interface MunExecutionRegion {
   readonly id: string
-  readonly kind: VuneExecutionRegionKind
+  readonly kind: MunExecutionRegionKind
   readonly start: number
   readonly end: number
-  readonly sink: VuneExecutionSink
-  readonly residency: VuneExecutionResidencyPlan
-  readonly effects: VuneExecutionEffectSummary
-  readonly kernels: readonly VuneKernelIR[]
+  readonly sink: MunExecutionSink
+  readonly residency: MunExecutionResidencyPlan
+  readonly effects: MunExecutionEffectSummary
+  readonly kernels: readonly MunKernelIR[]
   /** Object-backed analysis regions are never Resident Compute regions. */
   readonly resident: ResidentRegionIR | null
-  readonly backends: readonly VuneExecutionBackendPlan[]
+  readonly backends: readonly MunExecutionBackendPlan[]
 }
 
-export interface VuneExecutionPlanSummary {
+export interface MunExecutionPlanSummary {
   readonly regions: number
   readonly residentRegions: number
   readonly packedJsCandidates: number
@@ -65,12 +65,12 @@ export interface VuneExecutionPlanSummary {
   readonly gpuBlockedByCpuSink: number
 }
 
-export interface VuneExecutionPlan {
+export interface MunExecutionPlan {
   readonly version: 2
   readonly fileName: string
-  readonly regions: readonly VuneExecutionRegion[]
+  readonly regions: readonly MunExecutionRegion[]
   readonly residentRegions: readonly ResidentRegionIR[]
-  readonly summary: VuneExecutionPlanSummary
+  readonly summary: MunExecutionPlanSummary
 }
 
 interface MutableEffectSummary {
@@ -95,7 +95,7 @@ function emptyEffects(): MutableEffectSummary {
   }
 }
 
-function mergeFacts(target: MutableEffectSummary, facts: VuneScalarEffectFacts, allocatesObject = false): void {
+function mergeFacts(target: MutableEffectSummary, facts: MunScalarEffectFacts, allocatesObject = false): void {
   target.pure = target.pure && facts.pure
   target.itemDependent ||= facts.itemDependent
   target.indexDependent ||= facts.indexDependent
@@ -105,7 +105,7 @@ function mergeFacts(target: MutableEffectSummary, facts: VuneScalarEffectFacts, 
   target.allocatesObject ||= allocatesObject
 }
 
-function freezeEffects(value: MutableEffectSummary): VuneExecutionEffectSummary {
+function freezeEffects(value: MutableEffectSummary): MunExecutionEffectSummary {
   return Object.freeze({
     pure: value.pure,
     itemDependent: value.itemDependent,
@@ -118,10 +118,10 @@ function freezeEffects(value: MutableEffectSummary): VuneExecutionEffectSummary 
 }
 
 function cpuComputeBackends(
-  effects: VuneExecutionEffectSummary,
-  sink: VuneExecutionSink,
+  effects: MunExecutionEffectSummary,
+  sink: MunExecutionSink,
   kernelComplete: boolean,
-): readonly VuneExecutionBackendPlan[] {
+): readonly MunExecutionBackendPlan[] {
   const analysisReason = !effects.pure
     ? "effect analysis cannot prove a portable compute region"
     : !kernelComplete
@@ -141,7 +141,7 @@ function cpuComputeBackends(
   ])
 }
 
-function cpuResidency(output: "cpu-state" | "dom-patch"): VuneExecutionResidencyPlan {
+function cpuResidency(output: "cpu-state" | "dom-patch"): MunExecutionResidencyPlan {
   return Object.freeze({
     input: "js-object",
     output,
@@ -165,15 +165,15 @@ function directCallName(call: ts.CallExpression): string | undefined {
   return undefined
 }
 
-function stateArrayMapRegion(call: ts.CallExpression, ordinal: number): VuneExecutionRegion | undefined {
+function stateArrayMapRegion(call: ts.CallExpression, ordinal: number): MunExecutionRegion | undefined {
   if (directCallName(call) !== "mapStateArrayData" || call.arguments.length < 2) return undefined
-  const mapper = analyzeVuneMapperFunction(call.arguments[1])
+  const mapper = analyzeMunMapperFunction(call.arguments[1])
   if (!mapper) return undefined
   const effects = emptyEffects()
   mergeFacts(effects, mapper, mapper.allocatesObject)
   const frozenEffects = freezeEffects(effects)
-  const kernel = lowerVuneMapKernel(call.arguments[1])
-  const kernels = kernel ? Object.freeze<VuneKernelIR[]>([kernel]) : Object.freeze<VuneKernelIR[]>([])
+  const kernel = lowerMunMapKernel(call.arguments[1])
+  const kernels = kernel ? Object.freeze<MunKernelIR[]>([kernel]) : Object.freeze<MunKernelIR[]>([])
   return Object.freeze({
     id: `region-${ordinal}`,
     kind: "state-array-map",
@@ -188,7 +188,7 @@ function stateArrayMapRegion(call: ts.CallExpression, ordinal: number): VuneExec
   })
 }
 
-function collectionRowRegion(call: ts.CallExpression, ordinal: number): VuneExecutionRegion | undefined {
+function collectionRowRegion(call: ts.CallExpression, ordinal: number): MunExecutionRegion | undefined {
   if (directCallName(call) !== "compiledCollectionContent" || call.arguments.length < 2) return undefined
   const descriptor = unwrapCompilerExpression(call.arguments[1])
   if (!ts.isObjectLiteralExpression(descriptor)) return undefined
@@ -197,7 +197,7 @@ function collectionRowRegion(call: ts.CallExpression, ordinal: number): VuneExec
     || (unwrapCompilerExpression(kind) as ts.StringLiteralLike).text !== "flat-text-host") return undefined
 
   const effects = emptyEffects()
-  const kernels: VuneKernelIR[] = []
+  const kernels: MunKernelIR[] = []
   let requiredKernels = 0
   const key = objectProperty(descriptor, "evaluateKey")?.initializer
   const props = objectProperty(descriptor, "evaluateProps")?.initializer
@@ -206,34 +206,34 @@ function collectionRowRegion(call: ts.CallExpression, ordinal: number): VuneExec
 
   if (key) {
     requiredKernels += 1
-    const facts = analyzeVuneScalarFunction(key)
+    const facts = analyzeMunScalarFunction(key)
     if (facts) mergeFacts(effects, facts)
     else effects.pure = false
-    const kernel = lowerVuneScalarKernel(key)
+    const kernel = lowerMunScalarKernel(key)
     if (kernel) kernels.push(kernel)
   }
   if (props) {
     requiredKernels += 1
-    const facts = analyzeVuneMapperFunction(props)
+    const facts = analyzeMunMapperFunction(props)
     if (facts) mergeFacts(effects, facts, facts.allocatesObject)
     else effects.pure = false
-    const kernel = lowerVuneMapKernel(props)
+    const kernel = lowerMunMapKernel(props)
     if (kernel) kernels.push(kernel)
   }
   if (text) {
     requiredKernels += 1
-    const facts = analyzeVuneScalarFunction(text)
+    const facts = analyzeMunScalarFunction(text)
     if (facts) mergeFacts(effects, facts)
     else effects.pure = false
-    const kernel = lowerVuneScalarKernel(text)
+    const kernel = lowerMunScalarKernel(text)
     if (kernel) kernels.push(kernel)
   }
   if (!props && !text && fallback) {
     requiredKernels += 1
-    const facts = analyzeVuneMapperFunction(fallback)
+    const facts = analyzeMunMapperFunction(fallback)
     if (facts) mergeFacts(effects, facts, facts.allocatesObject)
     else effects.pure = false
-    const kernel = lowerVuneMapKernel(fallback)
+    const kernel = lowerMunMapKernel(fallback)
     if (kernel) kernels.push(kernel)
   }
 
@@ -258,7 +258,7 @@ function collectionRowRegion(call: ts.CallExpression, ordinal: number): VuneExec
  * code. The Vite plugin only invokes this when a consumer asks for plans, so
  * normal production compilation does not pay an extra parse/analysis pass.
  */
-export function createVuneExecutionPlan(source: string, fileName: string): VuneExecutionPlan {
+export function createMunExecutionPlan(source: string, fileName: string): MunExecutionPlan {
   if (!source.includes("mapStateArrayData") && !source.includes("compiledCollectionContent")) {
     return Object.freeze({
       version: 2,
@@ -269,7 +269,7 @@ export function createVuneExecutionPlan(source: string, fileName: string): VuneE
     })
   }
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const regions: VuneExecutionRegion[] = []
+  const regions: MunExecutionRegion[] = []
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const region = stateArrayMapRegion(node, regions.length)
@@ -283,7 +283,7 @@ export function createVuneExecutionPlan(source: string, fileName: string): VuneE
   }
   visit(sourceFile)
 
-  const backendCount = (backend: VuneExecutionBackend, status: VuneExecutionBackendStatus) =>
+  const backendCount = (backend: MunExecutionBackend, status: MunExecutionBackendStatus) =>
     regions.filter(region => region.backends.some(plan => plan.backend === backend && plan.status === status)).length
   const gpuBlockedByCpuSink = regions.filter(region => region.residency.webgpuReadbackRequired
     && region.backends.some(plan => plan.backend === "webgpu" && plan.status === "blocked")).length

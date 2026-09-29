@@ -1,6 +1,6 @@
 import { createApp } from "vue"
-import { VuneView } from "@vune-ui/vue"
-import graph from "./ParityGraph.vune"
+import { MunView } from "@mun/vue"
+import graph from "./ParityGraph.mun"
 import "./parity.css"
 
-createApp(VuneView, { render: () => graph() }).mount("#app")
+createApp(MunView, { render: () => graph() }).mount("#app")

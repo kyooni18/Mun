@@ -6,9 +6,7 @@ import test from "node:test"
 import { build } from "vite"
 
 const packageBudgets = {
-  // Core now intentionally exposes SwiftUI transitions/content transitions,
-  // vector symbols, TextEditor, and Path at the canonical authoring root.
-  // Keep the entry barrel small, but give that reviewed surface honest room.
+  // Canonical core contains only backend-neutral semantics and Semantic UI IR.
   "packages/core/dist/index.js": 1024,
   "dist/index.js": 512,
   "packages/react/dist/index.js": 1024,
@@ -28,19 +26,19 @@ test("public package entry points stay within their size budgets", async () => {
 })
 
 test("Web SSR imports tree-shake DOM and hydration internals", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "vune-tree-shake-"))
+  const directory = await mkdtemp(join(tmpdir(), "mun-tree-shake-"))
   try {
     const entry = join(directory, "entry.ts")
-    await writeFile(entry, `import { Text } from "@vune-ui/core"\nimport { renderToHTML } from "@vune-ui/web"\nconsole.log(renderToHTML(Text("tree-shake")))\n`)
+    await writeFile(entry, `import { Animation } from "@mun/core"\nimport { renderMunUiProgramToHTML } from "@mun/web"\nconsole.log(Animation.default, renderMunUiProgramToHTML)\n`)
     const built = await build({
       root: directory,
       configFile: false,
       logLevel: "error",
       resolve: {
         alias: [
-          { find: /^@vune-ui\/core\/internal\/motion-abi$/, replacement: resolve("packages/core/dist/motion-abi.js") },
-          { find: /^@vune-ui\/core$/, replacement: resolve("packages/core/dist/index.js") },
-          { find: /^@vune-ui\/web$/, replacement: resolve("packages/web/dist/index.js") },
+          { find: /^@mun\/core\/internal\/motion-abi$/, replacement: resolve("packages/core/dist/motion-abi.js") },
+          { find: /^@mun\/core$/, replacement: resolve("packages/core/dist/index.js") },
+          { find: /^@mun\/web$/, replacement: resolve("packages/web/dist/index.js") },
         ],
       },
       build: {

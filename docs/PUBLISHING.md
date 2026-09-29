@@ -1,20 +1,20 @@
-# Publishing Vune to npm
+# Publishing Mün to npm
 
-Vune publishes every non-private package in the repository root and `packages/*` as one synchronized release. The current set is eleven packages:
+Mün publishes every non-private package in the repository root and `packages/*` as one synchronized release. The current set is eleven packages:
 
-1. `@vune-ui/execution`
-2. `@vune-ui/animation`
-3. `@vune-ui/core`
-4. `@vune-ui/compiler`
-5. `@vune-ui/legacy-react`
-6. `@vune-ui/react`
-7. `@vune-ui/vite`
-8. `@vune-ui/vue`
-9. `@vune-ui/web`
-10. `vune-ui`
-11. `create-vune-ui`
+1. `@mun/execution`
+2. `@mun/animation`
+3. `@mun/core`
+4. `@mun/compiler`
+5. `@mun/legacy-react`
+6. `@mun/react`
+7. `@mun/vite`
+8. `@mun/vue`
+9. `@mun/web`
+10. `mun`
+11. `create-mun`
 
-The repository includes a release helper that discovers these packages from their manifests and topologically sorts their internal dependencies. `@vune-ui/animation` therefore publishes after `@vune-ui/execution` and before packages such as `@vune-ui/web` and `vune-ui` that depend on it. Adding another non-private package under `packages/*` automatically adds it to both packing and publishing instead of requiring two hard-coded target lists to be kept in sync.
+The repository includes a release helper that discovers these packages from their manifests and topologically sorts their internal dependencies. `@mun/animation` therefore publishes after `@mun/execution` and before packages such as `@mun/web` and `mun` that depend on it. Adding another non-private package under `packages/*` automatically adds it to both packing and publishing instead of requiring two hard-coded target lists to be kept in sync.
 
 ## One-time npm setup
 
@@ -25,7 +25,7 @@ npm login
 npm whoami
 ```
 
-The scoped packages use `@vune-ui/*`. If your npm username is not `vune-ui`, the `vune-ui` npm organization/scope must exist and your account must have publish access to it.
+The scoped packages use `@mun/*`. If your npm username is not `mun`, the `mun` npm organization/scope must exist and your account must have publish access to it.
 
 The script never stores an npm token or OTP. Authentication is handled by the normal npm CLI. If npm requires a one-time password during direct publishing, enter it when npm asks for it.
 
@@ -66,7 +66,7 @@ Pressing `Ctrl-C` is a hard cancellation boundary. The helper forwards `SIGINT` 
 
 ## Bump and publish
 
-All publishable Vune packages always share one version. For a bumped release, the helper temporarily versions the manifests while creating the release tarballs, restores the checkout before npm publication, then persists the new versions only after the whole release succeeds. This keeps a failed or partially published release rerunnable without `--allow-dirty`:
+All publishable Mün packages always share one version. For a bumped release, the helper temporarily versions the manifests while creating the release tarballs, restores the checkout before npm publication, then persists the new versions only after the whole release succeeds. This keeps a failed or partially published release rerunnable without `--allow-dirty`:
 
 ```bash
 pnpm release:patch

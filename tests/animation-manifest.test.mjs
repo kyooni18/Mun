@@ -19,7 +19,7 @@ import {
   withTransaction,
   defineView,
   initializer,
-} from "../packages/core/dist/index.js"
+} from "../packages/core/dist/compat.js"
 import { mount, renderToHTML } from "../packages/web/dist/index.js"
 import { animateDomStyle, motionSpecForAnimation } from "../packages/web/dist/motion.js"
 
@@ -34,7 +34,7 @@ async function waitUntil(predicate, timeout = 250) {
   return predicate()
 }
 
-test("Web DOM animation adapter executes @vune-ui/animation timing and spring specs", async () => {
+test("Web DOM animation adapter executes @mun/animation timing and spring specs", async () => {
   const dom = new JSDOM('<div style="opacity:0"></div>')
   const element = dom.window.document.querySelector("div")
   assert.ok(element)
@@ -73,7 +73,7 @@ test("Web motion channels honor delay/repeat and retarget from the live presenta
   dom.window.close()
 })
 
-test("Web mount routes animated State patches through @vune-ui/animation", async () => {
+test("Web mount routes animated State patches through @mun/animation", async () => {
   const dom = new JSDOM('<div id="app"></div>')
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -172,68 +172,68 @@ test("render Transactions feed the initial Web animation wrapper", () => {
   assert.match(html, /scale:0\.9/)
 })
 
-import { diagnoseVuneSource, transformVuneSource } from "../packages/compiler/dist/index.js"
+import { diagnoseMunSource, transformMunSource } from "../packages/compiler/dist/index.js"
 
 test("Swift-style labeled modifiers lower before TypeScript parsing", () => {
   assert.equal(
-    transformVuneSource('Text("Hi").frame(width: 100, height: 40)', "Modifier.vune.ts"),
+    transformMunSource('Text("Hi").frame(width: 100, height: 40)', "Modifier.mun.ts"),
     'Text("Hi").frame({ width: 100, height: 40 })',
   )
   assert.equal(
-    transformVuneSource('Text("Hi").offset(x: 10, y: 5)', "Modifier.vune.ts"),
+    transformMunSource('Text("Hi").offset(x: 10, y: 5)', "Modifier.mun.ts"),
     'Text("Hi").offset({ x: 10, y: 5 })',
   )
   assert.equal(
-    transformVuneSource('Text("Hi").scaleEffect(x: 1.2, y: 0.8, anchor: .center)', "Modifier.vune.ts"),
+    transformMunSource('Text("Hi").scaleEffect(x: 1.2, y: 0.8, anchor: .center)', "Modifier.mun.ts"),
     'Text("Hi").scaleEffect({ x: 1.2, y: 0.8 }, "center")',
   )
   assert.equal(
-    transformVuneSource('Text("Hi").scaleEffect(x: 1.2)', "Modifier.vune.ts"),
+    transformMunSource('Text("Hi").scaleEffect(x: 1.2)', "Modifier.mun.ts"),
     'Text("Hi").scaleEffect({ x: 1.2 })',
   )
   assert.equal(
-    transformVuneSource('Text("Hi").shadow(radius: 8, x: 1)', "Modifier.vune.ts"),
+    transformMunSource('Text("Hi").shadow(radius: 8, x: 1)', "Modifier.mun.ts"),
     'Text("Hi").shadow(undefined, 8, 1)',
   )
   assert.equal(
-    transformVuneSource('Text("Hi").fixedSize(horizontal: true, vertical: false)', "Modifier.vune.ts"),
+    transformMunSource('Text("Hi").fixedSize(horizontal: true, vertical: false)', "Modifier.mun.ts"),
     'Text("Hi").fixedSize(true, false)',
   )
   assert.equal(
-    transformVuneSource('Text("Hi").onTapGesture(count: 2, perform: { save() })', "Modifier.vune.ts"),
+    transformMunSource('Text("Hi").onTapGesture(count: 2, perform: { save() })', "Modifier.mun.ts"),
     'Text("Hi").onTapGesture(2, () => {save()})',
   )
   assert.equal(
-    transformVuneSource('Text("Hi").onHover(perform: { hovering in setHover(hovering) })', "Modifier.vune.ts"),
+    transformMunSource('Text("Hi").onHover(perform: { hovering in setHover(hovering) })', "Modifier.mun.ts"),
     'Text("Hi").onHover((hovering) => {setHover(hovering)})',
   )
 })
 
 test("canonical stack syntax and diagnostics use the same manifest", () => {
   const source = 'VStack(alignment: .leading, spacing: 12) { Text("Hi") }'
-  const output = transformVuneSource(source, "Stack.vune.ts")
+  const output = transformMunSource(source, "Stack.mun.ts")
   assert.match(output, /VStack\(namedArguments\(\{ alignment: "leading", spacing: 12 \}\), \(\) => \[Text\("Hi"\)\]\)/)
-  assert.deepEqual(diagnoseVuneSource(source), [])
+  assert.deepEqual(diagnoseMunSource(source), [])
 })
 
 test("withAnimation lowers Swift-style Animation factories and action closures", () => {
   const source = 'withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { expanded.value = true }'
   assert.equal(
-    transformVuneSource(source, "Animation.vune.ts"),
+    transformMunSource(source, "Animation.mun.ts"),
     'withAnimation(Animation.spring(0.4, 0.8), () => { expanded.value = true })',
   )
-  assert.deepEqual(diagnoseVuneSource(source), [])
+  assert.deepEqual(diagnoseMunSource(source), [])
 
   const skippedDefault = 'Animation.spring(dampingFraction: 0.7)'
-  assert.equal(transformVuneSource(skippedDefault, "Animation.vune.ts"), 'Animation.spring(undefined, 0.7)')
-  assert.deepEqual(diagnoseVuneSource(skippedDefault), [])
+  assert.equal(transformMunSource(skippedDefault, "Animation.mun.ts"), 'Animation.spring(undefined, 0.7)')
+  assert.deepEqual(diagnoseMunSource(skippedDefault), [])
 
   assert.equal(
-    transformVuneSource('withAnimation(.default) { expanded.value = false }', "Animation.vune.ts"),
+    transformMunSource('withAnimation(.default) { expanded.value = false }', "Animation.mun.ts"),
     'withAnimation(Animation.default, () => { expanded.value = false })',
   )
   assert.equal(
-    transformVuneSource('Text("Hi").animation(.easeInOut, value: active)', "Animation.vune.ts"),
+    transformMunSource('Text("Hi").animation(.easeInOut, value: active)', "Animation.mun.ts"),
     'Text("Hi").animation(Animation.easeInOut(), active)',
   )
 })

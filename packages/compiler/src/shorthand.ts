@@ -1,5 +1,5 @@
 import * as ts from "typescript"
-import { swiftUIAnimationFactoryArgumentLabels } from "@vune-ui/core"
+import { swiftUIAnimationFactoryArgumentLabels } from "@mun/core"
 import { identifierAt, matching, skipComment, skipString, skipTrivia, splitTopLevel, syntaxError, topLevelColon } from "./scanner.js"
 
 function isIdentifierDeclaration(node: ts.Identifier): boolean {
@@ -11,7 +11,7 @@ function isIdentifierDeclaration(node: ts.Identifier): boolean {
   if (ts.isClassDeclaration(parent) && parent.name === node) return true
   if (ts.isImportClause(parent) && parent.name === node) return true
   // Both sides of `import { $remote as local }` are declaration syntax. The
-  // imported property name is not a Vune Binding projection and must survive
+  // imported property name is not a Mun Binding projection and must survive
   // shorthand lowering verbatim.
   if (ts.isImportSpecifier(parent) && (parent.name === node || parent.propertyName === node)) return true
   if (ts.isNamespaceImport(parent) && parent.name === node) return true
@@ -40,12 +40,12 @@ const nonBindingDollarNames = new Set([
 
 /**
  * Lower only actual identifier nodes. The source is intentionally edited by
- * span so the rest of Vune's syntax lowering keeps its original formatting.
+ * span so the rest of Mun's syntax lowering keeps its original formatting.
  * This prevents member properties, declarations, strings, comments, regexes,
  * and identifiers containing `$` from being mistaken for projections.
  */
 export function lowerShorthand(source: string): string {
-  const file = ts.createSourceFile("vune-shorthand.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const file = ts.createSourceFile("mun-shorthand.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const edits: Array<{ start: number; end: number; replacement: string }> = []
   const visit = (node: ts.Node): void => {
     if (ts.isIdentifier(node) && isBindingShorthandIdentifier(node)) {
@@ -113,7 +113,7 @@ function replaceOutsideOpaqueSpans(
 }
 
 /**
- * Lower Swift-style implicit member expressions used by the Vune authoring
+ * Lower Swift-style implicit member expressions used by the Mun authoring
  * language. Bare enum-like cases become inert string values, matching the
  * existing Alignment/Edge-style runtime representation. Animation factories
  * keep their value semantics and are qualified with Animation instead.
@@ -144,7 +144,7 @@ export function lowerImplicitMemberShorthand(source: string): string {
       // SwiftUI exposes common timing curves as static Animation values as
       // well as duration-taking factories. The JavaScript runtime keeps only
       // the factory form, so an implicit member value lowers to its zero-arg
-      // equivalent without changing Vune authoring syntax.
+      // equivalent without changing Mun authoring syntax.
       if (animationFactories.has(name)) return `${prefix}Animation.${name}()`
       return `${prefix}${JSON.stringify(name)}`
     },

@@ -1,6 +1,6 @@
 /**
- * Renderer-independent identity storage for a mounted Vune View instance.
- * Vune traversal decides identity; renderers only bind storage and native
+ * Renderer-independent identity storage for a mounted Mün View instance.
+ * Mun traversal decides identity; renderers only bind storage and native
  * reconciliation to this renderer-independent contract.
  */
 export class ViewIdentityStore {

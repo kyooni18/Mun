@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { diagnoseVuneSource, parseVuneBuilder, transformVuneSource } from "../packages/compiler/dist/index.js"
+import { diagnoseMunSource, parseMunBuilder, transformMunSource } from "../packages/compiler/dist/index.js"
 
 const parserCorpus = [
   `VStack(/* options */ spacing: 12) /* trailing builder */ {
@@ -33,11 +33,11 @@ const parserCorpus = [
 
 test("parser corpus preserves nested closures, literals, comments, and conditionals", () => {
   for (const [index, source] of parserCorpus.entries()) {
-    const program = parseVuneBuilder(source, 17)
+    const program = parseMunBuilder(source, 17)
     assert.ok(program.statements.length > 0, `corpus case ${index} should produce nodes`)
     assert.equal(program.range.start, 17)
     assert.equal(program.range.end, 17 + source.length)
-    const output = transformVuneSource(source, `ParserCorpus${index}.vune.ts`)
+    const output = transformMunSource(source, `ParserCorpus${index}.mun.ts`)
     assert.ok(output.length > 0)
   }
 })
@@ -46,7 +46,7 @@ test("parser corpus survives deterministic nesting and source-range checks", () 
   let source = `Text(` + "`seed ${value}`" + `)`
   for (let depth = 0; depth < 24; depth += 1) {
     source = `VStack(/* depth ${depth} */) { ${source}; Text(/\\[${depth}\\]/.test(value) ? "yes" : "no") }`
-    const program = parseVuneBuilder(source, 100)
+    const program = parseMunBuilder(source, 100)
     assert.equal(program.range.end, 100 + source.length)
     const visit = node => {
       assert.ok(node.range.start >= 100)
@@ -65,7 +65,7 @@ test("parser corpus survives deterministic nesting and source-range checks", () 
       }
     }
     for (const node of program.statements) visit(node)
-    assert.doesNotThrow(() => transformVuneSource(source, `NestedParser${depth}.vune.ts`))
+    assert.doesNotThrow(() => transformMunSource(source, `NestedParser${depth}.mun.ts`))
   }
 })
 
@@ -78,34 +78,34 @@ test("malformed parser inputs produce shared syntax diagnostics with source offs
     `if (ready) { VStack() { Text("missing branches") }`,
   ]
   for (const source of malformed) {
-    const diagnostics = diagnoseVuneSource(source)
+    const diagnostics = diagnoseMunSource(source)
     assert.equal(diagnostics.length, 1)
-    assert.equal(diagnostics[0].code, "VUNE_SYNTAX")
+    assert.equal(diagnostics[0].code, "MUN_SYNTAX")
     assert.ok(diagnostics[0].line >= 1)
     assert.ok(diagnostics[0].column >= 1)
   }
 })
 
 test("builder parsing does not consume ordinary blocks or conditional suffixes", () => {
-  const ordinary = parseVuneBuilder("foo() { key: value }")
+  const ordinary = parseMunBuilder("foo() { key: value }")
   assert.equal(ordinary.statements[0]?.kind, "raw")
-  assert.equal(transformVuneSource("foo() { key: value }"), "foo() { key: value }")
-  assert.equal(transformVuneSource("Foo() { key: value }"), "Foo() { key: value }")
+  assert.equal(transformMunSource("foo() { key: value }"), "foo() { key: value }")
+  assert.equal(transformMunSource("Foo() { key: value }"), "Foo() { key: value }")
 
-  const conditional = parseVuneBuilder("if (ready) { Text(\"ready\") } elsewhere")
+  const conditional = parseMunBuilder("if (ready) { Text(\"ready\") } elsewhere")
   assert.equal(conditional.statements[0]?.kind, "raw")
 
-  const nested = parseVuneBuilder("if (ready) { Text(\"ready\") } else if (loading) { Text(\"loading\") }")
+  const nested = parseMunBuilder("if (ready) { Text(\"ready\") } else if (loading) { Text(\"loading\") }")
   assert.equal(nested.statements[0]?.kind, "conditional")
   assert.equal(nested.statements[0]?.kind === "conditional" ? nested.statements[0].otherwise?.kind : undefined, "conditional")
 })
 
 test("unterminated regular expressions surface as syntax diagnostics", () => {
-  const diagnostics = diagnoseVuneSource("Text(/unterminated")
+  const diagnostics = diagnoseMunSource("Text(/unterminated")
   assert.deepEqual(diagnostics, [{
     severity: "error",
-    code: "VUNE_SYNTAX",
-    message: "Unclosed regular expression in Vune source",
+    code: "MUN_SYNTAX",
+    message: "Unclosed regular expression in Mün source",
     line: 1,
     column: 6,
   }])

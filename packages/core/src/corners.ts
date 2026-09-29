@@ -1,6 +1,6 @@
 /**
  * Continuous-corner path generation based on the Figma/Lisse squircle
- * construction. The math stays DOM-free so every Vune renderer can share it.
+ * construction. The math stays DOM-free so every Mun renderer can share it.
  */
 export interface CornerRadii {
   readonly topLeft: number

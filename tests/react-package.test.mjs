@@ -13,7 +13,7 @@ import {
   compiledTemplate,
   defineCompiledTemplate,
   viewElement,
-} from "../packages/core/dist/index.js"
+} from "../packages/core/dist/compat.js"
 import { Component, State, createReactView, foreignComponent, fromReactState, reactComponent, render, view } from "../packages/react/dist/index.js"
 
 const Text = defineBuiltinView(
@@ -22,13 +22,13 @@ const Text = defineBuiltinView(
   ({ value }) => viewElement("span", null, [value]),
 )
 
-test("@vune-ui/react renders the core graph at the React boundary", () => {
+test("@mun/react renders the core graph at the React boundary", () => {
   const html = renderToStaticMarkup(render(Text("Hello").padding(8)))
   assert.match(html, /<span style="padding:8px">Hello<\/span>/)
   assert.equal(renderToStaticMarkup(render(Text("Styled").className(["card", false, "active"]))), '<span class="card active">Styled</span>')
 })
 
-test("@vune-ui/react materializes compiled templates through the native template path", () => {
+test("@mun/react materializes compiled templates through the native template path", () => {
   const template = defineCompiledTemplate({
     kind: "element", type: "div", props: { className: "compiled" }, children: [
       { kind: "element", type: "span", props: null, children: ["Static"] },
@@ -38,13 +38,13 @@ test("@vune-ui/react materializes compiled templates through the native template
   assert.equal(renderToStaticMarkup(render(compiledTemplate(template, ["React template"]))), '<div class="compiled"><span>Static</span><span>React template</span></div>')
 })
 
-test("@vune-ui/react view keeps props at the renderer boundary", () => {
+test("@mun/react view keeps props at the renderer boundary", () => {
   const Greeting = view(({ name }) => Text(`Hello, ${name}`))
-  const html = renderToStaticMarkup(createElement(Greeting, { name: "Vune" }))
-  assert.equal(html, "<span>Hello, Vune</span>")
+  const html = renderToStaticMarkup(createElement(Greeting, { name: "Mun" }))
+  assert.equal(html, "<span>Hello, Mun</span>")
 })
 
-test("@vune-ui/react stateful view scopes State creation to each mounted identity", () => {
+test("@mun/react stateful view scopes State creation to each mounted identity", () => {
   let factories = 0
   const Counter = view({
     state: () => { factories += 1; return { count: State(2) } },
@@ -55,7 +55,7 @@ test("@vune-ui/react stateful view scopes State creation to each mounted identit
   assert.equal(factories, 2)
 })
 
-test("@vune-ui/react adapts raw HTML names to native React props at the boundary", () => {
+test("@mun/react adapts raw HTML names to native React props at the boundary", () => {
   const save = () => undefined
   const element = render(Element("button", { class: "card", for: "name", onclick: save }, "Save"))
   assert.equal(element.props.className, "card")
@@ -63,29 +63,29 @@ test("@vune-ui/react adapts raw HTML names to native React props at the boundary
   assert.equal(element.props.onClick, save)
 })
 
-test("@vune-ui/react adapts real inline CSS strings at the renderer boundary", () => {
+test("@mun/react adapts real inline CSS strings at the renderer boundary", () => {
   const element = render(Element("x-card", { style: "color: red; --accent: blue", "data-kind": "custom" }, "Card"))
   assert.deepEqual(element.props.style, { color: "red", "--accent": "blue" })
   assert.equal(element.props["data-kind"], "custom")
 })
 
-test("@vune-ui/react shares core scroll and safe-area Views", () => {
+test("@mun/react shares core scroll and safe-area Views", () => {
   const value = SafeArea(() => [ScrollView("horizontal", () => [Element("span", null, "Items")])])
   const html = renderToStaticMarkup(render(value))
-  assert.match(html, /data-vune="SafeArea"/)
-  assert.match(html, /data-vune="ScrollView"/)
+  assert.match(html, /data-mun="SafeArea"/)
+  assert.match(html, /data-mun="ScrollView"/)
   assert.match(html, /overflow-x:auto/)
   assert.match(html, /overflow-y:hidden/)
 })
 
-test("@vune-ui/react materializes GeometryReader with a renderer-owned boundary", () => {
+test("@mun/react materializes GeometryReader with a renderer-owned boundary", () => {
   const value = GeometryReader(geometry => Element("span", null, `${geometry.size.width}x${geometry.size.height}`))
   const html = renderToStaticMarkup(render(value))
-  assert.match(html, /data-vune="GeometryReader"/)
+  assert.match(html, /data-mun="GeometryReader"/)
   assert.match(html, />0x0<\/span>/)
 })
 
-test("React components enter and leave the Vune graph through typed explicit boundaries", () => {
+test("React components enter and leave the Mün graph through typed explicit boundaries", () => {
   function Badge({ label }) { return createElement("strong", null, label) }
   const MemoBadge = memo(Badge)
   const ForwardBadge = forwardRef(({ label }, ref) => createElement("strong", { ref }, label))
@@ -118,7 +118,7 @@ test("React component prop snapshots do not invoke accessors or revoked proxies"
   assert.equal(calls, 0)
 })
 
-test("React state setters can be exposed as Vune Bindings", () => {
+test("React state setters can be exposed as Mun Bindings", () => {
   let current = "before"
   const binding = fromReactState(current, next => { current = typeof next === "function" ? next(current) : next })
   binding.value = "after"

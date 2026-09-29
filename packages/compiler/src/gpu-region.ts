@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 
-import type { KernelBinaryOperator, KernelExpression, ResidentRegionIR } from "@vune-ui/core/internal/execution"
+import type { KernelBinaryOperator, KernelExpression, ResidentRegionIR } from "@mun/core/internal/execution"
 import { optimizeResidentKernelSequence } from "./resident-fusion.js"
 
 export interface CompiledGPURegionBinding {
@@ -13,7 +13,7 @@ export interface CompiledGPURegionBinding {
 export interface CompiledGPURegionWGSL {
   readonly version: 1
   readonly regionId: string
-  readonly entryPoint: "vuneResidentCompute"
+  readonly entryPoint: "munResidentCompute"
   readonly workgroupSize: 64 | 128 | 256
   readonly code: string
   readonly fieldNames: readonly string[]
@@ -48,13 +48,13 @@ function wgslExpression(
   if (expression.op === "capture") {
     const index = captures.get(expression.name)
     if (index === undefined) throw new TypeError(`GPU region references undeclared capture ${JSON.stringify(expression.name)}`)
-    return `vuneCaptures.values[${index}u]`
+    return `munCaptures.values[${index}u]`
   }
   if (expression.op === "load") {
     if (expression.path.length !== 1 || typeof expression.path[0] !== "string") throw new TypeError("GPU regions require direct packed-column loads")
     const field = fields.get(expression.path[0])
     if (field === undefined) throw new TypeError(`GPU region references unknown field ${JSON.stringify(expression.path[0])}`)
-    return `vuneColumn${field}.values[index]`
+    return `munColumn${field}.values[index]`
   }
   if (expression.op === "unary") {
     const value = wgslExpression(expression.value, fields, captures)
@@ -114,16 +114,16 @@ export function compileResidentRegionWGSL(
   bindings.push(Object.freeze({ binding: captureBinding, kind: "captures", name: "captures", access: "read" }))
 
   const lines: string[] = [
-    "struct VuneColumn { values: array<f32>, };",
-    "struct VuneFrame { length: u32, _pad0: vec3<u32>, };",
-    "struct VuneCaptures { values: array<f32>, };",
-    ...fieldNames.map((_, index) => `@group(0) @binding(${index}) var<storage, read_write> vuneColumn${index}: VuneColumn;`),
-    `@group(0) @binding(${frameBinding}) var<uniform> vuneFrame: VuneFrame;`,
-    `@group(0) @binding(${captureBinding}) var<storage, read> vuneCaptures: VuneCaptures;`,
+    "struct MunColumn { values: array<f32>, };",
+    "struct MunFrame { length: u32, _pad0: vec3<u32>, };",
+    "struct MunCaptures { values: array<f32>, };",
+    ...fieldNames.map((_, index) => `@group(0) @binding(${index}) var<storage, read_write> munColumn${index}: MunColumn;`),
+    `@group(0) @binding(${frameBinding}) var<uniform> munFrame: MunFrame;`,
+    `@group(0) @binding(${captureBinding}) var<storage, read> munCaptures: MunCaptures;`,
     `@compute @workgroup_size(${workgroupSize})`,
-    "fn vuneResidentCompute(@builtin(global_invocation_id) id: vec3<u32>) {",
+    "fn munResidentCompute(@builtin(global_invocation_id) id: vec3<u32>) {",
     "  let index = id.x;",
-    "  if (index >= vuneFrame.length) { return; }",
+    "  if (index >= munFrame.length) { return; }",
   ]
   let temporary = 0
   for (const kernel of optimization.kernels) {
@@ -132,17 +132,17 @@ export function compileResidentRegionWGSL(
     for (const output of kernel.outputs) {
       const field = fields.get(output.name)
       if (field === undefined) throw new TypeError(`GPU region writes unknown field ${JSON.stringify(output.name)}`)
-      const name = `vuneOut${temporary++}`
+      const name = `munOut${temporary++}`
       lines.push(`  let ${name}: f32 = ${wgslExpression(output.value, fields, captures)};`)
       outputTemps.push({ field, name })
     }
-    for (const output of outputTemps) lines.push(`  vuneColumn${output.field}.values[index] = ${output.name};`)
+    for (const output of outputTemps) lines.push(`  munColumn${output.field}.values[index] = ${output.name};`)
   }
   lines.push("}")
   return Object.freeze({
     version: 1,
     regionId: region.id,
-    entryPoint: "vuneResidentCompute",
+    entryPoint: "munResidentCompute",
     workgroupSize,
     code: `${lines.join("\n")}\n`,
     fieldNames,

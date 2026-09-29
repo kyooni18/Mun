@@ -21,7 +21,8 @@ test('npm release plan lists all publishable packages in dependency order', () =
   const result = run(['--plan'])
   assert.equal(result.status, 0, result.stderr)
   const names = discoverReleaseTargets(root).map(target => target.manifest.name)
-  assert.ok(names.includes('@vune-ui/animation'), '@vune-ui/animation must be a release target')
+  assert.ok(names.includes('@mun/animation'), '@mun/animation must be a release target')
+  assert.ok(names.includes('@mun/astro'), '@mun/astro must be a release target')
   const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
   let offset = -1
   for (const name of names) {
@@ -35,10 +36,11 @@ test('release target discovery includes every public package and publishes depen
   const targets = discoverReleaseTargets(root)
   const indexByName = new Map(targets.map((target, index) => [target.manifest.name, index]))
 
-  assert.equal(indexByName.has('@vune-ui/animation'), true)
-  assert.ok(indexByName.get('@vune-ui/execution') < indexByName.get('@vune-ui/animation'))
-  assert.ok(indexByName.get('@vune-ui/animation') < indexByName.get('@vune-ui/web'))
-  assert.ok(indexByName.get('@vune-ui/animation') < indexByName.get('vune-ui'))
+  assert.equal(indexByName.has('@mun/animation'), true)
+  assert.equal(indexByName.has('@mun/astro'), true)
+  assert.ok(indexByName.get('@mun/execution') < indexByName.get('@mun/animation'))
+  assert.ok(indexByName.get('@mun/animation') < indexByName.get('@mun/web'))
+  assert.ok(indexByName.get('@mun/animation') < indexByName.get('@mun/ui'))
 
   for (const target of targets) {
     const dependencies = {
@@ -74,7 +76,7 @@ test('prerelease plan defaults to next dist-tag', () => {
 test('release helper accepts pnpm argument separators', () => {
   const result = run(['--', '--plan'])
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Vune npm release plan/u)
+  assert.match(result.stdout, /Mün npm release plan/u)
 })
 
 test('release helper rejects conflicting version bump options', () => {
@@ -90,7 +92,7 @@ test('release helper rejects conflicting check profiles', () => {
 })
 
 test('SIGINT stops the active release command tree instead of continuing', async () => {
-  const temp = mkdtempSync(resolve(tmpdir(), 'vune-release-sigint-'))
+  const temp = mkdtempSync(resolve(tmpdir(), 'mun-release-sigint-'))
   const fakePnpm = resolve(temp, 'fake-pnpm.mjs')
   const survivor = resolve(temp, 'survived.txt')
   writeFileSync(fakePnpm, `
@@ -108,7 +110,7 @@ test('SIGINT stops the active release command tree instead of continuing', async
     const child = spawn(process.execPath, [script, '--quick', '--dry-run', '--allow-dirty'], {
       cwd: root,
       encoding: 'utf8',
-      env: { ...process.env, VUNE_PNPM_CLI: fakePnpm },
+      env: { ...process.env, MUN_PNPM_CLI: fakePnpm },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''

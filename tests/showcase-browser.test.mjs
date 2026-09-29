@@ -1,15 +1,15 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-test("the medium Vune showcase survives real browser state and collection interactions", { skip: !process.env.VUNE_SHOWCASE_URL }, async () => {
+test("the medium Mun showcase survives real browser state and collection interactions", { skip: !process.env.MUN_SHOWCASE_URL }, async () => {
   const { chromium } = await import("@playwright/test")
-  const browser = await chromium.launch({ headless: true, ...(process.env.VUNE_CHROMIUM_EXECUTABLE ? { executablePath: process.env.VUNE_CHROMIUM_EXECUTABLE } : {}) })
+  const browser = await chromium.launch({ headless: true, ...(process.env.MUN_CHROMIUM_EXECUTABLE ? { executablePath: process.env.MUN_CHROMIUM_EXECUTABLE } : {}) })
   try {
     const page = await browser.newPage()
     const errors = []
     page.on("pageerror", error => errors.push(error))
     page.on("console", message => { if (message.type() === "error") errors.push(new Error(message.text())) })
-    await page.goto(process.env.VUNE_SHOWCASE_URL, { waitUntil: "networkidle" })
+    await page.goto(process.env.MUN_SHOWCASE_URL, { waitUntil: "networkidle" })
     await page.locator('[data-testid="showcase-root"]').waitFor()
     assert.equal(await page.locator("[data-row]").count(), 4)
 

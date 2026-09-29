@@ -1,8 +1,8 @@
 {
-  "name": "@vune-ui/animation",
+  "name": "@mun/animation",
   "version": "0.1.20",
   "type": "module",
-  "description": "Renderer-agnostic Vune animation runtime with JS/WASM/Worker execution, gestures, timelines, transitions, scroll linking, constraints, and GPU/canvas adapters.",
+  "description": "Renderer-agnostic Mün animation runtime with JS/WASM/Worker execution, gestures, timelines, transitions, scroll linking, constraints, and GPU/canvas adapters.",
   "sideEffects": false,
   "main": "./dist/src/index.js",
   "types": "./dist/index.d.ts",
@@ -98,7 +98,7 @@
     "bench:renderers": "node bench/renderers.mjs"
   },
   "dependencies": {
-    "@vune-ui/execution": "workspace:*"
+    "@mun/execution": "workspace:*"
   },
   "engines": {
     "node": ">=20.19.0"

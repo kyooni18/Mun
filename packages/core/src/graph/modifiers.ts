@@ -2,7 +2,7 @@ import type { Animation } from "../animation.js"
 import type { FrameOptions } from "../layout.js"
 import type { Transition } from "../transition.js"
 import type { ContentTransition } from "../content-transition.js"
-import type { VuneStyleProperties } from "../html.js"
+import type { MunStyleProperties } from "../html.js"
 import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "../corners.js"
 import { arrayCheck, snapshotArrayValues } from "./arrays.js"
 import type { ClassValue, Length, ModifiableViewNode, Modifiers, OffsetValue, ScaleEffectValue, ViewModifierNode, ViewNode } from "./types.js"
@@ -85,7 +85,7 @@ function maskShapeDescriptor(value: unknown): string | undefined {
   if (!shape || typeof shape !== "object") return undefined
   const shapeNode = shape as { kind?: string; props?: Record<string, unknown> }
   if (shapeNode.kind !== "element") return undefined
-  const name = shapeNode.props?.["data-vune"]
+  const name = shapeNode.props?.["data-mun"]
   if (typeof name !== "string") return undefined
   const radius = name === "Circle" ? 50
     : name === "Capsule" ? 50
@@ -116,7 +116,7 @@ function clipShapeStyle(value: unknown): Record<string, string> {
   if (!shape || typeof shape !== "object") return {}
   const shapeNode = shape as { kind?: string; props?: Record<string, unknown> }
   if (shapeNode.kind !== "element") return {}
-  const name = shapeNode.props?.["data-vune"]
+  const name = shapeNode.props?.["data-mun"]
   if (name === "Circle") return { clipPath: "circle(50%)" }
   if (name === "Capsule") return { clipPath: "inset(0 round 9999px)" }
   if (name === "Rectangle") return { clipPath: "inset(0)" }
@@ -167,7 +167,7 @@ function applyModifier(content: ViewNode, name: string, arguments_: readonly unk
 
 const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.prototype), {
   // SwiftUI's parameterless padding uses a platform default rather than zero.
-  // Vune uses a deterministic 16 CSS-pixel web default while preserving an
+  // Mun uses a deterministic 16 CSS-pixel web default while preserving an
   // explicitly authored zero.
   padding(this: ViewNode, valueOrEdges: unknown = 16, length?: Length) {
     return applyModifier(this, "padding", arguments.length >= 2 ? [valueOrEdges, length] : [valueOrEdges])
@@ -299,7 +299,7 @@ const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.proto
   },
   transition(this: ViewNode, transition: Transition) { return applyModifier(this, "transition", [transition]) },
   contentTransition(this: ViewNode, transition: ContentTransition) { return applyModifier(this, "contentTransition", [transition]) },
-  style(this: ViewNode, value: VuneStyleProperties) { return applyModifier(this, "style", [value]) },
+  style(this: ViewNode, value: MunStyleProperties) { return applyModifier(this, "style", [value]) },
   className(this: ViewNode, value: ClassValue) { return applyModifier(this, "className", [value]) },
   withProps(this: ViewNode, value: Record<string, unknown>) { return applyModifier(this, "withProps", [value]) },
   keyed(this: ViewNode, value: string | number) { return applyModifier(this, "keyed", [value]) },

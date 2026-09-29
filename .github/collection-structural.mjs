@@ -169,7 +169,7 @@ const testPath = 'tests/web-package.test.mjs'
 let tests = fs.readFileSync(testPath, 'utf8')
 tests += `
 
-test("@vune-ui/web executes push pop and reverse without reevaluating stable compiled rows", async () => {
+test("@mun/web executes push pop and reverse without reevaluating stable compiled rows", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)

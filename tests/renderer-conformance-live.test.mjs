@@ -3,8 +3,8 @@ import test from "node:test"
 import { pathToFileURL } from "node:url"
 import { JSDOM } from "jsdom"
 import ts from "typescript"
-import { BindingValue, Element, ForEach, ForeignComponent, State, Toggle, defineView, initializer } from "../packages/core/dist/index.js"
-import { compileVuneFile } from "../packages/compiler/dist/index.js"
+import { BindingValue, Element, ForEach, ForeignComponent, State, Toggle, defineView, initializer } from "../packages/core/dist/compat.js"
+import { compileMunFile } from "../packages/compiler/dist/index.js"
 
 function installDOM() {
   const dom = new JSDOM("<!doctype html><html><body><main id=app></main></body></html>", { url: "http://localhost/" })
@@ -72,7 +72,7 @@ async function mountLiveValue(renderer, value) {
 }
 
 async function compiledSharedGraph() {
-  const source = `import { Button, State, Text, VStack } from "vune-ui"
+  const source = `import { Button, State, Text, VStack } from "@mun/core/compat"
 struct SharedCounter: View {
   @State var count = State(0)
   var body: some View {
@@ -83,18 +83,18 @@ struct SharedCounter: View {
   }
 }
 export const create = () => SharedCounter()`
-  const result = compileVuneFile(source, "shared-counter.vune.ts")
-  const vuneUrl = pathToFileURL(new URL("../dist/index.js", import.meta.url).pathname).href
-  const coreUrl = pathToFileURL(new URL("../packages/core/dist/index.js", import.meta.url).pathname).href
+  const result = compileMunFile(source, "shared-counter.mun.ts")
+  const munUrl = pathToFileURL(new URL("../dist/index.js", import.meta.url).pathname).href
+  const coreUrl = pathToFileURL(new URL("../packages/core/dist/compat.js", import.meta.url).pathname).href
   const code = ts.transpileModule(result.code, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText
-    .replaceAll('from "vune-ui"', `from "${vuneUrl}"`)
-    .replaceAll('from "@vune-ui/core"', `from "${coreUrl}"`)
+    .replaceAll('from "@mun/core/compat"', `from "${coreUrl}"`)
+    .replaceAll('from "@mun/core"', `from "${coreUrl}"`)
   return import(`data:text/javascript,${encodeURIComponent(code)}`)
 }
 
-test("one compiled .vune.ts graph behaves identically in React, Vue, and Web", async () => {
+test("one compiled .mun.ts graph behaves identically in React, Vue, and Web", async () => {
   const shared = await compiledSharedGraph()
   for (const renderer of ["react", "vue", "web"]) {
     const restore = installDOM()
@@ -185,7 +185,7 @@ test("raw HTML attributes, custom CSS properties, children, events, and refs sta
           class: "raw-card",
           "aria-label": "raw content",
           "data-kind": "custom",
-          style: { "--vune-accent": "rebeccapurple", color: "red" },
+          style: { "--mun-accent": "rebeccapurple", color: "red" },
           onclick: () => { count.value += 1 },
           ref: value => { reference = value },
         }, Element("strong", null, "Raw"), ` Count: ${count.value}`),
@@ -196,7 +196,7 @@ test("raw HTML attributes, custom CSS properties, children, events, and refs sta
       assert.equal(section.className, "raw-card")
       assert.equal(section.getAttribute("aria-label"), "raw content")
       assert.equal(section.textContent, "Raw Count: 0")
-      assert.equal(section.style.getPropertyValue("--vune-accent"), "rebeccapurple")
+      assert.equal(section.style.getPropertyValue("--mun-accent"), "rebeccapurple")
       assert.equal(reference, section)
       await mounted.dispatch(() => section.dispatchEvent(new window.MouseEvent("click", { bubbles: true })))
       assert.equal(count.value, 1)

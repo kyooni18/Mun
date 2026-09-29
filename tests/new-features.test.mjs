@@ -12,23 +12,23 @@ import {
   VStack,
 } from '../dist/legacy.js'
 import {
-  createVuneSwcVisitor,
-  createVuneVitePlugin,
-  transformVuneBuilderSyntax,
+  createMunSwcVisitor,
+  createMunVitePlugin,
+  transformMunBuilderSyntax,
 } from '../dist/compiler/index.js'
 import {
-  applyVunePlugins,
+  applyMunPlugins,
   coordinateSpace,
   coordinateSpaceOf,
   createLayoutNode,
   emptyLayoutNode,
-  getVuneNodeMetadata,
+  getMunNodeMetadata,
   globalCoordinates,
   layoutPass,
-  markVuneNode,
+  markMunNode,
   observeLayout,
-  registerVunePlugin,
-  unregisterVunePlugin,
+  registerMunPlugin,
+  unregisterMunPlugin,
 } from '../dist/experimental.js'
 
 test('transforms nested builder blocks without touching source text', () => {
@@ -44,25 +44,25 @@ VStack({ spacing: 8 }) {
 }
 `
 
-  const output = transformVuneBuilderSyntax(source)
+  const output = transformMunBuilderSyntax(source)
   assert.match(output, /VStack\(\{ spacing: 8 \}, \(\) => \[/)
   assert.match(output, /HStack\(\(\) => \[Text\('B'\), Text\('C'\)\]\)/)
   assert.match(output, /'VStack\(\) \{ not syntax \}'/)
   assert.match(output, /\/\/ VStack\(\) \{ also not syntax \}/)
 
   assert.equal(
-    transformVuneBuilderSyntax("VStack() { Text('A') // keep this\n Text('B') }"),
+    transformMunBuilderSyntax("VStack() { Text('A') // keep this\n Text('B') }"),
     "VStack(() => [Text('A') /* keep this*/, Text('B')])",
   )
 })
 
 test('builder transformer resolves arbitrary View names and reports malformed blocks', () => {
   assert.equal(
-    transformVuneBuilderSyntax('Card() { Text(\'Card\') }'),
+    transformMunBuilderSyntax('Card() { Text(\'Card\') }'),
     "Card(() => [Text('Card')])",
   )
   assert.throws(
-    () => transformVuneBuilderSyntax('VStack() { Text(\'missing\')'),
+    () => transformMunBuilderSyntax('VStack() { Text(\'missing\')'),
     /Unclosed \{ block/,
   )
 })
@@ -77,7 +77,7 @@ test('builder runtime supports plain, optioned, nested, Group, and Grid builders
 
 test('Vite and SWC adapters use the same builder transform and support query IDs', () => {
   const source = "VStack() { Text('A') }"
-  const vite = createVuneVitePlugin()
+  const vite = createMunVitePlugin()
   assert.deepEqual(vite.transform(source, '/src/App.tsx?direct'), {
     code: "VStack(() => [Text('A')])",
     map: {
@@ -91,18 +91,18 @@ test('Vite and SWC adapters use the same builder transform and support query IDs
   })
   assert.equal(vite.transform(source, '/src/App.css'), null)
 
-  const swc = createVuneSwcVisitor()
+  const swc = createMunSwcVisitor()
   assert.equal(swc.transform(source), "VStack(() => [Text('A')])")
   assert.match(swc.transform('VStack(spacing: 8) { Text(\'A\') }'), /import \{ namedArguments \}/)
 })
 
-test('Vune JSX runtimes preserve native props and apply all style modifiers', () => {
+test('Mun JSX runtimes preserve native props and apply all style modifiers', () => {
   const production = jsxs('div', {
     id: 'root',
     padding: 4,
     minWidth: 10,
     fontWeight: 700,
-    children: ['Hello', jsx('span', { children: ' Vune' })],
+    children: ['Hello', jsx('span', { children: ' Mun' })],
   })
   const development = jsxDEV('div', {
     opacity: 0.5,
@@ -119,7 +119,7 @@ test('Vune JSX runtimes preserve native props and apply all style modifiers', ()
 })
 
 test('JSX nodes pass through registered plugins and retain metadata', () => {
-  registerVunePlugin({
+  registerMunPlugin({
     name: 'test-plugin',
     apply: element => styled(element).attr('data-plugin', 'yes'),
   })
@@ -128,10 +128,10 @@ test('JSX nodes pass through registered plugins and retain metadata', () => {
     const html = renderToStaticMarkup(element)
     assert.match(html, /data-plugin="yes"/)
     assert.match(renderToStaticMarkup(Text('DSL plugin')), /data-plugin="yes"/)
-    assert.deepEqual(getVuneNodeMetadata(element), { modifiers: ['padding'], layout: undefined })
-    assert.equal(applyVunePlugins(element).props['data-plugin'], 'yes')
+    assert.deepEqual(getMunNodeMetadata(element), { modifiers: ['padding'], layout: undefined })
+    assert.equal(applyMunPlugins(element).props['data-plugin'], 'yes')
   } finally {
-    assert.equal(unregisterVunePlugin('test-plugin'), true)
+    assert.equal(unregisterMunPlugin('test-plugin'), true)
   }
 })
 
@@ -159,7 +159,7 @@ test('coordinate, layout, and node metadata APIs retain their contracts', () => 
 
   const element = jsx('div', { children: 'node' })
   const metadata = { modifiers: ['padding'], layout: { width: 10 } }
-  assert.equal(getVuneNodeMetadata(markVuneNode(element, metadata)), metadata)
+  assert.equal(getMunNodeMetadata(markMunNode(element, metadata)), metadata)
 })
 
 test('layout observation records named coordinate spaces', () => {

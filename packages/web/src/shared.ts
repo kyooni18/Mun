@@ -1,7 +1,7 @@
 import type { LazyMeasurementIndex } from "./lazy-index.js"
-import { animationCSSStyle, classNameOf, currentRenderTransaction, frameStyle, layoutLength, swiftUIAnimatableModifierNames, type Animation, type GeometryProxy, type LazyViewNode, type LazyViewRange, type Transaction, type ViewModifierNode } from "@vune-ui/core"
-import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@vune-ui/core/corners"
-import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@vune-ui/core/internal/runtime"
+import { animationCSSStyle, classNameOf, currentRenderTransaction, frameStyle, layoutLength, swiftUIAnimatableModifierNames, type Animation, type GeometryProxy, type LazyViewNode, type LazyViewRange, type Transaction, type ViewModifierNode } from "@mun/core/compat"
+import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@mun/core/corners"
+import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@mun/core/internal/runtime"
 
 function alignmentCSSPosition(value: unknown, fallback = "center"): string {
   switch (value) {
@@ -33,7 +33,7 @@ export function alignmentCSSPlace(value: unknown, fallback = "center"): string {
   }
 }
 
-const filterTemplate = "blur(var(--vune-blur,0px)) brightness(var(--vune-brightness,1)) contrast(var(--vune-contrast,1)) saturate(var(--vune-saturation,1)) grayscale(var(--vune-grayscale,0)) hue-rotate(var(--vune-hue-rotation,0deg)) invert(var(--vune-color-invert,0))"
+const filterTemplate = "blur(var(--mun-blur,0px)) brightness(var(--mun-brightness,1)) contrast(var(--mun-contrast,1)) saturate(var(--mun-saturation,1)) grayscale(var(--mun-grayscale,0)) hue-rotate(var(--mun-hue-rotation,0deg)) invert(var(--mun-color-invert,0))"
 
 function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback
@@ -158,13 +158,13 @@ export function styleOf(modifier: ViewModifierNode, includeAnimationFallback = t
       style = lines ? { display: "-webkit-box", "-webkit-box-orient": "vertical", "-webkit-line-clamp": String(lines), overflow: "hidden", ...(modifier.arguments[1] ? { "min-height": `${lines}lh` } : {}) } : { "-webkit-line-clamp": "unset" }
       break
     }
-    case "minimumScaleFactor": style = { "--vune-minimum-scale-factor": String(Math.max(0, Math.min(1, finite(value, 1)))) }; break
+    case "minimumScaleFactor": style = { "--mun-minimum-scale-factor": String(Math.max(0, Math.min(1, finite(value, 1)))) }; break
     case "multilineTextAlignment": style = { "text-align": value === "leading" ? "start" : value === "trailing" ? "end" : "center" }; break
     case "truncationMode": style = { "text-overflow": "ellipsis", overflow: "hidden", "white-space": "nowrap", ...(value === "head" ? { direction: "rtl" } : {}) }; break
     case "textCase": style = { "text-transform": value === "uppercase" ? "uppercase" : value === "lowercase" ? "lowercase" : "none" }; break
-    case "allowsTightening": style = { "--vune-allows-tightening": value === false ? "0" : "1" }; break
+    case "allowsTightening": style = { "--mun-allows-tightening": value === false ? "0" : "1" }; break
     case "foreground":
-    case "foregroundStyle": style = { color: String(value), ...(modifier.arguments[1] !== undefined ? { "--vune-secondary-foreground": String(modifier.arguments[1]) } : {}), ...(modifier.arguments[2] !== undefined ? { "--vune-tertiary-foreground": String(modifier.arguments[2]) } : {}) }; break
+    case "foregroundStyle": style = { color: String(value), ...(modifier.arguments[1] !== undefined ? { "--mun-secondary-foreground": String(modifier.arguments[1]) } : {}), ...(modifier.arguments[2] !== undefined ? { "--mun-tertiary-foreground": String(modifier.arguments[2]) } : {}) }; break
     case "background": style = typeof value === "string" ? { background: value, "background-position": alignmentCSSPosition(modifier.arguments[1]) } : {}; break
     case "opacity": {
       const opacity = typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1
@@ -222,7 +222,7 @@ export function styleOf(modifier: ViewModifierNode, includeAnimationFallback = t
     case "scaledToFit": style = { "object-fit": "contain", "max-width": "100%", "max-height": "100%" }; break
     case "scaledToFill": style = { "object-fit": "cover", width: "100%", height: "100%" }; break
     case "fixedSize": style = { ...(value !== false ? { width: "max-content" } : {}), ...(modifier.arguments[1] !== false ? { height: "max-content" } : {}) }; break
-    case "layoutPriority": style = { "flex-shrink": finite(value, 0) > 0 ? "0" : "1", "--vune-layout-priority": String(finite(value, 0)) }; break
+    case "layoutPriority": style = { "flex-shrink": finite(value, 0) > 0 ? "0" : "1", "--mun-layout-priority": String(finite(value, 0)) }; break
     case "position": {
       const resolved = point(value, modifier.arguments[1])
       style = { position: "absolute", left: `${resolved.x}px`, top: `${resolved.y}px`, transform: "translate(-50%, -50%)" }
@@ -260,47 +260,47 @@ export function styleOf(modifier: ViewModifierNode, includeAnimationFallback = t
     case "clipped": style = { overflow: "hidden" }; break
     case "border": style = { border: `${layoutLength(modifier.arguments[1] ?? 1) ?? "1px"} solid ${String(value)}` }; break
     case "shadow": style = { "box-shadow": `${finite(modifier.arguments[2], 0)}px ${finite(modifier.arguments[3], 0)}px ${Math.max(0, finite(modifier.arguments[1], 0))}px ${String(value)}` }; break
-    case "blur": style = { filter: filterTemplate, "--vune-blur": `${Math.max(0, finite(value, 0))}px` }; break
-    case "brightness": style = { filter: filterTemplate, "--vune-brightness": String(Math.max(0, 1 + finite(value, 0))) }; break
-    case "contrast": style = { filter: filterTemplate, "--vune-contrast": String(Math.max(0, finite(value, 1))) }; break
-    case "saturation": style = { filter: filterTemplate, "--vune-saturation": String(Math.max(0, finite(value, 1))) }; break
-    case "grayscale": style = { filter: filterTemplate, "--vune-grayscale": String(Math.max(0, Math.min(1, finite(value, 0)))) }; break
-    case "hueRotation": style = { filter: filterTemplate, "--vune-hue-rotation": `${finite(value, 0)}deg` }; break
-    case "colorInvert": style = { filter: filterTemplate, "--vune-color-invert": "1" }; break
-    case "colorMultiply": style = { "--vune-color-multiply": String(value) }; break
+    case "blur": style = { filter: filterTemplate, "--mun-blur": `${Math.max(0, finite(value, 0))}px` }; break
+    case "brightness": style = { filter: filterTemplate, "--mun-brightness": String(Math.max(0, 1 + finite(value, 0))) }; break
+    case "contrast": style = { filter: filterTemplate, "--mun-contrast": String(Math.max(0, finite(value, 1))) }; break
+    case "saturation": style = { filter: filterTemplate, "--mun-saturation": String(Math.max(0, finite(value, 1))) }; break
+    case "grayscale": style = { filter: filterTemplate, "--mun-grayscale": String(Math.max(0, Math.min(1, finite(value, 0)))) }; break
+    case "hueRotation": style = { filter: filterTemplate, "--mun-hue-rotation": `${finite(value, 0)}deg` }; break
+    case "colorInvert": style = { filter: filterTemplate, "--mun-color-invert": "1" }; break
+    case "colorMultiply": style = { "--mun-color-multiply": String(value) }; break
     case "blendMode": style = { "mix-blend-mode": blendMode(value) }; break
     case "compositingGroup": style = { isolation: "isolate" }; break
     case "drawingGroup": style = { isolation: "isolate", contain: "paint", ...(value === true ? { background: "Canvas" } : {}) }; break
-    case "luminanceToAlpha": style = { filter: `${filterTemplate} grayscale(1)`, "--vune-luminance-to-alpha": "1" }; break
-    case "tint": style = value == null ? { "accent-color": "auto", "--vune-tint": "initial" } : { "accent-color": String(value), "--vune-tint": String(value) }; break
-    case "backgroundStyle": style = { "--vune-background-style": String(value), background: String(value) }; break
-    case "dynamicTypeSize": style = { "--vune-dynamic-type-size": String(value), "font-size": `var(--vune-dynamic-type-${String(value)}, inherit)` }; break
+    case "luminanceToAlpha": style = { filter: `${filterTemplate} grayscale(1)`, "--mun-luminance-to-alpha": "1" }; break
+    case "tint": style = value == null ? { "accent-color": "auto", "--mun-tint": "initial" } : { "accent-color": String(value), "--mun-tint": String(value) }; break
+    case "backgroundStyle": style = { "--mun-background-style": String(value), background: String(value) }; break
+    case "dynamicTypeSize": style = { "--mun-dynamic-type-size": String(value), "font-size": `var(--mun-dynamic-type-${String(value)}, inherit)` }; break
     case "hidden": style = { visibility: "hidden" }; break
     case "allowsHitTesting": style = value === false ? { "pointer-events": "none" } : { "pointer-events": "auto" }; break
     case "preferredColorScheme": style = value === "light" || value === "dark" ? { "color-scheme": String(value) } : { "color-scheme": "normal" }; break
-    case "controlSize": style = { "--vune-control-size": String(value) }; break
-    case "buttonStyle": style = { "--vune-button-style": String(value) }; break
-    case "toggleStyle": style = { "--vune-toggle-style": String(value) }; break
-    case "pickerStyle": style = { "--vune-picker-style": String(value) }; break
-    case "textFieldStyle": style = { "--vune-text-field-style": String(value) }; break
-    case "textEditorStyle": style = { "--vune-text-editor-style": String(value) }; break
-    case "listStyle": style = { "--vune-list-style": String(value) }; break
-    case "labelStyle": style = { "--vune-label-style": String(value) }; break
-    case "progressViewStyle": style = { "--vune-progress-view-style": String(value) }; break
+    case "controlSize": style = { "--mun-control-size": String(value) }; break
+    case "buttonStyle": style = { "--mun-button-style": String(value) }; break
+    case "toggleStyle": style = { "--mun-toggle-style": String(value) }; break
+    case "pickerStyle": style = { "--mun-picker-style": String(value) }; break
+    case "textFieldStyle": style = { "--mun-text-field-style": String(value) }; break
+    case "textEditorStyle": style = { "--mun-text-editor-style": String(value) }; break
+    case "listStyle": style = { "--mun-list-style": String(value) }; break
+    case "labelStyle": style = { "--mun-label-style": String(value) }; break
+    case "progressViewStyle": style = { "--mun-progress-view-style": String(value) }; break
     case "scrollDisabled": style = value === true ? { overflow: "hidden" } : {}; break
-    case "scrollIndicators": style = value === "hidden" ? { "scrollbar-width": "none", "--vune-scroll-indicators": "hidden" } : { "--vune-scroll-indicators": String(value) }; break
+    case "scrollIndicators": style = value === "hidden" ? { "scrollbar-width": "none", "--mun-scroll-indicators": "hidden" } : { "--mun-scroll-indicators": String(value) }; break
     case "scrollBounceBehavior": style = { "overscroll-behavior": value === "basedOnSize" ? "auto" : value === "always" ? "auto" : "none" }; break
     case "scrollClipDisabled": style = value === false ? {} : { overflow: "visible" }; break
-    case "scrollDismissesKeyboard": style = { "--vune-scroll-dismisses-keyboard": String(value) }; break
+    case "scrollDismissesKeyboard": style = { "--mun-scroll-dismisses-keyboard": String(value) }; break
     case "listRowInsets": style = Object.fromEntries(Object.entries(paddingStyle(value, modifier.arguments[1])).map(([key, item]) => [cssPropertyName(key), item])); break
     case "listRowBackground": style = typeof value === "string" ? { background: value } : {}; break
     case "listRowSeparator": style = value === "hidden" ? { "border-block-style": "none" } : value === "visible" ? { "border-block-style": "solid" } : {}; break
     case "listSectionSeparator": style = value === "hidden" ? { "border-block-style": "none" } : value === "visible" ? { "border-block-style": "solid" } : {}; break
-    case "symbolRenderingMode": style = { "--vune-symbol-rendering-mode": value == null ? "automatic" : String(value) }; break
-    case "symbolVariant": style = { "--vune-symbol-variant": String(value) }; break
+    case "symbolRenderingMode": style = { "--mun-symbol-rendering-mode": value == null ? "automatic" : String(value) }; break
+    case "symbolVariant": style = { "--mun-symbol-variant": String(value) }; break
     case "continuousCorners": {
       const smoothing = typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : APPLE_CONTINUOUS_CORNER_SMOOTHING
-      style = { "corner-shape": "squircle", "--vune-corner-style": "continuous", "--vune-corner-smoothing": String(smoothing), "--vune-corner-preserve-smoothing": "1" }
+      style = { "corner-shape": "squircle", "--mun-corner-style": "continuous", "--mun-corner-smoothing": String(smoothing), "--mun-corner-preserve-smoothing": "1" }
       break
     }
     case "frame": {
@@ -331,7 +331,7 @@ export function propsOf(modifier: ViewModifierNode): Record<string, unknown> {
   switch (modifier.name) {
     case "className": return { class: classNameOf(value) }
     case "withProps": return value && typeof value === "object" ? value as Record<string, unknown> : {}
-    case "id": return { "data-vune-id": String(value) }
+    case "id": return { "data-mun-id": String(value) }
     case "disabled": return value === true ? { disabled: true, inert: true, "aria-disabled": true } : { disabled: false, inert: false, "aria-disabled": false }
     case "onTapGesture": {
       const count = typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 1
@@ -376,7 +376,7 @@ export function propsOf(modifier: ViewModifierNode): Record<string, unknown> {
       onDragStart(event: { dataTransfer?: { setData?: (type: string, value: string) => void } }) {
         let serialized: string
         try { serialized = typeof value === "string" ? value : JSON.stringify(value) } catch { serialized = String(value) }
-        event?.dataTransfer?.setData?.("application/x-vune+json", serialized)
+        event?.dataTransfer?.setData?.("application/x-mun+json", serialized)
         event?.dataTransfer?.setData?.("text/plain", serialized)
       },
     }
@@ -390,7 +390,7 @@ export function propsOf(modifier: ViewModifierNode): Record<string, unknown> {
         onDragLeave() { if (typeof targeted === "function") targeted(false) },
         onDrop(event: { preventDefault?: () => void; clientX?: number; clientY?: number; dataTransfer?: { getData?: (type: string) => string } }) {
           event?.preventDefault?.(); if (typeof targeted === "function") targeted(false)
-          const raw = event?.dataTransfer?.getData?.("application/x-vune+json") || event?.dataTransfer?.getData?.("text/plain") || ""
+          const raw = event?.dataTransfer?.getData?.("application/x-mun+json") || event?.dataTransfer?.getData?.("text/plain") || ""
           let item: unknown = raw
           try { item = JSON.parse(raw) } catch {}
           action([item], { x: finite(event?.clientX, 0), y: finite(event?.clientY, 0) })

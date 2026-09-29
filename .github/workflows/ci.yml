@@ -37,6 +37,29 @@ jobs:
       - run: pnpm run demo:parity:build
       - run: pnpm run demo:showcase:build
 
+  native:
+    name: Native ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Install Linux native build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev
+      - name: Check native Rust formatting
+        if: runner.os == 'Linux'
+        run: cargo fmt --manifest-path native/Cargo.toml --all -- --check
+      - name: Test native workspace
+        run: cargo test --manifest-path native/Cargo.toml --workspace --locked
+
   browser:
     name: Browser interaction
     runs-on: ubuntu-latest
@@ -56,19 +79,19 @@ jobs:
       - name: Validate production browser fixtures
         run: pnpm run test:browser:built
       - name: Start demo server
-        run: pnpm exec vite --config examples/vite.config.ts --host 127.0.0.1 > vune-vite.log 2>&1 &
+        run: pnpm exec vite --config examples/vite.config.ts --host 127.0.0.1 > mun-vite.log 2>&1 &
       - name: Start Vue demo server
-        run: pnpm exec vite --config examples/vue.vite.config.ts --host 127.0.0.1 --port 5175 > vune-vue-vite.log 2>&1 &
+        run: pnpm exec vite --config examples/vue.vite.config.ts --host 127.0.0.1 --port 5175 > mun-vue-vite.log 2>&1 &
       - name: Start Web demo server
-        run: pnpm exec vite --config examples/web.vite.config.ts --host 127.0.0.1 --port 5174 > vune-web-vite.log 2>&1 &
+        run: pnpm exec vite --config examples/web.vite.config.ts --host 127.0.0.1 --port 5174 > mun-web-vite.log 2>&1 &
       - name: Start parity React server
-        run: pnpm exec vite --config examples/parity-react.vite.config.ts --host 127.0.0.1 --port 5180 > vune-parity-react.log 2>&1 &
+        run: pnpm exec vite --config examples/parity-react.vite.config.ts --host 127.0.0.1 --port 5180 > mun-parity-react.log 2>&1 &
       - name: Start parity Vue server
-        run: pnpm exec vite --config examples/parity-vue.vite.config.ts --host 127.0.0.1 --port 5181 > vune-parity-vue.log 2>&1 &
+        run: pnpm exec vite --config examples/parity-vue.vite.config.ts --host 127.0.0.1 --port 5181 > mun-parity-vue.log 2>&1 &
       - name: Start parity Web server
-        run: pnpm exec vite --config examples/parity-web.vite.config.ts --host 127.0.0.1 --port 5182 > vune-parity-web.log 2>&1 &
+        run: pnpm exec vite --config examples/parity-web.vite.config.ts --host 127.0.0.1 --port 5182 > mun-parity-web.log 2>&1 &
       - name: Start Showcase server
-        run: pnpm exec vite --config examples/showcase.vite.config.ts --host 127.0.0.1 --port 5183 > vune-showcase-vite.log 2>&1 &
+        run: pnpm exec vite --config examples/showcase.vite.config.ts --host 127.0.0.1 --port 5183 > mun-showcase-vite.log 2>&1 &
       - name: Wait for renderer demo servers
         run: |
           for attempt in $(seq 1 30); do
@@ -83,19 +106,19 @@ jobs:
             fi
             sleep 1
           done
-          cat vune-vite.log
-          cat vune-vue-vite.log
-          cat vune-web-vite.log
-          cat vune-parity-react.log
-          cat vune-parity-vue.log
-          cat vune-parity-web.log
-          cat vune-showcase-vite.log
+          cat mun-vite.log
+          cat mun-vue-vite.log
+          cat mun-web-vite.log
+          cat mun-parity-react.log
+          cat mun-parity-vue.log
+          cat mun-parity-web.log
+          cat mun-showcase-vite.log
           exit 1
-      - run: VUNE_BROWSER_URL=http://127.0.0.1:5173 pnpm run test:browser
-      - run: VUNE_VUE_BROWSER_URL=http://127.0.0.1:5175/vue-index.html pnpm run test:browser:vue
-      - run: VUNE_WEB_BROWSER_URL=http://127.0.0.1:5174/web-index.html pnpm run test:browser:web
-      - run: VUNE_PARITY_REACT_URL=http://127.0.0.1:5180/parity-react-index.html VUNE_PARITY_VUE_URL=http://127.0.0.1:5181/parity-vue-index.html VUNE_PARITY_WEB_URL=http://127.0.0.1:5182/parity-web-index.html pnpm run test:browser:parity
-      - run: VUNE_SHOWCASE_URL=http://127.0.0.1:5183/showcase-index.html pnpm run test:browser:showcase
+      - run: MUN_BROWSER_URL=http://127.0.0.1:5173 pnpm run test:browser
+      - run: MUN_VUE_BROWSER_URL=http://127.0.0.1:5175/vue-index.html pnpm run test:browser:vue
+      - run: MUN_WEB_BROWSER_URL=http://127.0.0.1:5174/web-index.html pnpm run test:browser:web
+      - run: MUN_PARITY_REACT_URL=http://127.0.0.1:5180/parity-react-index.html MUN_PARITY_VUE_URL=http://127.0.0.1:5181/parity-vue-index.html MUN_PARITY_WEB_URL=http://127.0.0.1:5182/parity-web-index.html pnpm run test:browser:parity
+      - run: MUN_SHOWCASE_URL=http://127.0.0.1:5183/showcase-index.html pnpm run test:browser:showcase
 
   benchmark:
     name: Modifier benchmark

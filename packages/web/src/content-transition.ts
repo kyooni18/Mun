@@ -1,6 +1,6 @@
-import { Animation, type ContentTransition, type SymbolReplacementFallback, type TextTransitionDirection } from "@vune-ui/core"
-import { createInterpolator } from "@vune-ui/animation"
-import { vuneMotion, type MotionHandle } from "./element-motion.js"
+import { Animation, type ContentTransition, type SymbolReplacementFallback, type TextTransitionDirection } from "@mun/core/compat"
+import { createInterpolator } from "@mun/animation"
+import { munMotion, type MotionHandle } from "./element-motion.js"
 import {
   createSvgPathInterpolator,
   mapSvgPathBetweenViewBoxes,
@@ -87,7 +87,7 @@ function stagedString(element: Element, name: string, propsReader?: WebCandidate
 function svgLayerMap(root: Element, propsReader?: WebCandidatePropsReader): Map<string, Element> {
   const result = new Map<string, Element>()
   for (const child of root.children) {
-    const id = stagedString(child, "data-vune-symbol-layer", propsReader)
+    const id = stagedString(child, "data-mun-symbol-layer", propsReader)
     if (id) result.set(id, child)
   }
   return result
@@ -129,7 +129,7 @@ function fixedSvgOverlay(root: Element, rect: ContentRect): SVGSVGElement | unde
   overlay.removeAttribute("role")
   overlay.removeAttribute("aria-label")
   overlay.setAttribute("aria-hidden", "true")
-  overlay.setAttribute("data-vune-symbol-transition-layer", "")
+  overlay.setAttribute("data-mun-symbol-transition-layer", "")
   // Preserve inherited presentation attributes/classes and inline styling from
   // the live symbol. Paths commonly use currentColor or inherit fill/stroke,
   // so recreating a bare <svg> can visibly change the disappearing layer.
@@ -157,7 +157,7 @@ function startWholeSymbolTransition(
   const previousTransform = style.transform
   const direction = fallbackDirection(fallback)
   const distance = Math.max(4, (normalizedRect(live)?.height ?? 24) * 0.14)
-  const handle = vuneMotion.animate({
+  const handle = munMotion.animate({
     animation,
     onUpdate(raw) {
       const progress = unitProgress(raw)
@@ -204,7 +204,7 @@ function startLayerTransition(
     style.transformBox = "fill-box"
     style.transformOrigin = "center"
   }
-  const handle = vuneMotion.animate({
+  const handle = munMotion.animate({
     animation,
     onUpdate(raw) {
       const progress = unitProgress(raw)
@@ -242,7 +242,7 @@ function pathInput(element: Element): SvgPathMatchInput | undefined {
   const d = element.getAttribute("d")
   if (!d) return undefined
   return {
-    id: element.getAttribute("data-vune-symbol-layer") ?? undefined,
+    id: element.getAttribute("data-mun-symbol-layer") ?? undefined,
     d,
     fill: element.getAttribute("fill") ?? undefined,
     stroke: element.getAttribute("stroke") ?? undefined,
@@ -410,7 +410,7 @@ function startMorphingLayerTransition(
   const direction = fallbackDirection(fallback)
   const distance = Math.max(3, (normalizedRect(live)?.height ?? 24) * 0.1)
 
-  const handle = vuneMotion.animate({
+  const handle = munMotion.animate({
     animation,
     onUpdate(raw) {
       const progress = unitProgress(raw)
@@ -446,7 +446,7 @@ function startMorphingLayerTransition(
       }
       for (const { element } of appearing) {
         const style = (element as SVGElement).style
-        const target = targets.find(item => item.id === element.getAttribute("data-vune-symbol-layer"))
+        const target = targets.find(item => item.id === element.getAttribute("data-mun-symbol-layer"))
         if (target && isStrokeOnly(target) && target.d) {
           const length = Math.max(0.01, svgPathLength(target.d))
           style.opacity = "1"
@@ -488,7 +488,7 @@ export function prepareWebSymbolContentTransition(
   candidateProps?: WebCandidatePropsReader,
 ): WebSymbolContentTransitionPlan | undefined {
   if (transition.descriptor.kind !== "symbolEffect" || !animation || reducedMotion(live)) return undefined
-  if (live.getAttribute("data-vune") !== "VectorSymbol" || stagedString(candidate, "data-vune", candidateProps) !== "VectorSymbol") return undefined
+  if (live.getAttribute("data-mun") !== "VectorSymbol" || stagedString(candidate, "data-mun", candidateProps) !== "VectorSymbol") return undefined
   const rect = normalizedRect(live)
   if (!rect) return undefined
   replaceActiveTransition(live, undefined)
@@ -595,7 +595,7 @@ function makeTextOverlay(element: Element, rect: ContentRect): HTMLDivElement | 
   if (!document.body) return undefined
   const overlay = document.createElement("div")
   overlay.setAttribute("aria-hidden", "true")
-  overlay.setAttribute("data-vune-text-transition-layer", "")
+  overlay.setAttribute("data-mun-text-transition-layer", "")
   overlay.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;pointer-events:none;overflow:visible;z-index:2147483645;`
   copyTextStyle(element, overlay)
   document.body.appendChild(overlay)
@@ -688,7 +688,7 @@ export function playWebTextContentTransition(
     const newSpan = visualGlyph(overlay, to, { left: 0, top: 0, width: rect.width, height: rect.height })
     const direction = numericDirection(from, to, descriptor.value)
     const distance = Math.max(4, rect.height * 0.58)
-    const handle = vuneMotion.animate({ animation, onUpdate(raw) {
+    const handle = munMotion.animate({ animation, onUpdate(raw) {
       const progress = unitProgress(raw)
       oldSpan.style.opacity = String(1 - progress)
       oldSpan.style.transform = `translateY(${direction * distance * raw}px)`
@@ -702,7 +702,7 @@ export function playWebTextContentTransition(
     const oldSpan = visualGlyph(overlay, from, { left: 0, top: 0, width: rect.width, height: rect.height })
     const newSpan = visualGlyph(overlay, to, { left: 0, top: 0, width: rect.width, height: rect.height })
     const radius = descriptor.radius
-    const handle = vuneMotion.animate({ animation, onUpdate(raw) {
+    const handle = munMotion.animate({ animation, onUpdate(raw) {
       const progress = unitProgress(raw)
       oldSpan.style.opacity = String(1 - progress)
       oldSpan.style.filter = `blur(${radius * progress}px)`
@@ -719,7 +719,7 @@ export function playWebTextContentTransition(
     const newSpan = visualGlyph(overlay, to, { left: 0, top: 0, width: rect.width, height: rect.height })
     const vector = textPushVector(element, descriptor.direction)
     const distance = Math.max(6, (vector.y === 0 ? rect.width : rect.height) * 0.32)
-    const handle = vuneMotion.animate({ animation, onUpdate(raw) {
+    const handle = munMotion.animate({ animation, onUpdate(raw) {
       const progress = unitProgress(raw)
       oldSpan.style.opacity = String(1 - progress)
       oldSpan.style.transform = `translate(${vector.x * distance * raw}px, ${vector.y * distance * raw}px)`
@@ -733,7 +733,7 @@ export function playWebTextContentTransition(
     const oldSpan = visualGlyph(overlay, from, { left: 0, top: 0, width: rect.width, height: rect.height })
     const newSpan = visualGlyph(overlay, to, { left: 0, top: 0, width: rect.width, height: rect.height })
     const targetScale = descriptor.scale
-    const handle = vuneMotion.animate({ animation, onUpdate(raw) {
+    const handle = munMotion.animate({ animation, onUpdate(raw) {
       const progress = unitProgress(raw)
       oldSpan.style.opacity = String(1 - progress)
       oldSpan.style.transform = `scale(${1 + (targetScale - 1) * raw})`
@@ -746,7 +746,7 @@ export function playWebTextContentTransition(
   if (descriptor.kind !== "interpolate") {
     const oldSpan = visualGlyph(overlay, from, { left: 0, top: 0, width: rect.width, height: rect.height })
     const newSpan = visualGlyph(overlay, to, { left: 0, top: 0, width: rect.width, height: rect.height })
-    const handle = vuneMotion.animate({ animation, onUpdate(raw) {
+    const handle = munMotion.animate({ animation, onUpdate(raw) {
       const progress = unitProgress(raw)
       oldSpan.style.opacity = String(1 - progress)
       newSpan.style.opacity = String(progress)
@@ -762,7 +762,7 @@ export function playWebTextContentTransition(
   if (oldValues.length * newValues.length > maximumGraphemeMatchingCells) {
     const oldSpan = visualGlyph(overlay, from, { left: 0, top: 0, width: rect.width, height: rect.height })
     const newSpan = visualGlyph(overlay, to, { left: 0, top: 0, width: rect.width, height: rect.height })
-    const handle = vuneMotion.animate({ animation, onUpdate(raw) {
+    const handle = munMotion.animate({ animation, onUpdate(raw) {
       const progress = unitProgress(raw)
       oldSpan.style.opacity = String(1 - progress)
       newSpan.style.opacity = String(progress)
@@ -775,7 +775,7 @@ export function playWebTextContentTransition(
   const matchedNew = new Set(pairs.values())
   const oldGlyphs = oldValues.map((value, index) => visualGlyph(overlay, value, oldLayout[index] ?? { left: 0, top: 0, width: 0, height: rect.height }))
   const newGlyphs = newValues.map((value, index) => matchedNew.has(index) ? undefined : visualGlyph(overlay, value, newLayout[index] ?? { left: 0, top: 0, width: 0, height: rect.height }))
-  const handle = vuneMotion.animate({ animation, onUpdate(raw) {
+  const handle = munMotion.animate({ animation, onUpdate(raw) {
     const progress = unitProgress(raw)
     for (let index = 0; index < oldGlyphs.length; index += 1) {
       const glyph = oldGlyphs[index]

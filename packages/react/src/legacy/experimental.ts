@@ -1,5 +1,5 @@
 /**
- * Vune's exploratory runtime surface. These APIs are intentionally separate
+ * Mun's exploratory runtime surface. These APIs are intentionally separate
  * from the stable function DSL until their geometry and plugin contracts are
  * consolidated.
  */
@@ -17,5 +17,5 @@ export * from './runtime/jsx-node.js'
 export * from './runtime/coordinate-runtime.js'
 
 export { collectChildren, resolveBuilder } from './builder.js'
-export type { VuneBuilder } from './builder.js'
-export { transformVuneBuilderSyntax } from './compiler/builder-transform.js'
+export type { MunBuilder } from './builder.js'
+export { transformMunBuilderSyntax } from './compiler/builder-transform.js'

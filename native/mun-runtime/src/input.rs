@@ -174,15 +174,15 @@ impl InputState {
     }
 
     pub(crate) fn capture_primary(&mut self, pointer: PointerId, action: String) -> bool {
-        self.primary_captures.insert(pointer, action).is_none()
+        if self.primary_captures.contains_key(&pointer) {
+            return false;
+        }
+        self.primary_captures.insert(pointer, action);
+        true
     }
 
     pub(crate) fn take_primary_capture(&mut self, pointer: PointerId) -> Option<String> {
         self.primary_captures.remove(&pointer)
-    }
-
-    pub(crate) fn clear_primary_capture(&mut self, pointer: PointerId) -> bool {
-        self.primary_captures.remove(&pointer).is_some()
     }
 
     pub(crate) fn retain_primary_captures(&mut self, valid_actions: &HashSet<String>) -> bool {
@@ -258,6 +258,23 @@ impl InputState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn primary_capture_is_stable_until_release_or_cancel() {
+        let mut input = InputState::default();
+        let pointer = PointerId(91);
+
+        assert!(input.capture_primary(pointer, "first".into()));
+        assert!(!input.capture_primary(pointer, "second".into()));
+        assert_eq!(input.primary_capture(pointer), Some("first"));
+
+        assert_eq!(
+            input.take_primary_capture(pointer).as_deref(),
+            Some("first")
+        );
+        assert!(input.capture_primary(pointer, "second".into()));
+        assert_eq!(input.primary_capture(pointer), Some("second"));
+    }
 
     #[test]
     fn semantic_replacement_drops_only_matching_action_captures() {

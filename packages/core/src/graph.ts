@@ -5,7 +5,7 @@
  * adapters depend on stable graph contracts rather than one monolithic file:
  * types/environment, nodes, modifiers, traversal, and initializer semantics.
  */
-export { vuneForeignComponent, vuneInitializers, vuneNamedArguments, vuneView } from "./graph/symbols.js"
+export { munForeignComponent, munInitializers, munNamedArguments, munView } from "./graph/symbols.js"
 export type {
   ClassValue,
   CompiledTemplateDescriptor,
@@ -43,7 +43,7 @@ export type {
   ViewModifierNode,
   ViewNode,
   ViewValue,
-  VuneRenderer,
+  MunRenderer,
 } from "./graph/types.js"
 export * from "./graph/environment.js"
 export { modifiedContent, modifiedContentCompiled, modifier, modifierGraphOf } from "./graph/modifiers.js"
@@ -63,8 +63,8 @@ export { collectLogicalViewIdentities, renderViewNode } from "./graph/renderer.j
 export {
   ViewBuilder,
   ViewType,
-  VuneInitializerAmbiguityError,
-  VuneInitializerError,
+  MunInitializerAmbiguityError,
+  MunInitializerError,
   assertInitializerCall,
   createViewNode,
   defineBuiltinView,

@@ -46,7 +46,7 @@ function skipQuoted(source: string, index: number): number {
     if (source[cursor] === "\\") { cursor += 1; continue }
     if (source[cursor] === quote) return cursor + 1
   }
-  throw syntaxError(`Unclosed ${quote} string in Vune source`, index)
+  throw syntaxError(`Unclosed ${quote} string in Mün source`, index)
 }
 
 function skipTemplate(source: string, index: number): number {
@@ -56,7 +56,7 @@ function skipTemplate(source: string, index: number): number {
     if (source[cursor] !== "$" || source[cursor + 1] !== "{") continue
     cursor = matching(source, cursor + 1, "{", "}")
   }
-  throw syntaxError("Unclosed template literal in Vune source", index)
+  throw syntaxError("Unclosed template literal in Mün source", index)
 }
 
 function skipString(source: string, index: number): number {
@@ -69,7 +69,7 @@ function skipComment(source: string, index: number): number {
     return end < 0 ? source.length : end
   }
   const end = source.indexOf("*/", index + 2)
-  if (end < 0) throw syntaxError("Unclosed block comment in Vune source", index)
+  if (end < 0) throw syntaxError("Unclosed block comment in Mün source", index)
   return end + 2
 }
 
@@ -105,10 +105,10 @@ function skipRegex(source: string, index: number): number {
       return cursor
     }
     if (source[cursor] === "\n" || source[cursor] === "\r") {
-      throw syntaxError("Unclosed regular expression in Vune source", index)
+      throw syntaxError("Unclosed regular expression in Mün source", index)
     }
   }
-  throw syntaxError("Unclosed regular expression in Vune source", index)
+  throw syntaxError("Unclosed regular expression in Mün source", index)
 }
 
 function skipTrivia(source: string, index: number): number {
@@ -128,7 +128,7 @@ function matching(source: string, open: number, left: string, right: string): nu
   let depth = 0
   let steps = 0
   for (let cursor = open; cursor < source.length; cursor += 1) {
-    if (++steps > source.length + 1) throw syntaxError(`Unable to scan ${left} block in Vune source`, open)
+    if (++steps > source.length + 1) throw syntaxError(`Unable to scan ${left} block in Mün source`, open)
     const character = source[cursor]
     if (character === "\"" || character === "'" || character === "`") { cursor = skipString(source, cursor) - 1; continue }
     if (character === "/" && (source[cursor + 1] === "/" || source[cursor + 1] === "*")) { cursor = skipComment(source, cursor) - 1; continue }
@@ -139,7 +139,7 @@ function matching(source: string, open: number, left: string, right: string): nu
       if (depth === 0) return cursor
     }
   }
-  throw syntaxError(`Unclosed ${left} block in Vune source`, open)
+  throw syntaxError(`Unclosed ${left} block in Mün source`, open)
 }
 
 function identifierAt(source: string, start: number): { name: string; end: number } | undefined {
@@ -242,7 +242,7 @@ function findBuilder(source: string, from = 0, uppercaseOnly = false): BuilderCa
   let bracketDepth = 0
   let steps = 0
   for (let cursor = 0; cursor < source.length; cursor += 1) {
-    if (++steps > source.length + 1) throw syntaxError("Unable to scan builder expressions in Vune source", from)
+    if (++steps > source.length + 1) throw syntaxError("Unable to scan builder expressions in Mün source", from)
     const character = source[cursor]
     if (character === "\"" || character === "'" || character === "`") { cursor = skipString(source, cursor) - 1; continue }
     if (character === "/" && (source[cursor + 1] === "/" || source[cursor + 1] === "*")) { cursor = skipComment(source, cursor) - 1; continue }
@@ -271,9 +271,9 @@ function findBuilder(source: string, from = 0, uppercaseOnly = false): BuilderCa
     if (source[brace] !== "{") continue
 
     // A call-shaped token at member position inside a class/object is a
-    // JavaScript/TypeScript method declaration, not Vune trailing-closure
+    // JavaScript/TypeScript method declaration, not Mun trailing-closure
     // syntax. Property initializers (`field = Card() { ... }`) remain valid
-    // Vune expressions because their preceding token is `=`/`:`.
+    // Mun expressions because their preceding token is `=`/`:`.
     const frame = braces.at(-1)
     const container = frame?.context
     const atMemberLevel = frame !== undefined
@@ -417,13 +417,13 @@ function rawHtmlAt(source: string, start: number, lower: ExpressionLowerer = ide
   while (cursor < source.length) {
     if (source.startsWith("<!--", cursor)) {
       const commentEnd = source.indexOf("-->", cursor + 4)
-      if (commentEnd < 0) throw syntaxError("Unclosed raw HTML comment in Vune source", cursor)
+      if (commentEnd < 0) throw syntaxError("Unclosed raw HTML comment in Mün source", cursor)
       cursor = commentEnd + 3
       continue
     }
     if (source[cursor] === "<" && source[cursor + 1] === "/") {
       const closing = /^<\/([A-Za-z][A-Za-z0-9:._-]*)([^>]*)>/.exec(source.slice(cursor))
-      if (!closing) throw syntaxError("Unclosed raw HTML closing tag in Vune source", cursor)
+      if (!closing) throw syntaxError("Unclosed raw HTML closing tag in Mün source", cursor)
       if (closing[1] !== openingName.name) throw syntaxError(`Mismatched raw HTML closing tag </${closing[1]}>; expected </${openingName.name}>`, cursor)
       if (closing[2].trim().length > 0) throw syntaxError("Raw HTML closing tags cannot have attributes", cursor)
       const end = cursor + closing[0].length - 1
@@ -483,7 +483,7 @@ function validateRawHtmlSyntax(source: string): void {
       cursor = html.end - 1
       continue
     }
-    throw syntaxError("Unclosed raw HTML element in Vune source", cursor)
+    throw syntaxError("Unclosed raw HTML element in Mün source", cursor)
   }
 }
 

@@ -1,4 +1,4 @@
-import { classNameOf, type Animation } from "@vune-ui/core"
+import { classNameOf, type Animation } from "@mun/core/compat"
 import { cssPropertyName, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, normalizedTextAreaValue, type DomRenderContext } from "./shared.js"
 import { animateDomAttribute, animateDomStyles, cancelDomAnimations, cancelDomAttributeAnimation, cancelDomStyleAnimation, type DomStyleMotionChange } from "./motion.js"
 import { syncFocusScope } from "./focus.js"
@@ -240,7 +240,7 @@ function stageDomProps(element: Element, props: Record<string, unknown>, context
   const previous = context.domProps.get(element)
   const hasClass = Object.prototype.hasOwnProperty.call(renderable, "class") || Object.prototype.hasOwnProperty.call(renderable, "className")
   if (!previous && !hasClass) {
-    // Element props are already snapshotted by @vune-ui/core. Keeping that
+    // Element props are already snapshotted by @mun/core. Keeping that
     // immutable record directly avoids allocating another object for the very
     // common first staging pass; later modifiers still merge through the path
     // below when the same candidate receives more props.
@@ -354,8 +354,8 @@ function applyDomPropsNow(
 export function applyDomProps(element: Element, props: Record<string, unknown> | null | undefined, context: DomRenderContext): void {
   applyDomPropsNow(element, props, context, true)
   if (!context.stagingProps && !context.hydrating && props
-    && Object.prototype.hasOwnProperty.call(props, "data-vune-focus-scope")) {
-    syncFocusScope(element, props["data-vune-focus-scope"])
+    && Object.prototype.hasOwnProperty.call(props, "data-mun-focus-scope")) {
+    syncFocusScope(element, props["data-mun-focus-scope"])
   }
   if (!context.stagingProps && !context.hydrating) syncContinuousCorners(element, props?.style)
 }
@@ -371,8 +371,8 @@ export function commitStagedDomProps(element: Element, context: DomRenderContext
     // stageDomProps already holds the normalized snapshot. Do not clone it a
     // second time merely because the candidate is becoming live.
     applyDomPropsNow(element, props, context, false)
-    if (Object.prototype.hasOwnProperty.call(props, "data-vune-focus-scope")) {
-      syncFocusScope(element, props["data-vune-focus-scope"])
+    if (Object.prototype.hasOwnProperty.call(props, "data-mun-focus-scope")) {
+      syncFocusScope(element, props["data-mun-focus-scope"])
     }
     syncContinuousCorners(element, props.style)
   } finally {
@@ -556,6 +556,6 @@ export function patchDomProps(
     context.domProps.set(element, renderable)
     trackDomRef(element, renderable, context)
   }
-  syncFocusScope(element, renderable?.["data-vune-focus-scope"])
+  syncFocusScope(element, renderable?.["data-mun-focus-scope"])
   syncContinuousCorners(element, renderable?.style)
 }

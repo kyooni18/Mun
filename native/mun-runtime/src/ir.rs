@@ -371,7 +371,6 @@ pub struct UiProgram {
     pub root: UiWindow,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

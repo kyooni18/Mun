@@ -1,6 +1,6 @@
 import * as ts from "typescript"
 import {
-  analyzeVuneScalarExpression,
+  analyzeMunScalarExpression,
   scalarExpressionMatchesPolicy,
   unwrapCompilerExpression,
 } from "./effect-analysis.js"
@@ -75,7 +75,7 @@ function analyzeScalarRowExpression(
   itemName: string,
   indexName: string | undefined,
 ): RowAnalysis {
-  const facts = analyzeVuneScalarExpression(expression, itemName, indexName)
+  const facts = analyzeMunScalarExpression(expression, itemName, indexName)
   return {
     pure: scalarExpressionMatchesPolicy(facts, {
       allowCapturedIdentifiers: false,
@@ -115,7 +115,7 @@ function analyzeCollectionProps(
     if (!ts.isPropertyAssignment(property)) return { pure: false, indexDependent: false }
     const name = staticPropertyName(property.name)
     if (name === undefined || unsafeCompiledCollectionProps.has(name)
-      || name.startsWith("data-vune-") || /^on/i.test(name)) return { pure: false, indexDependent: false }
+      || name.startsWith("data-mun-") || /^on/i.test(name)) return { pure: false, indexDependent: false }
     analyses.push(name === "style"
       ? analyzeCollectionStyle(property.initializer, itemName, indexName)
       : analyzeScalarRowExpression(property.initializer, itemName, indexName))
@@ -145,7 +145,7 @@ function importedBindings(sourceFile: ts.SourceFile, importedName: string): Impo
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
     const moduleName = statement.moduleSpecifier.text
-    if (moduleName !== "vune-ui" && !moduleName.startsWith("@vune-ui/")) continue
+    if (!moduleName.startsWith("@mun/")) continue
     const bindings = statement.importClause?.namedBindings
     if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text)
     if (bindings && ts.isNamedImports(bindings)) {
@@ -463,7 +463,7 @@ function compiledContentSource(
 
 export function lowerCompiledCollections(source: string): string {
   if (!source.includes("ForEach")) return source
-  const sourceFile = ts.createSourceFile("vune-compiled-collections.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const sourceFile = ts.createSourceFile("mun-compiled-collections.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const foreach = importedBindings(sourceFile, "ForEach")
   if (foreach.names.size === 0 && foreach.namespaces.size === 0) return source
   const elements = importedBindings(sourceFile, "Element")

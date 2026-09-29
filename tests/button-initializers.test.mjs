@@ -28,7 +28,7 @@ test("Button rejects legacy closure ordering and unlabeled custom labels", () =>
   const action = () => undefined
   const label = () => [Text("Save")]
   for (const args of [[action], [action, label], [label, action], [namedArguments({ label, action })]]) {
-    assert.throws(() => Button(...args), error => error.name === "VuneInitializerError" || error.name === "VuneInitializerAmbiguityError")
+    assert.throws(() => Button(...args), error => error.name === "MunInitializerError" || error.name === "MunInitializerAmbiguityError")
   }
   assert.throws(() => resolveInitializer(Button, [namedArguments({ label, action })]), /No matching initializer/)
 })
@@ -152,7 +152,7 @@ test("initializer ties are an error and do not use declaration order as a fallba
   const reverse = make("AmbiguousReverse", [second, first])
   for (const View of [forward, reverse]) {
     assert.throws(() => View("value"), error => {
-      assert.equal(error.name, "VuneInitializerAmbiguityError")
+      assert.equal(error.name, "MunInitializerAmbiguityError")
       assert.match(error.message, /Ambiguous initializer for/)
       assert.match(error.message, /Candidates:/)
       return true

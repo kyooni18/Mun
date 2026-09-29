@@ -33,7 +33,7 @@
 - Added duplicate shared-layout source/target key detection to avoid ambiguous geometry matches.
 - Reused per-item matrix buffers and moved fixed layout style writes out of the frame hot path, roughly halving the synthetic 1,000-target projection-write cost during development.
 - Added `TimelineScrubber`, mapping arbitrary numeric input ranges to timeline progress and using the existing bounded inertia engine for release snapping.
-- Added the transition package entry point (now `@vune-ui/animation/transition`).
+- Added the transition package entry point (now `@mun/animation/transition`).
 - Added transition/shared-layout microbenchmarks and expanded runtime coverage from 77 to 91 tests.
 
 ## 0.5.0

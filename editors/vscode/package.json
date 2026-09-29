@@ -1,40 +1,67 @@
 {
-  "name": "vune-language-support",
-  "displayName": "Vune Language Support",
-  "description": "Vune and raw HTML syntax and semantic highlighting, diagnostics, formatting, completion, hover, signature help, and language tooling.",
+  "name": "mun-language-support",
+  "displayName": "Mün Language Support",
+  "description": "Mün syntax and semantic highlighting, diagnostics, formatting, completion, hover, signature help, and language tooling.",
   "version": "0.1.0",
   "private": true,
-  "publisher": "vune-ui",
-  "repository": { "type": "git", "url": "https://github.com/kyooni18/vune-ui" },
+  "publisher": "mun",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyooni18/Mun"
+  },
   "license": "MIT",
-  "files": ["extension.cjs", "language-configuration.json", "syntaxes", "package.json"],
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Programming Languages"],
-  "activationEvents": ["onLanguage:vune-ui", "onLanguage:vue"],
+  "files": [
+    "extension.cjs",
+    "language-configuration.json",
+    "syntaxes",
+    "package.json"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:mun",
+    "onLanguage:vue"
+  ],
   "main": "./extension.cjs",
   "contributes": {
-    "languages": [{
-      "id": "vune-ui",
-      "aliases": ["Vune", "vune", "vune.ts"],
-      "extensions": [".vune", ".vune.ts"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "vune-ui",
-      "scopeName": "source.vune",
-      "path": "./syntaxes/vune.tmLanguage.json"
-    }],
-    "commands": [{
-      "command": "vune.formatDocument",
-      "title": "Vune: Format Document"
-    }],
+    "languages": [
+      {
+        "id": "mun",
+        "aliases": [
+          "Mün",
+          "Mun",
+          "mun"
+        ],
+        "extensions": [
+          ".mun"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mun",
+        "scopeName": "source.mun",
+        "path": "./syntaxes/mun.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "mun.formatDocument",
+        "title": "Mün: Format Document"
+      }
+    ],
     "configuration": {
-      "title": "Vune",
+      "title": "Mün",
       "properties": {
-        "vune.languageTools.enableVue": {
+        "mun.languageTools.enableVue": {
           "type": "boolean",
           "default": true,
-          "description": "Enable Vune formatting, completion, hover, signature help, definition, diagnostics, rename, and semantic highlighting in Vue SFCs."
+          "description": "Enable Mün formatting, completion, hover, signature help, definition, diagnostics, rename, and semantic highlighting in Vue SFCs."
         }
       }
     }

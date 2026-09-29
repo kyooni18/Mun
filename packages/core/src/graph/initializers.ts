@@ -2,8 +2,8 @@ import {
   closureForKind,
   closureKindOf,
   closureVariantsOf,
-  markVuneClosure,
-  type VuneClosureKind,
+  markMunClosure,
+  type MunClosureKind,
 } from "../closures.js"
 import { collectStateReads, isBinding, isStateRef, type StateRef } from "../state.js"
 import {
@@ -16,7 +16,7 @@ import {
 import { arrayCheck, snapshotArrayValues } from "./arrays.js"
 import { decorate } from "./modifiers.js"
 import { isViewNode, viewFragment, viewHost } from "./nodes.js"
-import { vuneInitializers, vuneNamedArguments, vuneView, vuneViewNodeFactory } from "./symbols.js"
+import { munInitializers, munNamedArguments, munView, munViewNodeFactory } from "./symbols.js"
 import type {
   CompiledViewBodyPlan,
   ModifiableViewNode,
@@ -55,7 +55,7 @@ function genericParametersOf(target: unknown): string | undefined {
 }
 
 function isRegisteredView(target: unknown): boolean {
-  return typeof target === "function" && ownDataValue(target, vuneView) === true
+  return typeof target === "function" && ownDataValue(target, munView) === true
 }
 
 function specializationShape(value: unknown, depth = 0): string | undefined {
@@ -158,7 +158,7 @@ export interface ViewFieldDefinition {
 }
 
 /**
- * Compiler-emitted adapter metadata for embedding a Vune View in a legacy host.
+ * Compiler-emitted adapter metadata for embedding a Mün View in a legacy host.
  * The metadata is intentionally renderer-neutral: platform adapters can map
  * field names to framework props without parsing source type strings at runtime.
  */
@@ -201,8 +201,8 @@ export interface ViewDefinition<Props extends object = Record<string, unknown>> 
 }
 
 export interface ViewConstructorMetadata<Props extends object = Record<string, unknown>> {
-  readonly [vuneView]: true
-  readonly [vuneInitializers]: readonly InitializerMatch[]
+  readonly [munView]: true
+  readonly [munInitializers]: readonly InitializerMatch[]
   readonly viewType: ViewType<Props>
   readonly displayName?: string
 }
@@ -212,13 +212,13 @@ export type ViewConstructor<
   Args extends readonly unknown[] = readonly unknown[],
 > = ((...args: Args) => ModifiableViewNode) & ViewConstructorMetadata<Props>
 
-/** Attach Vune View metadata to an explicit overload surface without adding a catch-all call. */
+/** Attach Mün View metadata to an explicit overload surface without adding a catch-all call. */
 export type TypedViewConstructor<
   Props extends object,
   Call extends (...args: any[]) => ModifiableViewNode,
 > = Call & ViewConstructorMetadata<Props>
 
-export class VuneInitializerError extends TypeError {
+export class MunInitializerError extends TypeError {
   readonly typeName: string
   readonly arguments: readonly unknown[]
   readonly candidates: readonly string[]
@@ -226,7 +226,7 @@ export class VuneInitializerError extends TypeError {
   constructor(typeName: string, args: readonly unknown[], candidates: readonly string[]) {
     const rendered = args.map(value => typeof value === "function" ? "closure" : typeof value).join(", ")
     super(`No matching initializer for ${typeName}(${rendered}).${candidates.length ? ` Available initializers: ${candidates.join("; ")}.` : ""}`)
-    this.name = "VuneInitializerError"
+    this.name = "MunInitializerError"
     this.typeName = typeName
     this.arguments = args
     this.candidates = candidates
@@ -234,11 +234,11 @@ export class VuneInitializerError extends TypeError {
 }
 
 /** Thrown when declaration-defined initializer resolution has no unique winner. */
-export class VuneInitializerAmbiguityError extends VuneInitializerError {
+export class MunInitializerAmbiguityError extends MunInitializerError {
   constructor(typeName: string, args: readonly unknown[], candidates: readonly string[]) {
     const ordered = [...candidates].sort()
     super(typeName, args, ordered)
-    this.name = "VuneInitializerAmbiguityError"
+    this.name = "MunInitializerAmbiguityError"
     this.message = `Ambiguous initializer for ${typeName}(${args.map(value => typeof value === "function" ? "closure" : typeof value).join(", ")}). Candidates: ${ordered.join("; ")}.`
   }
 }
@@ -282,7 +282,7 @@ function semanticRuntimeArguments(candidate: InitializerMatch, args: readonly un
   return args.flatMap(value => {
     if (!value || typeof value !== "object") return [semanticRuntimeArgument(value)]
     try {
-      const marker = Object.getOwnPropertyDescriptor(value, vuneNamedArguments)
+      const marker = Object.getOwnPropertyDescriptor(value, munNamedArguments)
       if (!marker || !("value" in marker) || marker.value !== true) return [semanticRuntimeArgument(value)]
       return Object.keys(value).map(label => {
         const descriptor = Object.getOwnPropertyDescriptor(value, label)
@@ -321,8 +321,8 @@ function sharedRuntimeResolution(target: unknown, candidates: readonly Initializ
   }
   if (!result.ok) {
     const signatures = result.failure.candidates.map(candidate => candidate.signature)
-    if (result.failure.kind === "ambiguous") throw new VuneInitializerAmbiguityError(displayNameOf(target), supplied, signatures)
-    throw new VuneInitializerError(displayNameOf(target), supplied, signatures)
+    if (result.failure.kind === "ambiguous") throw new MunInitializerAmbiguityError(displayNameOf(target), supplied, signatures)
+    throw new MunInitializerError(displayNameOf(target), supplied, signatures)
   }
   const candidate = candidates[result.resolution.initializerIndex]
   if (!candidate) return undefined
@@ -330,7 +330,7 @@ function sharedRuntimeResolution(target: unknown, candidates: readonly Initializ
   const typed = normalized.map((item, index) => {
     const parameter = candidate.parameters?.[index]
     return typeof item === "function" && parameter && parameter.kind !== "binding"
-      ? markVuneClosure(closureForKind(item as (...args: any[]) => any, parameter.kind as VuneClosureKind), parameter.kind)
+      ? markMunClosure(closureForKind(item as (...args: any[]) => any, parameter.kind as MunClosureKind), parameter.kind)
       : item
   })
   return { initializer: candidate, args: typed }
@@ -346,7 +346,7 @@ function displayNameOf(target: unknown): string {
 
 function metadataOf(target: unknown): readonly InitializerMatch[] {
   if (typeof target !== "function") return []
-  const metadata = ownDataValue(target, vuneInitializers)
+  const metadata = ownDataValue(target, munInitializers)
   return arrayCheck(metadata) === true ? metadata as readonly InitializerMatch[] : []
 }
 
@@ -354,9 +354,9 @@ export function registerInitializers<T extends Function>(target: T, initializers
   initializerSpecializations.delete(target as unknown as object)
   initializerSpecializationEligibility.set(target as unknown as object, canSpecialize(initializers))
   if (!isRegisteredView(target)) {
-    Object.defineProperty(target, vuneView, { configurable: true, enumerable: false, value: true })
+    Object.defineProperty(target, munView, { configurable: true, enumerable: false, value: true })
   }
-  Object.defineProperty(target, vuneInitializers, { configurable: true, enumerable: false, value: Object.freeze([...initializers]) })
+  Object.defineProperty(target, munInitializers, { configurable: true, enumerable: false, value: Object.freeze([...initializers]) })
   return target
 }
 
@@ -365,11 +365,11 @@ export function initializersOf(target: unknown): readonly InitializerMatch[] {
 }
 
 export type NamedArguments<T extends object> = T & {
-  readonly [vuneNamedArguments]: true
+  readonly [munNamedArguments]: true
 }
 
 export function namedArguments<T extends Record<string, unknown>>(value: T): NamedArguments<T> {
-  Object.defineProperty(value, vuneNamedArguments, { configurable: false, enumerable: false, value: true })
+  Object.defineProperty(value, munNamedArguments, { configurable: false, enumerable: false, value: true })
   return value as NamedArguments<T>
 }
 
@@ -552,7 +552,7 @@ function validateGenericViewBuilders(
     if (parameter.kind !== "viewBuilder" || !genericViewType(parameter.type, genericParameters)) continue
     const field = parameter.name ?? parameter.label
     if (!field || isViewBuilderValue(props[field])) continue
-    throw new VuneInitializerError(displayNameOf(target), resolution.args, [resolution.initializer.signature])
+    throw new MunInitializerError(displayNameOf(target), resolution.args, [resolution.initializer.signature])
   }
 }
 
@@ -631,12 +631,12 @@ function resolveSingleDeclaredInitializer(
     const typed = normalized.map((item, index) => {
       const parameter = candidate.parameters?.[index]
       return typeof item === "function" && parameter && parameter.kind !== "binding"
-        ? markVuneClosure(closureForKind(item as (...args: any[]) => any, parameter.kind as VuneClosureKind), parameter.kind)
+        ? markMunClosure(closureForKind(item as (...args: any[]) => any, parameter.kind as MunClosureKind), parameter.kind)
         : item
     })
     return { initializer: candidate, args: typed }
   }
-  throw new VuneInitializerError(displayNameOf(target), supplied, [candidate.signature])
+  throw new MunInitializerError(displayNameOf(target), supplied, [candidate.signature])
 }
 
 export function resolveInitializer(target: unknown, args: readonly unknown[]): InitializerResolution {
@@ -652,7 +652,7 @@ export function resolveInitializer(target: unknown, args: readonly unknown[]): I
         ? normalized.map((item, index) => {
           const parameter = cached.parameters?.[index]
           return typeof item === "function" && parameter && parameter.kind !== "binding"
-            ? markVuneClosure(closureForKind(item as (...args: any[]) => any, parameter.kind as VuneClosureKind), parameter.kind)
+            ? markMunClosure(closureForKind(item as (...args: any[]) => any, parameter.kind as MunClosureKind), parameter.kind)
             : item
         })
         : normalized
@@ -667,7 +667,7 @@ export function resolveInitializer(target: unknown, args: readonly unknown[]): I
     // on every dynamic construction (notably reused ForEach rows).
     const normalized = normalizeNamedArguments(candidate, supplied)
     if (candidate.accepts(normalized)) return { initializer: candidate, args: normalized }
-    throw new VuneInitializerError(displayNameOf(target), supplied, [candidate.signature])
+    throw new MunInitializerError(displayNameOf(target), supplied, [candidate.signature])
   }
   const genericParameters = genericParametersOf(target)
   const shared = sharedRuntimeResolution(target, candidates, supplied)
@@ -686,7 +686,7 @@ export function resolveInitializer(target: unknown, args: readonly unknown[]): I
       ? normalized.map((item, index) => {
         const parameter = candidate.parameters?.[index]
         return typeof item === "function" && parameter && parameter.kind !== "binding"
-          ? markVuneClosure(closureForKind(item as (...args: any[]) => any, parameter.kind as VuneClosureKind), parameter.kind)
+          ? markMunClosure(closureForKind(item as (...args: any[]) => any, parameter.kind as MunClosureKind), parameter.kind)
           : item
       })
       : normalized
@@ -694,10 +694,10 @@ export function resolveInitializer(target: unknown, args: readonly unknown[]): I
   }).filter((item): item is { candidate: InitializerMatch; args: readonly unknown[]; score: number } => item !== null)
     .sort((left, right) => right.score - left.score)
   const match = matches[0]
-  if (!match) throw new VuneInitializerError(displayNameOf(target), supplied, candidates.map(candidate => candidate.signature))
+  if (!match) throw new MunInitializerError(displayNameOf(target), supplied, candidates.map(candidate => candidate.signature))
   const tied = matches.filter(candidate => candidate.score === match.score)
   if (tied.length > 1) {
-    throw new VuneInitializerAmbiguityError(
+    throw new MunInitializerAmbiguityError(
       displayNameOf(target),
       supplied,
       tied.map(candidate => candidate.candidate.signature),
@@ -744,7 +744,7 @@ export const ViewBuilder = Object.freeze({
 })
 
 export function resolveBuilderClosure(closure: () => ViewBuilderResult): ViewValue[] {
-  return ViewBuilder.buildBlock(markVuneClosure(closure, "viewBuilder")())
+  return ViewBuilder.buildBlock(markMunClosure(closure, "viewBuilder")())
 }
 
 /**
@@ -812,7 +812,7 @@ export class ViewType<Props extends object = Record<string, unknown>> {
 
   /**
    * Trusted AOT fast path. The compiler emits this only after TypeScript and
-   * Vune semantic resolution have selected a concrete initializer and proven
+   * Mun semantic resolution have selected a concrete initializer and proven
    * that the argument positions are already normalized. No overload scan,
    * label normalization, closure-role wrapping, or runtime type scoring is
    * repeated here. Uncertain calls deliberately stay on createNodeSpecialized.
@@ -855,10 +855,10 @@ export function defineView<
 >(name: string, definition: ViewDefinition<Props>): ViewConstructor<Props, Args> {
   const viewType = new ViewType(name, definition)
   const Type = ((...args: unknown[]) => viewType.createNode(args)) as unknown as ViewConstructor<Props, Args>
-  Object.defineProperty(Type, vuneView, { configurable: false, value: true })
+  Object.defineProperty(Type, munView, { configurable: false, value: true })
   Object.defineProperty(Type, "displayName", { configurable: true, value: name })
   Object.defineProperty(Type, "viewType", { configurable: false, value: viewType })
-  Object.defineProperty(Type, vuneViewNodeFactory, { configurable: false, value: (...args: unknown[]) => viewType.createNode(args) })
+  Object.defineProperty(Type, munViewNodeFactory, { configurable: false, value: (...args: unknown[]) => viewType.createNode(args) })
   viewType.bind(Type)
   registerInitializers(Type, definition.initializers)
   return Type
@@ -867,8 +867,8 @@ export function defineView<
 export const structView = defineView
 
 export function createViewNode(target: unknown, args: readonly unknown[] = []): ModifiableViewNode {
-  const factory = typeof target === "function" ? ownDataValue(target, vuneViewNodeFactory) : undefined
-  if (typeof factory !== "function") throw new TypeError(`Target ${displayNameOf(target)} is not a Vune View constructor`)
+  const factory = typeof target === "function" ? ownDataValue(target, munViewNodeFactory) : undefined
+  if (typeof factory !== "function") throw new TypeError(`Target ${displayNameOf(target)} is not a Mün View constructor`)
   return factory(...args)
 }
 

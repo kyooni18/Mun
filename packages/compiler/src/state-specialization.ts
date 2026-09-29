@@ -1,6 +1,6 @@
 import * as ts from "typescript"
 import {
-  analyzeVuneMapperFunction,
+  analyzeMunMapperFunction,
   compilerFunctionResultExpression,
   scalarExpressionMatchesPolicy,
   unwrapCompilerExpression,
@@ -24,7 +24,7 @@ function importedBindings(sourceFile: ts.SourceFile, importedName: string): Impo
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
     const moduleName = statement.moduleSpecifier.text
-    if (moduleName !== "vune-ui" && !moduleName.startsWith("@vune-ui/")) continue
+    if (!moduleName.startsWith("@mun/")) continue
     const bindings = statement.importClause?.namedBindings
     if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text)
     if (bindings && ts.isNamedImports(bindings)) {
@@ -163,7 +163,7 @@ function nestedScopeShadowsIdentifier(identifier: ts.Identifier, boundary: ts.Ar
 }
 
 function safeMapper(expression: ts.Expression): boolean {
-  const facts = analyzeVuneMapperFunction(expression)
+  const facts = analyzeMunMapperFunction(expression)
   return Boolean(facts && scalarExpressionMatchesPolicy(facts, {
     allowCapturedIdentifiers: true,
     allowBareItem: true,
@@ -195,7 +195,7 @@ function stateValueOwner(
 /** Lower proven-pure immutable State array maps to the compiler/runtime ABI. */
 export function lowerStateArrayMaps(source: string): string {
   if (!source.includes(".map") || !source.includes(".value")) return source
-  const sourceFile = ts.createSourceFile("vune-state-array-specialization.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const sourceFile = ts.createSourceFile("mun-state-array-specialization.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const states = topLevelStateBindings(sourceFile)
   const scopedStates = generatedStructStateBindings(sourceFile)
   if (states.size === 0 && scopedStates.length === 0) return source

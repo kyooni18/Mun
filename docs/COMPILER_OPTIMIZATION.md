@@ -1,14 +1,14 @@
 # Compiler optimization
 
-Vune treats optimization as removal of work whose semantic answer is already
+Mün treats optimization as removal of work whose semantic answer is already
 known, not as a second definition of the UI language. The canonical View graph,
 initializer metadata, State/Binding semantics, identity rules, and renderer
-contracts remain owned by `@vune-ui/core`.
+contracts remain owned by `@mun/core`.
 
 ## Optimization pipeline
 
-After Vune-only syntax has been lowered to valid TypeScript, the compiler can
-use the TypeScript `TypeChecker` and Vune's semantic metadata to specialize the
+After Mün-only syntax has been lowered to valid TypeScript, the compiler can
+use the TypeScript `TypeChecker` and Mün's semantic metadata to specialize the
 program. The current production path performs these high-value steps:
 
 1. Resolve same-file and imported View calls when the initializer is uniquely
@@ -66,7 +66,7 @@ lazy nodes, modified content, functions, foreign renderer values, unsupported
 props, unsafe arguments, or another shape it cannot serialize, the pass simply
 keeps the existing compiled/generic graph path.
 
-React, Vue, Web DOM, and Web SSR expose a `VuneRenderer.template` fast path. They
+React, Vue, Web DOM, and Web SSR expose a `MunRenderer.template` fast path. They
 compile each immutable descriptor into a renderer-native factory once and reuse
 that factory for later instances, materializing native elements/VNodes/DOM/HTML
 without repeating the generic host-node kind dispatch. They re-enter generic
@@ -84,7 +84,7 @@ State, and unknown calls. A dynamic parent may still reuse a proven static
 child.
 
 The important optimization is structural: repeated renders no longer allocate
-identical Vune graph objects for content such as a fixed title or static stack.
+identical Mün graph objects for content such as a fixed title or static stack.
 This preserves renderer independence while reducing allocation and graph
 traversal before React, Vue, or Web materialization.
 
@@ -92,7 +92,7 @@ traversal before React, Vue, or Web materialization.
 
 Runtime dependency collection remains the correctness baseline. Compiler
 metadata only replaces it when the complete read set is proven. The proof uses
-a deliberately small closed world of locally owned State reads and known Vune
+a deliberately small closed world of locally owned State reads and known Mün
 or intrinsic operations. Arbitrary member calls are not assumed pure merely
 because a method happens to have a modifier-like name.
 
@@ -103,10 +103,10 @@ without making an incomplete static analysis a correctness dependency.
 ## Renderer boundary
 
 The first renderer-native AOT phase is implemented through the shared template/
-slot IR. The compiler still emits renderer-neutral Vune values; it never imports
+slot IR. The compiler still emits renderer-neutral Mün values; it never imports
 React, Vue, or DOM APIs. Each renderer owns the final native materialization of
 that IR. This is deliberately preferable to three compiler backends that could
-quietly redefine Vune semantics.
+quietly redefine Mün semantics.
 
 The template path now also carries dependency-to-patch metadata for exhaustive
 State-backed text slots. Direct Web resolves those compiler prop names to the
@@ -116,7 +116,7 @@ evaluator remains the exact fallback when dependency ownership cannot be proven.
 
 The next frontier is the same mechanism for dynamic host props/styles,
 event/action slots, and keyed collection templates. Those extensions must
-preserve the same rule: code the compiler cannot prove remains a normal Vune
+preserve the same rule: code the compiler cannot prove remains a normal Mün
 graph and is handled by the existing traversal.
 
 ## Compute planning and Kernel IR
@@ -165,12 +165,12 @@ on a particular engine or workload.
 
 Optimization is evaluated against equivalent host-framework work. The
 application benchmark contains raw React and raw Vue client baselines alongside
-Vune React/Vue for full-tree updates, single-item changes, and keyed reversal.
+Mün React/Vue for full-tree updates, single-item changes, and keyed reversal.
 The benchmark also measures dynamic, specialized, and compiled initializer
 construction, plus ordinary dynamic graph construction against compiled
 template instantiation.
 
 Ratio limits are regression ceilings, not promises of a fixed performance
-multiple. The target is to make Vune's semantic abstraction disappear from hot
+multiple. The target is to make Mün's semantic abstraction disappear from hot
 production paths whenever its answer is statically knowable, while preserving
 identical behavior for every fallback case.

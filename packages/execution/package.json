@@ -1,7 +1,7 @@
 {
-  "name": "@vune-ui/execution",
+  "name": "@mun/execution",
   "version": "0.1.20",
-  "description": "Shared resident-buffer, execution telemetry, and frame-budget substrate for Vune runtimes.",
+  "description": "Shared resident-buffer, execution telemetry, and frame-budget substrate for Mün runtimes.",
   "type": "module",
   "files": [
     "dist"

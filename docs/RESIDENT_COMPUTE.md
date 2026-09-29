@@ -1,12 +1,12 @@
 # Resident Compute Islands
 
-Vune's native compute architecture is organized around data residency, not
+Mün's native compute architecture is organized around data residency, not
 isolated arithmetic expressions. A backend may be promoted only when the
 producer, fused compute kernels, and consumer share a representation long
 enough to amortize every boundary.
 
 ```text
-Vune source
+Mün source
   -> semantic compiler
       +-> ordinary View graph -> React / Vue / DOM
       `-> ResidentRegionIR -> packed numeric storage
@@ -25,7 +25,7 @@ those regions even when their scalar expressions are portable.
 ## Milestone 1: packed JavaScript baseline
 
 The first implementation contains no WASM, Worker, or WebGPU execution.
-`@vune-ui/core/internal/execution` defines column layouts, packed storage,
+`@mun/core/internal/execution` defines column layouts, packed storage,
 Kernel IR, and `ResidentRegionIR`. A valid initial region must be packed at both
 ends, use matching stable layouts, and contain map kernels whose fields have
 already passed type/layout proof.
@@ -120,7 +120,7 @@ host-prop/style/event Patch IR generation, and GPU renderer sinks that can
 consume the generic WGSL region without any CPU readback.
 
 Animation remains the existing proof point for dense resident memory. Its
-solver stays animation-owned. The small `@vune-ui/execution` substrate
+solver stays animation-owned. The small `@mun/execution` substrate
 shares buffer layout, scheduling capability, telemetry, and frame-budget
 signals without merging compiler compute and animation semantics.
 
@@ -131,7 +131,7 @@ React, and Vue rendering keeps its normal path until an application explicitly
 opts in:
 
 ```ts
-createVuneVitePlugin({ experimentalResidentCompute: true })
+createMunVitePlugin({ experimentalResidentCompute: true })
 mount(App(), container, { experimentalResidentCompute: true })
 ```
 
@@ -155,7 +155,7 @@ Eligible dense-`f32` resident regions now carry four native representations:
 The direct module removes per-row opcode dispatch, operand-stack interpretation,
 and repeated column-pointer lookup from the normal main-thread path. Column base
 addresses are hoisted outside the row/range loops. If the engine rejects the
-specialized module, Vune falls back to the generic resident kernel without
+specialized module, Mün falls back to the generic resident kernel without
 changing semantics.
 
 The compiler also attaches a cost profile to each native program: loads, stores,

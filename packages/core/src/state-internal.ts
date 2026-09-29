@@ -1,4 +1,4 @@
-const stateArraySubscriptionSnapshot = Symbol("vune.state.array-subscription-snapshot")
+const stateArraySubscriptionSnapshot = Symbol("mun.state.array-subscription-snapshot")
 
 export type StateArraySubscriptionSnapshotHook = () => readonly unknown[] | undefined
 

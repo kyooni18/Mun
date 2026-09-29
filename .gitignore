@@ -2,6 +2,7 @@ node_modules/
 .DS_Store
 ._*
 .pi/
+.yeet/
 *.log
 .vite/
 coverage/
@@ -21,3 +22,6 @@ output/
 packages/animation/wasm/*.wasm
 local-packages/*.tgz
 local-packages/manifest.json
+native/target/
+
+*.mun.ir.json

@@ -1,125 +1,126 @@
-# Vune React design
+# Mün design
 
-Vune is a declarative TypeScript UI framework. `vune-ui` and `@vune-ui/core` define
-the language and immutable View graph; renderers such as `@vune-ui/react`,
-`@vune-ui/vue`, and `@vune-ui/web` consume that graph. The root `vune-ui`
-package is kept as a compatibility layer.
+Mün is a native-first standalone UI language and runtime. The canonical source
+format is `.mun`. The compiler parses Mün source and lowers it into Mün Semantic
+UI IR before any backend-specific representation is chosen.
 
-## Layout
+The dependency direction is:
 
-The normal API expresses relationships rather than coordinates. `VStack`, `HStack`, `ZStack`, `Grid`, `Spacer`, alignment, spacing, and `frame` are the primary layout vocabulary. Low-level CSS remains available through modifiers when needed.
+```text
+.mun
+  -> @mun/compiler
+  -> Mün Semantic UI IR
+     -> native runtime/backend
+        -> macOS
+        -> Windows
+        -> Linux
+     -> secondary Web/Astro backends
+```
 
-Vune's layout is SwiftUI-inspired, not a promise to reproduce SwiftUI's
-proposal-based geometry algorithm. `frame`, infinity sizing, and stacks map
-the relationship into web-native CSS semantics.
+The semantic IR is the architecture boundary. Native and Web consume the same
+program model; Web does not define the language model.
 
-`ScrollView` is a graph View with native `overflow-x`/`overflow-y` behavior.
-`SafeArea` is a graph View that applies the selected CSS environment insets.
-`GeometryReader` is a graph boundary with a renderer-neutral `GeometryProxy`.
-React, Vue, and direct DOM adapters own host measurement and feed the proxy back
-into the same body, including normalized CSS safe-area insets; renderer-less
-traversal and SSR use zero geometry.
+## Canonical language model
 
-### Web layout contract
+Mün owns component composition, layout intent, state, actions, input semantics,
+accessibility semantics, animation intent, and rendering semantics. Canonical
+Mün has no DOM nodes, HTML tags, CSS properties, WebView, or Chromium concepts.
 
-The web layout contract is intentionally CSS-native and renderer-independent:
+A `.mun` file expresses Views such as `Text`, `VStack`, `HStack`,
+`Button`, and shape Views. The compiler resolves those constructs and emits
+backend-neutral nodes such as windows, rows, columns, text, actions, panels,
+state expressions, layout metadata, accessibility metadata, and motion
+bindings.
 
-- `VStack` and `HStack` are full-width flex containers. Their alignment controls
-  the cross axis and `spacing` becomes `gap`.
-- `ZStack` is a full-width grid container. Its alignment maps to grid placement
-  and its children remain independent layout items.
-- `Spacer` grows on the parent flex axis, never shrinks below its minimum, and
-  does not impose a fixed coordinate.
-- `frame` creates a grid layout host. Size limits apply to the host and its
-  alignment places the content inside it. A frame applied around a component
-  therefore does not depend on that component forwarding `style` props.
-- `ScrollView` owns overflow only for its declared axis. Other overflow stays
-  clipped unless the host's ordinary CSS changes it explicitly.
-- `SafeArea` maps selected edges to `env(safe-area-inset-*)`; it does not change
-  the child's coordinate system or merge Vune state with browser layout state.
-- `GeometryReader` reports the measured host box and normalized safe-area insets.
-  SSR and renderer-less evaluation use zero geometry and must remain deterministic.
+Raw HTML is rejected in canonical `.mun` source.
 
-Arbitrary CSS remains host CSS. A `.style()` modifier before `frame` styles the
-content; a `.style()` modifier after `frame` styles the frame host. External
-stylesheets, CSS Modules, Sass, PostCSS, and Tailwind can target either element
-through ordinary selectors without a Vune-specific preprocessing step.
+## Semantic UI IR
 
-## Renderer boundary
+`@mun/core` is the canonical backend-neutral surface. Its public contract is
+language semantics, motion values, and Semantic UI IR. The IR does not contain
+HTML tag names, DOM event objects, CSS declarations, React elements, or Vue
+VNodes.
 
-`Vune View !== React Element` and `Vune View !== Vue VNode`. A call such as
-`VStack { Text("Hello") }` first produces a graph. A renderer decides how that
-graph becomes a DOM, HTML string, React element, or Vue VNode.
+The initial IR is intentionally compact. It represents the semantics needed by
+the current native vertical slice while preserving room for richer layout,
+input, accessibility, presentation, and rendering capabilities without making
+a browser representation normative.
 
-## React ownership boundary
+Accessibility is stored separately from visual representation. A native backend
+can build a platform accessibility tree while the Web backend can lower the
+same semantics to accessible markup.
 
-Vune owns the external layout slot of a child. React owns the child component itself.
+## Native runtime
 
-For ordinary React components, Vune stores layout metadata outside the React element and inserts one neutral layout host when the component is placed inside a Vune layout container. This avoids relying on prop forwarding or assuming a single DOM root inside the component.
+The native path is primary. It consumes Semantic UI IR directly and owns window
+creation, layout execution, input routing, state updates, animation scheduling,
+scene construction, and platform presentation.
 
-Component props, hooks, refs, context, children, and rendering remain React-owned.
+Native Mün must not route through HTML, CSS, DOM, WebView, or Chromium.
 
-## Modifier model
+The current native runtime reuses the existing renderer-neutral animation and
+runtime work rather than replacing it. Spring/timing plans, transactions,
+retargeting behavior, repetition, and timeline semantics are lowered from the
+same core motion model into native execution.
 
-React elements are treated as immutable. Vune modifiers use `cloneElement()` and a proxy facade for method chaining. Component layout metadata is kept separately rather than mutating React element objects.
+## Web and Astro
 
-## State model
+`packages/web` is a secondary backend. HTML, CSS, DOM nodes, hydration, browser
+events, and browser layout APIs are introduced only after semantic compilation
+or inside the explicit compatibility renderer path.
 
-`State()` is a small observable value with a `.value` API. A Vune `view()` tracks State reads during render and subscribes the React component to those values.
+Astro is also a consumer. Standalone `.mun` and embedded `@mun { ... }`
+regions must pass through the same Mün parser/compiler and semantic model before
+the Astro/Web lowering runs. Astro must not introduce a second HTML-oriented Mün
+language.
 
-Arrays and plain objects are mutation-aware. If multiple `State()` values wrap
-the same raw mutable container, they share mutation ownership and all of their
-subscribers are notified. Proxy identity is intentionally not an application
-level contract.
+Host HTML remains host HTML. It does not become part of canonical Mün syntax.
 
-Ownership is lifecycle-aware: each State record is attached only to the raw
-containers reachable from its current value while it has subscribers. Root
-replacement, nested insertion/deletion, unsubscribe, and re-subscription
-reconcile that graph, so old objects do not retain stale records indefinitely.
-Circular graphs are traversed with identity tracking.
+## Compatibility graph
 
-With the compatibility React Vite macro, top-level State declarations are moved
-into `view({ state, body })`. The canonical `@vune-ui/vite` compiler lowers View
-syntax and leaves renderer-independent state ownership to the selected adapter.
-The state factory runs once per mounted Vune component instance, so two instances
-of the same View do not share local state.
+The repository still contains the mature TypeScript View graph inherited from
+the earlier Web-first implementation. It remains valuable for the React, Vue,
+Web, and migration surfaces while they move toward direct Semantic UI IR
+consumption.
 
-## Macros
+That graph is explicitly isolated behind `@mun/core/compat`. It is not the
+canonical `@mun/core` contract and must not be used to define new language
+semantics.
 
-The compatibility macro is build-time sugar only. It does not replace React at
-runtime. The canonical compiler and the compatibility React macro both return
-source maps, but they serve different syntax layers.
+Compatibility renderers may keep their existing DOM-oriented implementation,
+but new native features should be expressed first in the canonical semantic
+model and IR.
 
-- `State(initial)` becomes per-view state by moving the declaration into the View state factory.
-- `view(expression)` becomes a reactive render body.
-- `Action(expression)` becomes a deferred callback.
+## State and actions
 
-The stable package entry point is the function DSL. The layout engine,
-coordinate runtime, layout observer, metadata/plugin registry, and block-builder
-transform are exported from `vune-ui/experimental` until their integration story
-is consolidated. Experimental plugins run for both DSL and JSX-created nodes;
-JSX additionally records its creation-time modifier metadata.
+State belongs to Mün, not to a renderer. Canonical compilation records state
+declarations and state expressions in the semantic program. Actions lower into
+semantic mutations and transactions that native or Web execution can apply.
 
-The explicit runtime APIs remain available when macros are undesirable.
+Renderer-specific state bridges may exist for React/Vue compatibility, but
+those bridges are adapters and do not alter Mün state semantics.
 
-## Interoperability
+## Animation
 
-Raw HTML is represented by graph `Element` nodes and retains ordinary HTML
-attributes. `Component()` in `@vune-ui/react` or `@vune-ui/vue` creates a renderer-
-owned component node; `reactComponent()` and `vueComponent()` provide typed
-callable adapters, while each renderer owns its explicit State/Binding bridge.
-The Vue adapter also supports default/named slots. Renderer-specific interop
-does not enter `@vune-ui/core`.
+Animation intent is renderer-neutral. Property motion bindings refer to semantic
+properties such as opacity, translation, scale, rotation, dimensions, spacing,
+and colors. The compiler lowers `Animation`, `Transaction`,
+`withAnimation`, and property-local animation modifiers into execution plans.
 
-## Public surface
+Backends decide how to realize those plans, but they must preserve the same
+semantic transaction and retargeting behavior.
 
-The canonical function-DSL entry points are `vune-ui`, `@vune-ui/core`, and
-`@vune-ui/react`. The explicit `vune-ui/legacy` subpath retains the legacy React
-compatibility surface, implemented inside `@vune-ui/react`. The automatic JSX
-runtimes and `vune-ui/vite` remain supported integration entry points.
-Coordinate spaces expose `CoordinateNode` values, while the proposal-based
-measurement experiment exposes `LayoutNode` values; keeping those concepts
-distinct avoids silently treating observed DOM geometry as a layout proposal.
-The block-builder transform lives behind `vune-ui/experimental` or `vune-ui/compiler`
-until these contracts are consolidated. See [API.md](./API.md) for the current
-surface inventory.
+## Direction for new work
+
+New language features should follow this order:
+
+```text
+syntax
+  -> compiler semantic analysis
+  -> Semantic UI IR
+  -> native runtime/backend
+  -> optional secondary Web/Astro lowering
+```
+
+A feature that can only be described in DOM/CSS terms is a Web-backend feature,
+not a Mün core feature.

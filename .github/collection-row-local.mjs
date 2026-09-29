@@ -106,7 +106,7 @@ function dataArrayItem(source: readonly unknown[], index: number): unknown | typ
   } catch { return missingCollectionItem }
 }
 
-const missingCollectionItem = Symbol("vune.collection.missing-item")
+const missingCollectionItem = Symbol("mun.collection.missing-item")
 
 function collectionArrayIndex(property: PropertyKey | undefined): number | undefined {
   if (typeof property === "number") return Number.isSafeInteger(property) && property >= 0 ? property : undefined
@@ -269,13 +269,13 @@ replace(domPath,
 // direct array replacement and a direct row-object mutation.
 const testPath = 'tests/web-package.test.mjs'
 let tests = fs.readFileSync(testPath, 'utf8')
-const testName = 'test("@vune-ui/web lets a compiled keyed collection own its State subscription", async () => {'
+const testName = 'test("@mun/web lets a compiled keyed collection own its State subscription", async () => {'
 const start = tests.indexOf(testName)
 if (start < 0) throw new Error('collection ownership regression not found')
 const end = tests.indexOf('\n})', start)
 if (end < 0) throw new Error('collection ownership regression end not found')
 const old = tests.slice(start, end + 3)
-const next = `test("@vune-ui/web lets a compiled keyed collection own its State subscription", async () => {
+const next = `test("@mun/web lets a compiled keyed collection own its State subscription", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)

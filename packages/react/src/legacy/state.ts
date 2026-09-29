@@ -5,8 +5,8 @@ import {
   isStateRef,
   stateVersion,
   subscribeState,
-} from "@vune-ui/core"
-import type { StateRef as CoreStateRef } from "@vune-ui/core"
+} from "@mun/core/compat"
+import type { StateRef as CoreStateRef } from "@mun/core/compat"
 import type { BindingRef, StateRef, Value } from "./types.js"
 
 /** React is only the subscription adapter; storage and Binding live in core. */
@@ -16,8 +16,8 @@ export {
   State,
   isBinding,
   isStateRef,
-} from "@vune-ui/core"
-export { collectStateReads, stateVersion, subscribeState } from "@vune-ui/core"
+} from "@mun/core/compat"
+export { collectStateReads, stateVersion, subscribeState } from "@mun/core/compat"
 export type { BindingRef, StateRef, Value }
 
 export function resolveValue<T>(value: Value<T>): T {

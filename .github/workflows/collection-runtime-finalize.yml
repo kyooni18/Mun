@@ -82,11 +82,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git worktree add --detach /tmp/vune-checkpoint 71010c2b1c45ff5994eb6561d97e5e406e249d39
-          cleanup() { git worktree remove --force /tmp/vune-checkpoint >/dev/null 2>&1 || true; }
+          git worktree add --detach /tmp/mun-checkpoint 71010c2b1c45ff5994eb6561d97e5e406e249d39
+          cleanup() { git worktree remove --force /tmp/mun-checkpoint >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           (
-            cd /tmp/vune-checkpoint
+            cd /tmp/mun-checkpoint
             set -o pipefail
             pnpm install --frozen-lockfile 2>&1 | tee "$GITHUB_WORKSPACE/validation-output/checkpoint-install.log"
             pnpm run build 2>&1 | tee "$GITHUB_WORKSPACE/validation-output/checkpoint-build.log"

@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/vune-final
+          mkdir -p /tmp/mun-final
           pattern='row-local invalidation|flat keyed host rows|batches in-place ForEach mutations|compiled keyed collection|eventful compiled collection|push pop and reverse|duplicate occurrence identity'
           checks=(
             "build|pnpm run build"
@@ -42,38 +42,38 @@ jobs:
             "full-web|node --test tests/web-package.test.mjs"
             "full-suite|pnpm test"
           )
-          : > /tmp/vune-final/summary.txt
+          : > /tmp/mun-final/summary.txt
           failed=0
           failed_names=()
           for entry in "${checks[@]}"; do
             name=${entry%%|*}
             command=${entry#*|}
-            if bash -lc "$command" > "/tmp/vune-final/$name.log" 2>&1; then
-              echo "$name PASS" | tee -a /tmp/vune-final/summary.txt
+            if bash -lc "$command" > "/tmp/mun-final/$name.log" 2>&1; then
+              echo "$name PASS" | tee -a /tmp/mun-final/summary.txt
             else
-              echo "$name FAIL" | tee -a /tmp/vune-final/summary.txt
+              echo "$name FAIL" | tee -a /tmp/mun-final/summary.txt
               failed=1
               failed_names+=("$name|$command")
             fi
           done
           if [ "$failed" -ne 0 ]; then
-            git worktree add --detach /tmp/vune-checkpoint 71010c2b1c45ff5994eb6561d97e5e406e249d39
+            git worktree add --detach /tmp/mun-checkpoint 71010c2b1c45ff5994eb6561d97e5e406e249d39
             (
               set +e
-              cd /tmp/vune-checkpoint
-              pnpm install --frozen-lockfile > /tmp/vune-final/checkpoint-install.log 2>&1
-              pnpm run build > /tmp/vune-final/checkpoint-build.log 2>&1
+              cd /tmp/mun-checkpoint
+              pnpm install --frozen-lockfile > /tmp/mun-final/checkpoint-install.log 2>&1
+              pnpm run build > /tmp/mun-final/checkpoint-build.log 2>&1
               for entry in "${failed_names[@]}"; do
                 name=${entry%%|*}
                 command=${entry#*|}
-                bash -lc "$command" > "/tmp/vune-final/checkpoint-$name.log" 2>&1
-                echo "checkpoint-$name exit=$?" >> /tmp/vune-final/summary.txt
+                bash -lc "$command" > "/tmp/mun-final/checkpoint-$name.log" 2>&1
+                echo "checkpoint-$name exit=$?" >> /tmp/mun-final/summary.txt
               done
             )
-            git worktree remove --force /tmp/vune-checkpoint
+            git worktree remove --force /tmp/mun-checkpoint
             {
-              cat /tmp/vune-final/summary.txt
-              for file in /tmp/vune-final/*.log; do
+              cat /tmp/mun-final/summary.txt
+              for file in /tmp/mun-final/*.log; do
                 echo
                 echo "===== $file ====="
                 tail -n 240 "$file"
@@ -90,20 +90,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/vune-validation
-          git worktree add --detach /tmp/vune-checkpoint 71010c2b1c45ff5994eb6561d97e5e406e249d39
+          mkdir -p /tmp/mun-validation
+          git worktree add --detach /tmp/mun-checkpoint 71010c2b1c45ff5994eb6561d97e5e406e249d39
           (
-            cd /tmp/vune-checkpoint
+            cd /tmp/mun-checkpoint
             pnpm install --frozen-lockfile
             pnpm run build
-            node benchmarks/collection-runtime.mjs > /tmp/vune-validation/checkpoint.json
+            node benchmarks/collection-runtime.mjs > /tmp/mun-validation/checkpoint.json
           )
-          git worktree remove --force /tmp/vune-checkpoint
-          node benchmarks/collection-runtime.mjs > /tmp/vune-validation/optimized.json
+          git worktree remove --force /tmp/mun-checkpoint
+          node benchmarks/collection-runtime.mjs > /tmp/mun-validation/optimized.json
           echo 'Checkpoint benchmark:'
-          cat /tmp/vune-validation/checkpoint.json
+          cat /tmp/mun-validation/checkpoint.json
           echo 'Final benchmark:'
-          cat /tmp/vune-validation/optimized.json
+          cat /tmp/mun-validation/optimized.json
       - name: Remove temporary collection diagnostics
         shell: bash
         run: |
@@ -146,8 +146,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          checkpoint=$(node -e "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/tmp/vune-validation/checkpoint.json','utf8'))))")
-          optimized=$(node -e "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/tmp/vune-validation/optimized.json','utf8'))))")
+          checkpoint=$(node -e "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/tmp/mun-validation/checkpoint.json','utf8'))))")
+          optimized=$(node -e "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/tmp/mun-validation/optimized.json','utf8'))))")
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit \

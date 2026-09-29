@@ -1,6 +1,6 @@
-export type VuneBoundaryRenderMode = "compiled" | "reconcile" | "root"
+export type MunBoundaryRenderMode = "compiled" | "reconcile" | "root"
 
-export interface VuneDevtoolsBoundarySnapshot {
+export interface MunDevtoolsBoundarySnapshot {
   readonly key: string
   readonly name: string
   readonly parentKey?: string
@@ -10,17 +10,17 @@ export interface VuneDevtoolsBoundarySnapshot {
   readonly maxDurationMs: number
   readonly dependencyCount: number
   readonly nodeCount: number
-  readonly mode: VuneBoundaryRenderMode
+  readonly mode: MunBoundaryRenderMode
 }
 
-export interface VuneDevtoolsSnapshot {
+export interface MunDevtoolsSnapshot {
   readonly enabled: boolean
   readonly revision: number
-  readonly runtime: VuneDevtoolsRuntimeSnapshot
-  readonly boundaries: readonly VuneDevtoolsBoundarySnapshot[]
+  readonly runtime: MunDevtoolsRuntimeSnapshot
+  readonly boundaries: readonly MunDevtoolsBoundarySnapshot[]
 }
 
-export interface VuneDevtoolsRuntimeSnapshot {
+export interface MunDevtoolsRuntimeSnapshot {
   readonly boundaryInvalidations: number
   readonly boundaryFlushes: number
   readonly boundaryUpdates: number
@@ -32,7 +32,7 @@ export interface VuneDevtoolsRuntimeSnapshot {
   readonly collectionFallbacks: number
 }
 
-export type VuneDevtoolsRuntimeEvent = keyof VuneDevtoolsRuntimeSnapshot
+export type MunDevtoolsRuntimeEvent = keyof MunDevtoolsRuntimeSnapshot
 
 type MutableBoundarySnapshot = {
   key: string
@@ -44,13 +44,13 @@ type MutableBoundarySnapshot = {
   maxDurationMs: number
   dependencyCount: number
   nodeCount: number
-  mode: VuneBoundaryRenderMode
+  mode: MunBoundaryRenderMode
 }
 
 const boundaries = new Map<string, MutableBoundarySnapshot>()
 const boundaryElements = new Map<string, WeakRef<Element>>()
 const listeners = new Set<() => void>()
-const runtime: Record<VuneDevtoolsRuntimeEvent, number> = {
+const runtime: Record<MunDevtoolsRuntimeEvent, number> = {
   boundaryInvalidations: 0,
   boundaryFlushes: 0,
   boundaryUpdates: 0,
@@ -74,7 +74,7 @@ function notify(): void {
   })
 }
 
-export function setVuneDevtoolsEnabled(value: boolean): void {
+export function setMunDevtoolsEnabled(value: boolean): void {
   const next = value === true
   if (enabled === next) return
   enabled = next
@@ -82,18 +82,18 @@ export function setVuneDevtoolsEnabled(value: boolean): void {
   notify()
 }
 
-export function vuneDevtoolsEnabled(): boolean {
+export function munDevtoolsEnabled(): boolean {
   return enabled
 }
 
-export function recordVuneBoundaryRender(event: {
+export function recordMunBoundaryRender(event: {
   readonly key: string
   readonly name: string
   readonly parentKey?: string
   readonly durationMs: number
   readonly dependencyCount: number
   readonly nodeCount: number
-  readonly mode: VuneBoundaryRenderMode
+  readonly mode: MunBoundaryRenderMode
   readonly element?: Element
 }): void {
   if (!enabled) return
@@ -128,14 +128,14 @@ export function recordVuneBoundaryRender(event: {
   notify()
 }
 
-export function recordVuneRuntimeEvent(event: VuneDevtoolsRuntimeEvent, amount = 1): void {
+export function recordMunRuntimeEvent(event: MunDevtoolsRuntimeEvent, amount = 1): void {
   if (!enabled || !Number.isFinite(amount) || amount === 0) return
   runtime[event] += amount
   revision += 1
   notify()
 }
 
-export function getVuneBoundaryElement(key: string): Element | null {
+export function getMunBoundaryElement(key: string): Element | null {
   const element = boundaryElements.get(key)?.deref() ?? null
   if (!element || !element.isConnected) {
     boundaryElements.delete(key)
@@ -144,22 +144,22 @@ export function getVuneBoundaryElement(key: string): Element | null {
   return element
 }
 
-export function recordVuneBoundaryDisposed(key: string): void {
+export function recordMunBoundaryDisposed(key: string): void {
   boundaryElements.delete(key)
   if (!enabled || !boundaries.delete(key)) return
   revision += 1
   notify()
 }
 
-export function resetVuneDevtools(): void {
+export function resetMunDevtools(): void {
   boundaries.clear()
   boundaryElements.clear()
-  for (const event of Object.keys(runtime) as VuneDevtoolsRuntimeEvent[]) runtime[event] = 0
+  for (const event of Object.keys(runtime) as MunDevtoolsRuntimeEvent[]) runtime[event] = 0
   revision += 1
   notify()
 }
 
-export function getVuneDevtoolsSnapshot(): VuneDevtoolsSnapshot {
+export function getMunDevtoolsSnapshot(): MunDevtoolsSnapshot {
   return Object.freeze({
     enabled,
     revision,
@@ -170,7 +170,7 @@ export function getVuneDevtoolsSnapshot(): VuneDevtoolsSnapshot {
   })
 }
 
-export function subscribeVuneDevtools(listener: () => void): () => void {
+export function subscribeMunDevtools(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }

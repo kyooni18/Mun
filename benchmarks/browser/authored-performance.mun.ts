@@ -1,4 +1,4 @@
-import { Button, Element, ForEach, State } from "@vune-ui/core"
+import { Button, Element, ForEach, State } from "@mun/core"
 
 let benchmarkCount = 5000
 let benchmarkMiddle = 2500
@@ -12,7 +12,7 @@ function initialRows() {
   return Array.from({ length: benchmarkCount }, (_, id) => ({ id, value: String(id) }))
 }
 
-/** Production benchmark fixture written as ordinary Vune source. */
+/** Production benchmark fixture written as ordinary Mun source. */
 export struct AuthoredPerformanceList: View {
   @State var items: any = initialRows()
 

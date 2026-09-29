@@ -1,5 +1,5 @@
 {
-  "name": "__VUNE_PROJECT_NAME__",
+  "name": "__MUN_PROJECT_NAME__",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,11 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@vune-ui/core": "^__VUNE_VERSION__",
-    "@vune-ui/web": "^__VUNE_VERSION__"
+    "@mun/core": "^__MUN_VERSION__",
+    "@mun/web": "^__MUN_VERSION__"
   },
   "devDependencies": {
-    "@vune-ui/vite": "^__VUNE_VERSION__",
+    "@mun/vite": "^__MUN_VERSION__",
     "typescript": "^5.8.0",
     "vite": "^8.0.0"
   }

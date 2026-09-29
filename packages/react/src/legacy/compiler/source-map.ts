@@ -12,18 +12,18 @@ function vlq(value: number): string {
   return output
 }
 
-export interface VuneSourceMapAnchor {
+export interface MunSourceMapAnchor {
   readonly line: number
   readonly column: number
   readonly generatedColumn: number
 }
 
-export interface VuneSourcePosition {
+export interface MunSourcePosition {
   readonly line: number
   readonly column: number
 }
 
-export interface VuneSourceMap {
+export interface MunSourceMap {
   readonly version: 3
   readonly file: string
   readonly sources: readonly string[]
@@ -31,9 +31,9 @@ export interface VuneSourceMap {
   readonly names: readonly string[]
   readonly mappings: string
   /** Line anchors are intentionally retained for editor/TypeScript adapters. */
-  readonly x_vune: {
-    readonly lineMappings: readonly VuneSourceMapAnchor[]
-    readonly segments: readonly (readonly VuneSourceMapAnchor[])[]
+  readonly x_mun: {
+    readonly lineMappings: readonly MunSourceMapAnchor[]
+    readonly segments: readonly (readonly MunSourceMapAnchor[])[]
   }
 }
 
@@ -105,7 +105,7 @@ function anchorsForGeneratedLine(
   sourceTokens: ReadonlyMap<string, readonly { line: number; column: number }[]>,
   alignedAnchors: ReadonlyMap<string, { line: number; column: number }>,
   fallbackLine: number,
-): VuneSourceMapAnchor[] {
+): MunSourceMapAnchor[] {
   const generatedTokens = tokens(generatedLine)
   if (generatedTokens.length === 0) {
     return [{ line: Math.min(fallbackLine, sourceLines.length - 1), column: 0, generatedColumn: 0 }]
@@ -124,7 +124,7 @@ function anchorsForGeneratedLine(
  * useful than returning `null`; generated columns that are synthesized by a
  * builder are intentionally anchored at the beginning of their source line.
  */
-export function createVuneSourceMap(source: string, generated: string, id: string): VuneSourceMap {
+export function createMunSourceMap(source: string, generated: string, id: string): MunSourceMap {
   const sourceLineValues = source.split('\n')
   const sourceLines = Math.max(1, sourceLineValues.length)
   const sourceTokens = new Map<string, Array<{ line: number; column: number }>>()
@@ -150,7 +150,7 @@ export function createVuneSourceMap(source: string, generated: string, id: strin
       sourcesContent: [source],
       names: [],
       mappings,
-      x_vune: { lineMappings: identitySegments.map(value => value[0]), segments: identitySegments },
+      x_mun: { lineMappings: identitySegments.map(value => value[0]), segments: identitySegments },
     }
   }
   const alignedAnchors = alignTokenAnchors(source, generated)
@@ -182,35 +182,35 @@ export function createVuneSourceMap(source: string, generated: string, id: strin
     sourcesContent: [source],
     names: [],
     mappings,
-    x_vune: { lineMappings, segments },
+    x_mun: { lineMappings, segments },
   }
 }
 
-/** Standard-only compatibility map for Vite callers that do not consume Vune anchors. */
-export function createLegacyVuneSourceMap(
+/** Standard-only compatibility map for Vite callers that do not consume Mun anchors. */
+export function createLegacyMunSourceMap(
   source: string,
   generated: string,
   id: string,
-): Omit<VuneSourceMap, 'x_vune'> {
-  const rich = createVuneSourceMap(source, generated, id)
+): Omit<MunSourceMap, 'x_mun'> {
+  const rich = createMunSourceMap(source, generated, id)
   let previousOriginalLine = 0
   let previousOriginalColumn = 0
-  const mappings = rich.x_vune.lineMappings.map(anchor => {
+  const mappings = rich.x_mun.lineMappings.map(anchor => {
     const value = `${vlq(0)}${vlq(0)}${vlq(anchor.line - previousOriginalLine)}${vlq(anchor.column - previousOriginalColumn)}`
     previousOriginalLine = anchor.line
     previousOriginalColumn = anchor.column
     return value
   }).join(';')
-  const { x_vune: _xVune, ...standard } = rich
+  const { x_mun: _xMun, ...standard } = rich
   return { ...standard, mappings }
 }
 
-/** Map a generated TypeScript position back to its original Vune position. */
-export function mapGeneratedPosition(map: VuneSourceMap, position: VuneSourcePosition): VuneSourcePosition {
+/** Map a generated TypeScript position back to its original Mun position. */
+export function mapGeneratedPosition(map: MunSourceMap, position: MunSourcePosition): MunSourcePosition {
   const line = Math.max(1, Math.trunc(position.line))
   const column = Math.max(1, Math.trunc(position.column))
-  const anchors = map.x_vune.segments[Math.min(line - 1, Math.max(0, map.x_vune.segments.length - 1))]
-    ?? map.x_vune.lineMappings
+  const anchors = map.x_mun.segments[Math.min(line - 1, Math.max(0, map.x_mun.segments.length - 1))]
+    ?? map.x_mun.lineMappings
   const generatedColumn = column - 1
   const anchor = [...anchors].reverse().find(value => value.generatedColumn <= generatedColumn)
     ?? anchors[0]
@@ -221,15 +221,15 @@ export function mapGeneratedPosition(map: VuneSourceMap, position: VuneSourcePos
   }
 }
 
-/** Map an original Vune position to the nearest generated position. */
-export function mapOriginalPosition(map: VuneSourceMap, position: VuneSourcePosition): VuneSourcePosition {
+/** Map an original Mun position to the nearest generated position. */
+export function mapOriginalPosition(map: MunSourceMap, position: MunSourcePosition): MunSourcePosition {
   const line = Math.max(1, Math.trunc(position.line)) - 1
   const column = Math.max(1, Math.trunc(position.column)) - 1
-  const segments = map.x_vune.segments
+  const segments = map.x_mun.segments
   if (segments.length === 0) return { line: 1, column: 1 }
 
   let bestLine = 0
-  let bestAnchor = map.x_vune.lineMappings[0]
+  let bestAnchor = map.x_mun.lineMappings[0]
   let bestDistance = Number.POSITIVE_INFINITY
   for (let lineIndex = 0; lineIndex < segments.length; lineIndex += 1) {
     for (const candidate of segments[lineIndex]) {

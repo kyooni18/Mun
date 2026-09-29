@@ -2,7 +2,7 @@ import type {
   KernelExpression,
   PackedLayout,
   ResidentRegionIR,
-} from "@vune-ui/core/internal/execution"
+} from "@mun/core/internal/execution"
 
 interface EmitContext {
   readonly fields: ReadonlyMap<string, string>
@@ -48,10 +48,10 @@ function emitExpression(expression: KernelExpression, context: EmitContext): str
 }
 
 /**
- * Emit a CSP-safe executor body at Vune compile time. The resulting bundle has
+ * Emit a CSP-safe executor body at Mun compile time. The resulting bundle has
  * an ordinary numeric loop; it does not interpret Kernel IR in the browser.
  */
-export function emitResidentRegionJS(region: ResidentRegionIR, functionName = "__vuneResidentRegion"): string {
+export function emitResidentRegionJS(region: ResidentRegionIR, functionName = "__munResidentRegion"): string {
   const name = safeFunctionName(functionName)
   if (region.inputResidency !== "packed" || region.outputResidency !== "packed") {
     throw new TypeError("resident JS code generation requires packed input and output")
@@ -63,56 +63,56 @@ export function emitResidentRegionJS(region: ResidentRegionIR, functionName = "_
     throw new TypeError("resident JS code generation currently requires map kernels")
   }
 
-  const fieldVariables = new Map(region.sink.layout.fields.map((field, index) => [field.name, `__vuneColumn${index}`]))
+  const fieldVariables = new Map(region.sink.layout.fields.map((field, index) => [field.name, `__munColumn${index}`]))
   const captureNames = new Set(region.kernels.flatMap(kernel => [...kernel.captures]))
-  const captureVariables = new Map([...captureNames].sort().map((capture, index) => [capture, `__vuneCapture${index}`]))
-  const context: EmitContext = { fields: fieldVariables, captures: captureVariables, index: "__vuneIndex" }
+  const captureVariables = new Map([...captureNames].sort().map((capture, index) => [capture, `__munCapture${index}`]))
+  const context: EmitContext = { fields: fieldVariables, captures: captureVariables, index: "__munIndex" }
   const lines = [
-    `function ${name}(__vuneSourceStorage, __vuneSinkStorage = __vuneSourceStorage, __vuneCaptures = {}, __vuneInputRanges = null) {`,
-    `  const __vuneSource = __vuneSourceStorage.buffers`,
-    `  const __vuneSink = __vuneSinkStorage.buffers`,
-    `  if (__vuneSourceStorage.layout.length !== ${region.source.layout.length} || __vuneSinkStorage.layout.length !== ${region.sink.layout.length}) throw new RangeError("resident storage length does not match compiled layout")`,
-    `  const __vuneRanges = Array.isArray(__vuneInputRanges) ? __vuneInputRanges : [{ start: 0, end: ${region.sink.layout.length} }]`,
-    `  if (__vuneRanges.length === 0) return __vuneSinkStorage`,
-    `  if (__vuneSource !== __vuneSink) {`,
-    `    for (let __vuneColumn = 0; __vuneColumn < ${region.sink.layout.fields.length}; __vuneColumn += 1) {`,
-    `      const __vuneInput = __vuneSource[__vuneColumn]`,
-    `      const __vuneOutput = __vuneSink[__vuneColumn]`,
-    `      if (__vuneInput === __vuneOutput) continue`,
-    `      for (let __vuneRangeIndex = 0; __vuneRangeIndex < __vuneRanges.length; __vuneRangeIndex += 1) {`,
-    `        const __vuneRange = __vuneRanges[__vuneRangeIndex]`,
-    `        if (!__vuneRange || !Number.isSafeInteger(__vuneRange.start) || !Number.isSafeInteger(__vuneRange.end) || __vuneRange.start < 0 || __vuneRange.end < __vuneRange.start || __vuneRange.end > ${region.sink.layout.length}) throw new RangeError("resident execution range does not match compiled layout")`,
-    `        __vuneOutput.set(__vuneInput.subarray(__vuneRange.start, __vuneRange.end), __vuneRange.start)`,
+    `function ${name}(__munSourceStorage, __munSinkStorage = __munSourceStorage, __munCaptures = {}, __munInputRanges = null) {`,
+    `  const __munSource = __munSourceStorage.buffers`,
+    `  const __munSink = __munSinkStorage.buffers`,
+    `  if (__munSourceStorage.layout.length !== ${region.source.layout.length} || __munSinkStorage.layout.length !== ${region.sink.layout.length}) throw new RangeError("resident storage length does not match compiled layout")`,
+    `  const __munRanges = Array.isArray(__munInputRanges) ? __munInputRanges : [{ start: 0, end: ${region.sink.layout.length} }]`,
+    `  if (__munRanges.length === 0) return __munSinkStorage`,
+    `  if (__munSource !== __munSink) {`,
+    `    for (let __munColumn = 0; __munColumn < ${region.sink.layout.fields.length}; __munColumn += 1) {`,
+    `      const __munInput = __munSource[__munColumn]`,
+    `      const __munOutput = __munSink[__munColumn]`,
+    `      if (__munInput === __munOutput) continue`,
+    `      for (let __munRangeIndex = 0; __munRangeIndex < __munRanges.length; __munRangeIndex += 1) {`,
+    `        const __munRange = __munRanges[__munRangeIndex]`,
+    `        if (!__munRange || !Number.isSafeInteger(__munRange.start) || !Number.isSafeInteger(__munRange.end) || __munRange.start < 0 || __munRange.end < __munRange.start || __munRange.end > ${region.sink.layout.length}) throw new RangeError("resident execution range does not match compiled layout")`,
+    `        __munOutput.set(__munInput.subarray(__munRange.start, __munRange.end), __munRange.start)`,
     `      }`,
     `    }`,
     `  }`,
-    ...region.sink.layout.fields.map((_, index) => `  const __vuneColumn${index} = __vuneSink[${index}]`),
-    ...[...captureVariables].map(([capture, variable]) => `  const ${variable} = __vuneCaptures[${JSON.stringify(capture)}]`),
+    ...region.sink.layout.fields.map((_, index) => `  const __munColumn${index} = __munSink[${index}]`),
+    ...[...captureVariables].map(([capture, variable]) => `  const ${variable} = __munCaptures[${JSON.stringify(capture)}]`),
     ...[...captureVariables].map(([capture, variable]) => `  if (typeof ${variable} !== "number" && typeof ${variable} !== "boolean") throw new TypeError(${JSON.stringify(`resident kernel capture is missing or non-numeric: ${capture}`)})`),
-    `  for (let __vuneRangeIndex = 0; __vuneRangeIndex < __vuneRanges.length; __vuneRangeIndex += 1) {`,
-    `    const __vuneRange = __vuneRanges[__vuneRangeIndex]`,
-    `    if (!__vuneRange || !Number.isSafeInteger(__vuneRange.start) || !Number.isSafeInteger(__vuneRange.end) || __vuneRange.start < 0 || __vuneRange.end < __vuneRange.start || __vuneRange.end > ${region.sink.layout.length}) throw new RangeError("resident execution range does not match compiled layout")`,
-    `    for (let __vuneIndex = __vuneRange.start; __vuneIndex < __vuneRange.end; __vuneIndex += 1) {`,
+    `  for (let __munRangeIndex = 0; __munRangeIndex < __munRanges.length; __munRangeIndex += 1) {`,
+    `    const __munRange = __munRanges[__munRangeIndex]`,
+    `    if (!__munRange || !Number.isSafeInteger(__munRange.start) || !Number.isSafeInteger(__munRange.end) || __munRange.start < 0 || __munRange.end < __munRange.start || __munRange.end > ${region.sink.layout.length}) throw new RangeError("resident execution range does not match compiled layout")`,
+    `    for (let __munIndex = __munRange.start; __munIndex < __munRange.end; __munIndex += 1) {`,
   ]
   for (let kernelIndex = 0; kernelIndex < region.kernels.length; kernelIndex += 1) {
     const kernel = region.kernels[kernelIndex]!
     if (kernel.kind !== "map") continue
     for (let outputIndex = 0; outputIndex < kernel.outputs.length; outputIndex += 1) {
       const output = kernel.outputs[outputIndex]!
-      lines.push(`    const __vuneKernel${kernelIndex}Output${outputIndex} = ${emitExpression(output.value, context)}`)
+      lines.push(`    const __munKernel${kernelIndex}Output${outputIndex} = ${emitExpression(output.value, context)}`)
     }
     for (let outputIndex = 0; outputIndex < kernel.outputs.length; outputIndex += 1) {
       const output = kernel.outputs[outputIndex]!
       const field = fieldVariables.get(output.name)
       if (!field) throw new TypeError(`resident kernel writes unknown packed field: ${output.name}`)
-      lines.push(`    ${field}[__vuneIndex] = __vuneKernel${kernelIndex}Output${outputIndex}`)
+      lines.push(`    ${field}[__munIndex] = __munKernel${kernelIndex}Output${outputIndex}`)
     }
   }
   lines.push(
     `    }`,
     `  }`,
-    `  __vuneSinkStorage.version += 1`,
-    `  return __vuneSinkStorage`,
+    `  __munSinkStorage.version += 1`,
+    `  return __munSinkStorage`,
     `}`,
   )
   return lines.join("\n")

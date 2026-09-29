@@ -1,14 +1,14 @@
 import * as ts from "typescript"
-import { createVuneSourceMap, mapGeneratedPosition } from "./source-map.js"
+import { createMunSourceMap, mapGeneratedPosition } from "./source-map.js"
 import { createSemanticModel } from "./semantic.js"
-import { transformVuneSource } from "./pipeline.js"
+import { transformMunSource } from "./pipeline.js"
 import { matching, regexCanStart, skipComment, skipRegex, skipString, validateRawHtmlSyntax } from "./scanner.js"
-import type { VuneDiagnostic } from "./types.js"
+import type { MunDiagnostic } from "./types.js"
 
 
 
-function isVunePackageSource(value: string): boolean {
-  return value === "vune-ui" || value.startsWith("@vune-ui/")
+function isMunPackageSource(value: string): boolean {
+  return value.startsWith("@mun/")
 }
 
 function unwrapDiagnosticExpression(expression: ts.Expression): ts.Expression {
@@ -21,23 +21,23 @@ function unwrapDiagnosticExpression(expression: ts.Expression): ts.Expression {
   return current
 }
 
-function topLevelStateScopeDiagnostics(source: string): VuneDiagnostic[] {
-  const file = ts.createSourceFile("vune-state-scope.vune.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+function topLevelStateScopeDiagnostics(source: string): MunDiagnostic[] {
+  const file = ts.createSourceFile("mun-state-scope.mun.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const stateNames = new Set<string>()
   const namespaces = new Set<string>()
   let blockedCanonicalState = false
 
   for (const statement of file.statements) {
     if (ts.isImportDeclaration(statement) && statement.importClause && ts.isStringLiteral(statement.moduleSpecifier)) {
-      const fromVune = isVunePackageSource(statement.moduleSpecifier.text)
+      const fromMun = isMunPackageSource(statement.moduleSpecifier.text)
       const bindings = statement.importClause.namedBindings
       if (bindings && ts.isNamedImports(bindings)) {
         for (const element of bindings.elements) {
           const imported = element.propertyName?.text ?? element.name.text
-          if (fromVune && imported === "State") stateNames.add(element.name.text)
-          else if (!fromVune && element.name.text === "State") blockedCanonicalState = true
+          if (fromMun && imported === "State") stateNames.add(element.name.text)
+          else if (!fromMun && element.name.text === "State") blockedCanonicalState = true
         }
-      } else if (bindings && ts.isNamespaceImport(bindings) && fromVune) {
+      } else if (bindings && ts.isNamespaceImport(bindings) && fromMun) {
         namespaces.add(bindings.name.text)
       }
       if (statement.importClause.name?.text === "State") blockedCanonicalState = true
@@ -66,7 +66,7 @@ function topLevelStateScopeDiagnostics(source: string): VuneDiagnostic[] {
       && namespaces.has(callee.expression.text)
   }
 
-  const diagnostics: VuneDiagnostic[] = []
+  const diagnostics: MunDiagnostic[] = []
   for (const statement of file.statements) {
     if (!ts.isVariableStatement(statement)) continue
     const exported = statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
@@ -84,7 +84,7 @@ function topLevelStateScopeDiagnostics(source: string): VuneDiagnostic[] {
       const position = file.getLineAndCharacterOfPosition(start)
       diagnostics.push({
         severity: "warning",
-        code: "VUNE_STATE_SCOPE",
+        code: "MUN_STATE_SCOPE",
         message: `Top-level State ${JSON.stringify(name)} ${reason}, so it remains module-shared instead of becoming View instance-local.`,
         line: position.line + 1,
         column: position.character + 1,
@@ -94,7 +94,7 @@ function topLevelStateScopeDiagnostics(source: string): VuneDiagnostic[] {
   return diagnostics
 }
 
-export function diagnoseVuneSource(source: string): readonly VuneDiagnostic[] {
+export function diagnoseMunSource(source: string): readonly MunDiagnostic[] {
   try {
     validateRawHtmlSyntax(source)
     for (let cursor = 0; cursor < source.length; cursor += 1) {
@@ -104,30 +104,20 @@ export function diagnoseVuneSource(source: string): readonly VuneDiagnostic[] {
       else if (source[cursor] === "(") matching(source, cursor, "(", ")")
       else if (source[cursor] === "{") matching(source, cursor, "{", "}")
     }
-    const fileName = "vune-source.vune.ts"
-    const generatedSource = transformVuneSource(source, fileName)
+    const fileName = "mun-source.mun.ts"
+    const generatedSource = transformMunSource(source, fileName)
     const model = createSemanticModel(source, fileName, generatedSource)
-    const map = createVuneSourceMap(source, generatedSource, fileName)
+    const map = createMunSourceMap(source, generatedSource, fileName)
     const typescriptDiagnostics = model.typescriptDiagnostics.map(diagnostic => {
       const start = diagnostic.start ?? 0
       const position = model.typescript.getLineAndCharacterOfPosition(start)
       const mapped = mapGeneratedPosition(map, { line: position.line + 1, column: position.character + 1 })
       return {
         severity: "error" as const,
-        code: "VUNE_TYPESCRIPT" as const,
+        code: "MUN_TYPESCRIPT" as const,
         message: tsDiagnosticMessage(diagnostic),
         line: mapped.line,
         column: mapped.column,
-      }
-    })
-    const htmlDiagnostics = model.htmlDiagnostics.map(diagnostic => {
-      const position = sourcePositionAt(source, diagnostic.range.start)
-      return {
-        severity: "error" as const,
-        code: diagnostic.code,
-        message: diagnostic.message,
-        line: position.line,
-        column: position.column,
       }
     })
     const initializerDiagnostics = model.calls.flatMap(call => call.resolution.diagnostics.map(diagnostic => {
@@ -136,19 +126,19 @@ export function diagnoseVuneSource(source: string): readonly VuneDiagnostic[] {
         severity: "error" as const,
         // Keep the public diagnostic code stable while preserving ambiguity
         // as a richer code in the shared semantic call result.
-        code: "VUNE_INITIALIZER" as const,
+        code: "MUN_INITIALIZER" as const,
         message: diagnostic.message,
         line: position.line,
         column: position.column,
       }
     }))
-    return [...typescriptDiagnostics, ...htmlDiagnostics, ...initializerDiagnostics, ...topLevelStateScopeDiagnostics(source)]
+    return [...typescriptDiagnostics, ...initializerDiagnostics, ...topLevelStateScopeDiagnostics(source)]
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const offset = typeof error === "object" && error !== null && "offset" in error && typeof error.offset === "number" ? error.offset : 0
-    const code = typeof error === "object" && error !== null && "code" in error && error.code === "VUNE_INITIALIZER"
-      ? "VUNE_INITIALIZER" as const
-      : "VUNE_SYNTAX" as const
+    const code = typeof error === "object" && error !== null && "code" in error && error.code === "MUN_INITIALIZER"
+      ? "MUN_INITIALIZER" as const
+      : "MUN_SYNTAX" as const
     const before = source.slice(0, offset)
     return [{ severity: "error", code, message, line: before.split("\n").length, column: offset - before.lastIndexOf("\n") }]
   }

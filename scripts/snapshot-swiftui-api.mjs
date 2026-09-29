@@ -31,7 +31,7 @@ const targetInfo = JSON.parse(run("xcrun", ["swiftc", "-print-target-info"]))
 const target = argument("--target", targetInfo?.target?.triple)
 if (!target) throw new Error("Unable to determine the Swift compiler target triple.")
 
-const temporary = mkdtempSync(`${tmpdir()}/vune-swiftui-symbols-`)
+const temporary = mkdtempSync(`${tmpdir()}/mun-swiftui-symbols-`)
 try {
   const extractedModules = []
   for (const moduleName of requestedModules) {

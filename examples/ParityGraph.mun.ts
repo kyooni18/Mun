@@ -1,7 +1,7 @@
-import { Binding, Button, Element, ForEach, GeometryReader, LazyVStack, State, Text, TextField, Toggle, VStack, defineView, initializer } from "vune-ui"
+import { Binding, Button, Element, ForEach, GeometryReader, LazyVStack, State, Text, TextField, Toggle, VStack, defineView, initializer } from "@mun/core/compat"
 
 const count = State(0)
-const name = State("Vune")
+const name = State("Mun")
 const enabled = State(false)
 const items = State([{ id: "a" }, { id: "b" }])
 
@@ -22,7 +22,7 @@ const ParityGraph = defineView("ParityGraph", {
   ForEach(items.value) { item in
     ParityRow(item.id)
     },
-    Element("x-vune-parity", { "data-testid": "custom-element" }, Text("Custom")),
+    Element("x-mun-parity", { "data-testid": "custom-element" }, Text("Custom")),
     GeometryReader() { geometry in
       Text(`${geometry.size.width}`).withProps({ "data-testid": "geometry" })
     },

@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { Animation } from "../packages/core/dist/index.js"
 import { animateDomLayout, animateDomStyle, animateDomStyles, cancelDomAnimations, motionSpecForAnimation } from "../packages/web/dist/motion.js"
-import { VuneMotionEngine } from "../packages/web/dist/element-motion.js"
+import { MunMotionEngine } from "../packages/web/dist/element-motion.js"
 
 function fakeElement(initial = {}) {
   const values = new Map(Object.entries(initial))
@@ -27,7 +27,7 @@ async function waitUntil(predicate, timeout = 250) {
   return predicate()
 }
 
-test("Vune reuses precompiled motion specs across persistent scalar retargets", async () => {
+test("Mun reuses precompiled motion specs across persistent scalar retargets", async () => {
   const element = fakeElement({ opacity: "0" })
   const animation = Animation.linear(0.012)
   const spec = motionSpecForAnimation(animation)
@@ -40,14 +40,14 @@ test("Vune reuses precompiled motion specs across persistent scalar retargets", 
   cancelDomAnimations(element)
 })
 
-test("Vune forwards spring blendDuration into the precompiled engine plan", () => {
+test("Mun forwards spring blendDuration into the precompiled engine plan", () => {
   const animation = Animation.spring(0.4, 0.8, 0.12).speed(2)
   const spec = motionSpecForAnimation(animation)
   assert.equal(spec.kind, "spring")
   assert.equal(spec.blendDuration, 0.06)
 })
 
-test("Vune motion plan applies delay and finite autoreversing iterations without rebuilding the channel", async () => {
+test("Mun motion plan applies delay and finite autoreversing iterations without rebuilding the channel", async () => {
   const element = fakeElement({ opacity: "0" })
   const animation = Animation.linear(0.008).delay(0.02).repeatCount(2, true)
   assert.equal(animateDomStyle(element, "opacity", "0", 1, animation), true)
@@ -200,7 +200,7 @@ test("shared element motion keeps CSS properties independently cancellable", asy
       removeProperty(name) { values.delete(name) },
     },
   }
-  const engine = new VuneMotionEngine()
+  const engine = new MunMotionEngine()
   engine.animateElement(element, [
     { opacity: 0, transform: "translateX(0px)" },
     { opacity: 1, transform: "translateX(40px)" },
@@ -232,7 +232,7 @@ test("shared element motion interpolates multi-keyframe fallback tracks", async 
       removeProperty(name) { values.delete(name) },
     },
   }
-  const engine = new VuneMotionEngine()
+  const engine = new MunMotionEngine()
   const handle = engine.animateElement(element, [
     { offset: 0, opacity: 0 },
     { offset: 0.5, opacity: 1 },

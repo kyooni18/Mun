@@ -9,10 +9,11 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const manifests = [
   'package.json',
   'packages/animation/package.json',
+  'packages/astro/package.json',
   'packages/compiler/package.json',
   'packages/core/package.json',
   'packages/execution/package.json',
-  'packages/create-vune-ui/package.json',
+  'packages/create-mun/package.json',
   'packages/legacy-react/package.json',
   'packages/react/package.json',
   'packages/vite/package.json',
@@ -24,12 +25,12 @@ function readJSON(relative) {
   return JSON.parse(readFileSync(resolve(root, relative), 'utf8'))
 }
 
-test('workspace-internal dependencies never require a published Vune package during development', () => {
+test('workspace-internal dependencies never require a published Mun package during development', () => {
   for (const relative of manifests) {
     const manifest = readJSON(relative)
     for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
       for (const [name, specifier] of Object.entries(manifest[field] ?? {})) {
-        if (name === 'vune-ui' || name.startsWith('@vune-ui/')) {
+        if (name === '@mun/ui' || name.startsWith('@mun/')) {
           assert.equal(specifier, 'workspace:*', `${relative} ${field}.${name}`)
         }
       }
@@ -37,17 +38,18 @@ test('workspace-internal dependencies never require a published Vune package dur
   }
 })
 
-test('canonical root installs the published Vune packages together', () => {
+test('canonical root installs the published Mun packages together', () => {
   const manifest = readJSON('package.json')
   for (const name of [
-    '@vune-ui/animation',
-    '@vune-ui/compiler',
-    '@vune-ui/core',
-    '@vune-ui/execution',
-    '@vune-ui/react',
-    '@vune-ui/vite',
-    '@vune-ui/vue',
-    '@vune-ui/web',
+    '@mun/animation',
+    '@mun/astro',
+    '@mun/compiler',
+    '@mun/core',
+    '@mun/execution',
+    '@mun/react',
+    '@mun/vite',
+    '@mun/vue',
+    '@mun/web',
   ]) assert.equal(manifest.dependencies[name], 'workspace:*')
   assert.equal(manifest.peerDependencies, undefined)
   assert.equal(manifest.peerDependenciesMeta, undefined)

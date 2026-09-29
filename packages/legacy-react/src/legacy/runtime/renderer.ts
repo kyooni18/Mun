@@ -1,7 +1,7 @@
 import { Fragment, cloneElement, createElement, isValidElement, type ReactElement, type ReactNode } from 'react'
 import { isViewNode, markViewNode, viewGraphChild, type ViewGraphValue, type ViewHostNode, type ViewModifierNode, type ViewNode } from './view-graph.js'
-import type { CompiledTemplateValue } from '@vune-ui/core'
-import { zeroGeometry } from '@vune-ui/core'
+import type { CompiledTemplateValue } from '@mun/core/compat'
+import { zeroGeometry } from '@mun/core/compat'
 import { arrayCheck, snapshotArrayValues } from './arrays.js'
 
 export type RendererChild<Output> = Output | readonly RendererChild<Output>[]
@@ -11,7 +11,7 @@ export type RendererChild<Output> = Output | readonly RendererChild<Output>[]
  * initializer selection can stay renderer-agnostic; this adapter materializes
  * the graph for React today and leaves another renderer possible later.
  */
-export interface VuneRenderer<Output = ReactNode> {
+export interface MunRenderer<Output = ReactNode> {
   element(type: unknown, props?: object | null, ...children: RendererChild<Output>[]): Output
   fragment(children: readonly RendererChild<Output>[]): Output
   /** Materialize a renderer-neutral leaf such as text, null, or a number. */
@@ -25,7 +25,7 @@ export interface VuneRenderer<Output = ReactNode> {
 
 function renderCompiledTemplateValue<Output>(
   value: CompiledTemplateValue,
-  renderer: VuneRenderer<Output>,
+  renderer: MunRenderer<Output>,
   renderSlot: (index: number) => Output,
 ): Output {
   if (value !== null && typeof value === 'object') {
@@ -39,10 +39,10 @@ function renderCompiledTemplateValue<Output>(
 /** Traverse a renderer-neutral View graph with the supplied materializer. */
 export function renderViewNode<Output>(
   value: ViewGraphValue,
-  renderer: VuneRenderer<Output>,
+  renderer: MunRenderer<Output>,
 ): RendererChild<Output> {
   const array = arrayCheck(value)
-  if (array === undefined) throw new TypeError('Legacy Vune View graph array inputs must be inspectable')
+  if (array === undefined) throw new TypeError('Legacy Mün View graph array inputs must be inspectable')
   if (array) {
     return snapshotArrayValues(value as readonly unknown[]).map(child => renderViewNode(child as ViewGraphValue, renderer)) as unknown as RendererChild<Output>
   }
@@ -51,7 +51,7 @@ export function renderViewNode<Output>(
     if (renderer.view) return renderer.view(value)
     const rendered = value.render(value.props)
     const renderedArray = arrayCheck(rendered)
-    if (renderedArray === undefined) throw new TypeError('Legacy Vune View graph array inputs must be inspectable')
+    if (renderedArray === undefined) throw new TypeError('Legacy Mün View graph array inputs must be inspectable')
     const graphValue = renderedArray
       ? snapshotArrayValues(rendered as readonly unknown[]).map(child => viewGraphChild(child as ReactNode | ViewNode)) as unknown as ViewGraphValue
       : viewGraphChild(rendered as ReactNode | ViewNode)
@@ -91,7 +91,7 @@ export function renderViewNode<Output>(
   )
 }
 
-export const reactRenderer: VuneRenderer<ReactNode> = {
+export const reactRenderer: MunRenderer<ReactNode> = {
   element(type, props, ...children) {
     return createElement(type as any, props as any, ...children)
   },

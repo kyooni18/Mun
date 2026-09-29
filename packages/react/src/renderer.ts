@@ -35,14 +35,14 @@ import {
   type CompiledTemplateValue,
   type GeometryProxy,
   type ModifiableViewNode,
-  type VuneRenderer,
+  type MunRenderer,
   type StateRef,
   type Transaction,
   type ViewGraphValue,
   type ViewHostNode,
   type ViewModifierNode,
-} from "@vune-ui/core"
-import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@vune-ui/core/internal/runtime"
+} from "@mun/core/compat"
+import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@mun/core/internal/runtime"
 import {
   keyedCollectionEntryKey,
   keyedCollectionEntries,
@@ -50,9 +50,9 @@ import {
   type KeyedCollectionEntry,
   type KeyedCollectionViewNode,
   type StateMutationBatch,
-} from "@vune-ui/core/internal/runtime"
-import type { GPUIslandViewNode } from "@vune-ui/core/internal/runtime"
-import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@vune-ui/core/corners"
+} from "@mun/core/internal/runtime"
+import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
+import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@mun/core/corners"
 import { attachContinuousCorners, disposeContinuousCorners, isContinuousCornerStyle } from "./continuous-corners.js"
 
 function setForwardedRef(reference: unknown, value: HTMLElement | null): void {
@@ -108,7 +108,7 @@ function ReactGPUIslandCanvas({ node }: { readonly node: GPUIslandViewNode }): R
   const canvas = useRef<HTMLCanvasElement | null>(null)
   useEffect(() => {
     if (!canvas.current) return
-    canvas.current.dataset.vuneGpuBackend = node.ir.fallback === "canvas" ? "cpu-canvas" : "static"
+    canvas.current.dataset.munGpuBackend = node.ir.fallback === "canvas" ? "cpu-canvas" : "static"
     return runReactParticleFallback(canvas.current, node)
   }, [node])
   return createElement("canvas", {
@@ -118,11 +118,11 @@ function ReactGPUIslandCanvas({ node }: { readonly node: GPUIslandViewNode }): R
     className: node.options.class,
     style: node.options.style as CSSProperties | undefined,
     "aria-label": node.options.ariaLabel,
-    "data-vune-gpu-island": node.ir.id,
-    "data-vune-gpu-kind": node.ir.kind,
-    "data-vune-gpu-owner": "react",
-    "data-vune-gpu-readback": "forbidden",
-    "data-vune-gpu-fallback": node.ir.fallback,
+    "data-mun-gpu-island": node.ir.id,
+    "data-mun-gpu-kind": node.ir.kind,
+    "data-mun-gpu-owner": "react",
+    "data-mun-gpu-readback": "forbidden",
+    "data-mun-gpu-fallback": node.ir.fallback,
   })
 }
 
@@ -171,7 +171,7 @@ function alignmentCSSPlace(value: unknown, fallback = "center"): string {
   }
 }
 
-const filterTemplate = "blur(var(--vune-blur,0px)) brightness(var(--vune-brightness,1)) contrast(var(--vune-contrast,1)) saturate(var(--vune-saturation,1)) grayscale(var(--vune-grayscale,0)) hue-rotate(var(--vune-hue-rotation,0deg)) invert(var(--vune-color-invert,0))"
+const filterTemplate = "blur(var(--mun-blur,0px)) brightness(var(--mun-brightness,1)) contrast(var(--mun-contrast,1)) saturate(var(--mun-saturation,1)) grayscale(var(--mun-grayscale,0)) hue-rotate(var(--mun-hue-rotation,0deg)) invert(var(--mun-color-invert,0))"
 const finite = (value: unknown, fallback: number): number => typeof value === "number" && Number.isFinite(value) ? value : fallback
 const fontWeights: Readonly<Record<string, number>> = Object.freeze({ ultraLight: 100, thin: 200, light: 300, regular: 400, medium: 500, semibold: 600, bold: 700, heavy: 800, black: 900 })
 
@@ -237,11 +237,11 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
       result = { style: lines ? { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: lines, overflow: "hidden", minHeight: modifier.arguments[1] ? `${lines}lh` : undefined } : { WebkitLineClamp: "unset" } }
       break
     }
-    case "minimumScaleFactor": result = { style: { "--vune-minimum-scale-factor": Math.max(0, Math.min(1, finite(value, 1))) } as CSSProperties }; break
+    case "minimumScaleFactor": result = { style: { "--mun-minimum-scale-factor": Math.max(0, Math.min(1, finite(value, 1))) } as CSSProperties }; break
     case "multilineTextAlignment": result = { style: { textAlign: value === "leading" ? "start" : value === "trailing" ? "end" : "center" } }; break
     case "truncationMode": result = { style: { textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", direction: value === "head" ? "rtl" : undefined } }; break
     case "textCase": result = { style: { textTransform: value === "uppercase" ? "uppercase" : value === "lowercase" ? "lowercase" : "none" } }; break
-    case "allowsTightening": result = { style: { "--vune-allows-tightening": value === false ? 0 : 1 } as CSSProperties }; break
+    case "allowsTightening": result = { style: { "--mun-allows-tightening": value === false ? 0 : 1 } as CSSProperties }; break
     case "foreground":
     case "foregroundStyle": result = { style: { color: value } }; break
     case "background": result = { style: { background: value, backgroundPosition: alignmentCSSPosition(modifier.arguments[1]) } }; break
@@ -279,7 +279,7 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "scaledToFit": result = { style: { objectFit: "contain", maxWidth: "100%", maxHeight: "100%" } }; break
     case "scaledToFill": result = { style: { objectFit: "cover", width: "100%", height: "100%" } }; break
     case "fixedSize": result = { style: { width: value !== false ? "max-content" : undefined, height: modifier.arguments[1] !== false ? "max-content" : undefined } }; break
-    case "layoutPriority": result = { style: { flexShrink: finite(value, 0) > 0 ? 0 : 1, "--vune-layout-priority": finite(value, 0) } as CSSProperties }; break
+    case "layoutPriority": result = { style: { flexShrink: finite(value, 0) > 0 ? 0 : 1, "--mun-layout-priority": finite(value, 0) } as CSSProperties }; break
     case "position": {
       const x = typeof value === "number" ? value : finite((value as { x?: unknown } | undefined)?.x, 0)
       const y = typeof value === "number" ? finite(modifier.arguments[1], 0) : finite((value as { y?: unknown } | undefined)?.y, 0)
@@ -306,25 +306,25 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "clipped": result = { style: { overflow: "hidden" } }; break
     case "border": result = { style: { border: `${layoutLength(modifier.arguments[1] ?? 1) ?? "1px"} solid ${String(value)}` } }; break
     case "shadow": result = { style: { boxShadow: `${finite(modifier.arguments[2], 0)}px ${finite(modifier.arguments[3], 0)}px ${Math.max(0, finite(modifier.arguments[1], 0))}px ${String(value)}` } }; break
-    case "blur": result = { style: { filter: filterTemplate, "--vune-blur": `${Math.max(0, finite(value, 0))}px` } as CSSProperties }; break
-    case "brightness": result = { style: { filter: filterTemplate, "--vune-brightness": Math.max(0, 1 + finite(value, 0)) } as CSSProperties }; break
-    case "contrast": result = { style: { filter: filterTemplate, "--vune-contrast": Math.max(0, finite(value, 1)) } as CSSProperties }; break
-    case "saturation": result = { style: { filter: filterTemplate, "--vune-saturation": Math.max(0, finite(value, 1)) } as CSSProperties }; break
-    case "grayscale": result = { style: { filter: filterTemplate, "--vune-grayscale": Math.max(0, Math.min(1, finite(value, 0))) } as CSSProperties }; break
-    case "hueRotation": result = { style: { filter: filterTemplate, "--vune-hue-rotation": `${finite(value, 0)}deg` } as CSSProperties }; break
-    case "colorInvert": result = { style: { filter: filterTemplate, "--vune-color-invert": 1 } as CSSProperties }; break
-    case "colorMultiply": result = { style: { "--vune-color-multiply": String(value) } as CSSProperties }; break
+    case "blur": result = { style: { filter: filterTemplate, "--mun-blur": `${Math.max(0, finite(value, 0))}px` } as CSSProperties }; break
+    case "brightness": result = { style: { filter: filterTemplate, "--mun-brightness": Math.max(0, 1 + finite(value, 0)) } as CSSProperties }; break
+    case "contrast": result = { style: { filter: filterTemplate, "--mun-contrast": Math.max(0, finite(value, 1)) } as CSSProperties }; break
+    case "saturation": result = { style: { filter: filterTemplate, "--mun-saturation": Math.max(0, finite(value, 1)) } as CSSProperties }; break
+    case "grayscale": result = { style: { filter: filterTemplate, "--mun-grayscale": Math.max(0, Math.min(1, finite(value, 0))) } as CSSProperties }; break
+    case "hueRotation": result = { style: { filter: filterTemplate, "--mun-hue-rotation": `${finite(value, 0)}deg` } as CSSProperties }; break
+    case "colorInvert": result = { style: { filter: filterTemplate, "--mun-color-invert": 1 } as CSSProperties }; break
+    case "colorMultiply": result = { style: { "--mun-color-multiply": String(value) } as CSSProperties }; break
     case "blendMode": result = { style: { mixBlendMode: value === "colorDodge" ? "color-dodge" : value === "colorBurn" ? "color-burn" : value === "softLight" ? "soft-light" : value === "hardLight" ? "hard-light" : value === "plusLighter" ? "plus-lighter" : value } }; break
     case "compositingGroup": result = { style: { isolation: "isolate" } }; break
     case "drawingGroup": result = { style: { isolation: "isolate", contain: "paint" } }; break
     case "luminanceToAlpha": result = { style: { filter: `${filterTemplate} grayscale(1)` } }; break
     case "tint": {
       const tint = typeof value === "string" ? value : undefined
-      result = { style: { accentColor: tint ?? "auto", "--vune-tint": tint ?? "initial" } }
+      result = { style: { accentColor: tint ?? "auto", "--mun-tint": tint ?? "initial" } }
       break
     }
-    case "backgroundStyle": result = { style: { background: String(value), "--vune-background-style": String(value) } as CSSProperties }; break
-    case "dynamicTypeSize": result = { style: { "--vune-dynamic-type-size": String(value) } as CSSProperties }; break
+    case "backgroundStyle": result = { style: { background: String(value), "--mun-background-style": String(value) } as CSSProperties }; break
+    case "dynamicTypeSize": result = { style: { "--mun-dynamic-type-size": String(value) } as CSSProperties }; break
     case "disabled": result = value === true ? { disabled: true, inert: true, "aria-disabled": true } : { disabled: false, inert: false, "aria-disabled": false }; break
     case "hidden": result = { style: { visibility: "hidden" } }; break
     case "allowsHitTesting": result = { style: { pointerEvents: value === false ? "none" : "auto" } }; break
@@ -337,15 +337,15 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "onLongPressGesture": result = longPressProps(modifier); break
     case "onHover": result = typeof value === "function" ? { onPointerEnter: () => value(true), onPointerLeave: () => value(false) } : {}; break
     case "preferredColorScheme": result = { style: { colorScheme: value === "light" || value === "dark" ? value : "normal" } }; break
-    case "controlSize": result = { style: { "--vune-control-size": String(value) } as CSSProperties }; break
-    case "buttonStyle": result = { style: { "--vune-button-style": String(value) } as CSSProperties }; break
-    case "toggleStyle": result = { style: { "--vune-toggle-style": String(value) } as CSSProperties }; break
-    case "pickerStyle": result = { style: { "--vune-picker-style": String(value) } as CSSProperties }; break
-    case "textFieldStyle": result = { style: { "--vune-text-field-style": String(value) } as CSSProperties }; break
-    case "textEditorStyle": result = { style: { "--vune-text-editor-style": String(value) } as CSSProperties }; break
-    case "listStyle": result = { style: { "--vune-list-style": String(value) } as CSSProperties }; break
-    case "labelStyle": result = { style: { "--vune-label-style": String(value) } as CSSProperties }; break
-    case "progressViewStyle": result = { style: { "--vune-progress-view-style": String(value) } as CSSProperties }; break
+    case "controlSize": result = { style: { "--mun-control-size": String(value) } as CSSProperties }; break
+    case "buttonStyle": result = { style: { "--mun-button-style": String(value) } as CSSProperties }; break
+    case "toggleStyle": result = { style: { "--mun-toggle-style": String(value) } as CSSProperties }; break
+    case "pickerStyle": result = { style: { "--mun-picker-style": String(value) } as CSSProperties }; break
+    case "textFieldStyle": result = { style: { "--mun-text-field-style": String(value) } as CSSProperties }; break
+    case "textEditorStyle": result = { style: { "--mun-text-editor-style": String(value) } as CSSProperties }; break
+    case "listStyle": result = { style: { "--mun-list-style": String(value) } as CSSProperties }; break
+    case "labelStyle": result = { style: { "--mun-label-style": String(value) } as CSSProperties }; break
+    case "progressViewStyle": result = { style: { "--mun-progress-view-style": String(value) } as CSSProperties }; break
     case "scrollDisabled": result = { style: value === true ? { overflow: "hidden" } : {} }; break
     case "scrollIndicators": result = { style: value === "hidden" ? { scrollbarWidth: "none" } : {} }; break
     case "scrollBounceBehavior": result = { style: { overscrollBehavior: value === "always" || value === "basedOnSize" ? "auto" : "none" } }; break
@@ -354,12 +354,12 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "listRowBackground": result = { style: typeof value === "string" ? { background: value } : {} }; break
     case "listRowSeparator":
     case "listSectionSeparator": result = { style: value === "hidden" ? { borderBlockStyle: "none" } : value === "visible" ? { borderBlockStyle: "solid" } : {} }; break
-    case "symbolRenderingMode": result = { style: { "--vune-symbol-rendering-mode": value == null ? "automatic" : String(value) } as CSSProperties }; break
-    case "symbolVariant": result = { style: { "--vune-symbol-variant": String(value) } as CSSProperties }; break
-    case "id": result = { "data-vune-id": String(value), key: value }; break
+    case "symbolRenderingMode": result = { style: { "--mun-symbol-rendering-mode": value == null ? "automatic" : String(value) } as CSSProperties }; break
+    case "symbolVariant": result = { style: { "--mun-symbol-variant": String(value) } as CSSProperties }; break
+    case "id": result = { "data-mun-id": String(value), key: value }; break
     case "onSubmit": result = typeof value === "function" ? { onSubmit: (event: { preventDefault?: () => void }) => { event.preventDefault?.(); value() } } : {}; break
     case "focusable": result = value === false ? { tabIndex: -1 } : { tabIndex: 0, ...(typeof modifier.arguments[1] === "function" ? { onFocus: () => (modifier.arguments[1] as (focused: boolean) => void)(true), onBlur: () => (modifier.arguments[1] as (focused: boolean) => void)(false) } : {}) }; break
-    case "draggable": result = { draggable: true, onDragStart: (event: { dataTransfer?: { setData?: (type: string, value: string) => void } }) => { let serialized = String(value); try { serialized = typeof value === "string" ? value : JSON.stringify(value) } catch {}; event.dataTransfer?.setData?.("application/x-vune+json", serialized) } }; break
+    case "draggable": result = { draggable: true, onDragStart: (event: { dataTransfer?: { setData?: (type: string, value: string) => void } }) => { let serialized = String(value); try { serialized = typeof value === "string" ? value : JSON.stringify(value) } catch {}; event.dataTransfer?.setData?.("application/x-mun+json", serialized) } }; break
     case "dropDestination": {
       const action = modifier.arguments[1]
       const targeted = modifier.arguments[2]
@@ -367,7 +367,7 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
         onDragEnter: (event: { preventDefault?: () => void }) => { event.preventDefault?.(); if (typeof targeted === "function") targeted(true) },
         onDragOver: (event: { preventDefault?: () => void }) => event.preventDefault?.(),
         onDragLeave: () => { if (typeof targeted === "function") targeted(false) },
-        onDrop: (event: { preventDefault?: () => void; clientX?: number; clientY?: number; dataTransfer?: { getData?: (type: string) => string } }) => { event.preventDefault?.(); if (typeof targeted === "function") targeted(false); const raw = event.dataTransfer?.getData?.("application/x-vune+json") ?? ""; let item: unknown = raw; try { item = JSON.parse(raw) } catch {}; action([item], { x: finite(event.clientX, 0), y: finite(event.clientY, 0) }) },
+        onDrop: (event: { preventDefault?: () => void; clientX?: number; clientY?: number; dataTransfer?: { getData?: (type: string) => string } }) => { event.preventDefault?.(); if (typeof targeted === "function") targeted(false); const raw = event.dataTransfer?.getData?.("application/x-mun+json") ?? ""; let item: unknown = raw; try { item = JSON.parse(raw) } catch {}; action([item], { x: finite(event.clientX, 0), y: finite(event.clientY, 0) }) },
       } : {}; break
     }
     case "scrollDismissesKeyboard": result = value === "never" ? {} : { onScroll(event: { currentTarget?: { ownerDocument?: Document } }) { const active = event?.currentTarget?.ownerDocument?.activeElement as HTMLElement | null | undefined; active?.blur?.() } }; break
@@ -382,7 +382,7 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "accessibilityAction": result = typeof modifier.arguments[1] === "function" ? { "data-accessibility-action": String(value), onClick: modifier.arguments[1] } : {}; break
     case "continuousCorners": {
       const smoothing = typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : APPLE_CONTINUOUS_CORNER_SMOOTHING
-      result = { style: { cornerShape: "squircle", "--vune-corner-style": "continuous", "--vune-corner-smoothing": smoothing, "--vune-corner-preserve-smoothing": 1 } }
+      result = { style: { cornerShape: "squircle", "--mun-corner-style": "continuous", "--mun-corner-smoothing": smoothing, "--mun-corner-preserve-smoothing": 1 } }
       break
     }
     case "style": result = { style: value }; break
@@ -527,7 +527,7 @@ function directCollectionPropsSafe(props: Record<string, unknown> | null): boole
       const descriptor = Object.getOwnPropertyDescriptor(props, key)
       if (!descriptor || !("value" in descriptor)) return false
       const value = descriptor.value
-      if (directCollectionUnsafeProps.has(key) || key.startsWith("data-vune-") || /^on[a-z]/i.test(key)) return false
+      if (directCollectionUnsafeProps.has(key) || key.startsWith("data-mun-") || /^on[a-z]/i.test(key)) return false
       if (key === "style") {
         if (value === undefined || value === null || typeof value === "string") continue
         if (typeof value !== "object") return false
@@ -936,7 +936,7 @@ function ReactCollectionHost({
 }
 
 function normalizeForeignProps(
-  type: Parameters<NonNullable<VuneRenderer<ReactNode>["element"]>>[0],
+  type: Parameters<NonNullable<MunRenderer<ReactNode>["element"]>>[0],
   props: Record<string, unknown> | null,
   children: ReactNode[],
 ): Record<string, unknown> | null {
@@ -1139,7 +1139,7 @@ function GeometryHost({ render }: { render: (geometry: GeometryProxy) => ReactNo
       try { view?.removeEventListener("resize", update) } catch { /* best-effort cleanup */ }
     }
   }, [])
-  return createElement("div", { ref: host, "data-vune": "GeometryReader", style: { boxSizing: "border-box", width: "100%" } }, reactive.value)
+  return createElement("div", { ref: host, "data-mun": "GeometryReader", style: { boxSizing: "border-box", width: "100%" } }, reactive.value)
 }
 
 function renderStatefulView({ node, ...forwardedProps }: { node: ViewHostNode } & Record<string, unknown>): ReactNode {
@@ -1179,7 +1179,7 @@ function compileReactTemplate(value: CompiledTemplateValue): ReactTemplateFactor
   return () => staticValue
 }
 
-const renderer: VuneRenderer<ReactNode> = {
+const renderer: MunRenderer<ReactNode> = {
   element(type, props, ...children) {
     const component = isForeignComponent(type) ? type.component : type
     const normalizedProps = normalizeForeignProps(type, props, children)
@@ -1237,8 +1237,8 @@ export function render(value: ViewGraphValue): ReactNode {
   return renderViewNode(value, renderer)
 }
 
-/** Subscribe a React component to a Vune State without making State a React primitive. */
-export function useVuneState<T>(state: StateRef<T>): T {
+/** Subscribe a React component to a Mun State without making State a React primitive. */
+export function useMunState<T>(state: StateRef<T>): T {
   useSyncExternalStore(
     listener => subscribeState(state, listener),
     () => stateVersion(state),
@@ -1247,7 +1247,7 @@ export function useVuneState<T>(state: StateRef<T>): T {
   return state.value
 }
 
-export interface VuneViewProps<Props extends Record<string, unknown> = Record<string, unknown>> {
+export interface MunViewProps<Props extends Record<string, unknown> = Record<string, unknown>> {
   readonly value?: ViewGraphValue
   readonly render?: () => ViewGraphValue
   /** Compatibility graph factory used by the existing `view()` adapter. */
@@ -1255,7 +1255,7 @@ export interface VuneViewProps<Props extends Record<string, unknown> = Record<st
   readonly props?: Props
 }
 
-export function VuneView<Props extends Record<string, unknown> = Record<string, unknown>>({ value, render: renderBody, body, props }: VuneViewProps<Props>): ReactNode {
+export function MunView<Props extends Record<string, unknown> = Record<string, unknown>>({ value, render: renderBody, body, props }: MunViewProps<Props>): ReactNode {
   const factory = renderBody ?? (body ? () => body(props ?? {} as Props) : undefined)
   return createElement(RenderValue, { value, body: factory })
 }
@@ -1264,7 +1264,7 @@ export function VuneView<Props extends Record<string, unknown> = Record<string, 
 export function createReactView<Props extends Record<string, unknown> = Record<string, unknown>>(
   body: (props: Props) => ViewGraphValue,
 ): (props: Props) => ReactNode {
-  return (props: Props) => createElement(VuneView<Props>, { body, props })
+  return (props: Props) => createElement(MunView<Props>, { body, props })
 }
 
 export interface StatefulViewDefinition<State extends object, Props extends object = Record<string, unknown>> {
@@ -1276,7 +1276,7 @@ export interface StatefulViewDefinition<State extends object, Props extends obje
   readonly body: (state: State, props: Props) => ViewGraphValue
 }
 
-function StatefulVuneView<State extends object, Props extends object>({
+function StatefulMunView<State extends object, Props extends object>({
   definition,
   props,
 }: {
@@ -1295,7 +1295,7 @@ function StatefulVuneView<State extends object, Props extends object>({
 export function statefulView<State extends object, Props extends object = Record<string, unknown>>(
   definition: StatefulViewDefinition<State, Props>,
 ): (props: Props) => ReactNode {
-  return (props: Props) => createElement(StatefulVuneView as any, { definition, props })
+  return (props: Props) => createElement(StatefulMunView as any, { definition, props })
 }
 
 export function view<State extends object, Props extends object = Record<string, unknown>>(
@@ -1306,7 +1306,7 @@ export function view<Props extends Record<string, unknown> = Record<string, unkn
 ): (props: Props) => ReactNode
 export function view(input: ((props: Record<string, unknown>) => ViewGraphValue) | StatefulViewDefinition<object, Record<string, unknown>>): (props: Record<string, unknown>) => ReactNode {
   if (typeof input === "function") return createReactView(input)
-  return (props: Record<string, unknown>) => createElement(StatefulVuneView as any, { definition: input, props })
+  return (props: Record<string, unknown>) => createElement(StatefulMunView as any, { definition: input, props })
 }
 
 export interface ReactMountOptions {
@@ -1315,7 +1315,7 @@ export interface ReactMountOptions {
 
 /** Mount a graph into a React-managed DOM root, optionally hydrating SSR markup. */
 export function mount(value: ViewGraphValue, target: Element, options: ReactMountOptions = {}): () => void {
-  const element = createElement(VuneView, { value })
+  const element = createElement(MunView, { value })
   let root: Root
   if (options.hydrate) {
     root = hydrateRoot(target, element)
@@ -1326,7 +1326,7 @@ export function mount(value: ViewGraphValue, target: Element, options: ReactMoun
   return () => root.unmount()
 }
 
-export function createRenderer(): VuneRenderer<ReactNode> {
+export function createRenderer(): MunRenderer<ReactNode> {
   return renderer
 }
 

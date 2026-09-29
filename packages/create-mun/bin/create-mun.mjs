@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// `npm/pnpm create vune-ui <directory>` invokes the create-vune-ui binary with
+// `npm/pnpm create mun <directory>` invokes the create-mun binary with
 // the directory as its first argument. Reuse the canonical CLI so both entry
 // points always scaffold the same project.
 process.argv = [
@@ -12,11 +12,11 @@ process.argv = [
 
 let cliSpecifier
 try {
-  cliSpecifier = import.meta.resolve('vune-ui/cli')
+  cliSpecifier = import.meta.resolve('@mun/ui/cli')
 } catch {
   // Allows the workspace source package to be exercised before pnpm creates
   // its node_modules link. Published packages resolve the dependency above.
-  cliSpecifier = new URL('../../../bin/vune-ui.mjs', import.meta.url).href
+  cliSpecifier = new URL('../../../bin/mun.mjs', import.meta.url).href
 }
 
 await import(cliSpecifier)

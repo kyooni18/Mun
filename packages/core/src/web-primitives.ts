@@ -37,7 +37,7 @@ export const TextEditor = defineBuiltinView<TextEditorProps>(
     [initializerKinds.binding(true, "text", "string"), initializerKinds.value(false, "placeholder", undefined, "string"), initializerKinds.value(false, "rows", undefined, "number")],
   )],
   ({ text, placeholder, rows }) => viewElement("textarea", {
-    "data-vune": "TextEditor",
+    "data-mun": "TextEditor",
     value: text.value,
     placeholder,
     rows,
@@ -61,7 +61,7 @@ export const FilePicker = defineBuiltinView<FilePickerProps>(
     [initializerKinds.action(true, "onPick", "function"), initializerKinds.value(false, "accept", undefined, "string"), initializerKinds.value(false, "multiple", undefined, "boolean")],
   )],
   ({ accept, multiple, disabled, onPick }) => viewElement("input", {
-    "data-vune": "FilePicker",
+    "data-mun": "FilePicker",
     type: "file",
     accept,
     multiple,
@@ -84,7 +84,7 @@ export const ContentEditable = defineBuiltinView<ContentEditableProps>(
     [initializerKinds.binding(true, "text", "string"), initializerKinds.value(false, "plaintextOnly", undefined, "boolean")],
   )],
   ({ text, plaintextOnly = true }) => viewElement("div", {
-    "data-vune": "ContentEditable",
+    "data-mun": "ContentEditable",
     contenteditable: plaintextOnly ? "plaintext-only" : "true",
     role: "textbox",
     onInput: (event: unknown) => { text.value = eventText(event) },
@@ -105,7 +105,7 @@ export const Canvas = defineBuiltinView<CanvasProps>(
     args => ({ width: args[0] as number | undefined, height: args[1] as number | undefined, reference: args[2] as ((canvas: unknown) => void) | undefined }),
     [initializerKinds.value(false, "width", undefined, "number"), initializerKinds.value(false, "height", undefined, "number"), initializerKinds.action(false, "reference", "function")],
   )],
-  ({ width, height, reference }) => viewElement("canvas", { "data-vune": "Canvas", width, height, ref: reference }),
+  ({ width, height, reference }) => viewElement("canvas", { "data-mun": "Canvas", width, height, ref: reference }),
 ) as TypedViewConstructor<CanvasProps, CanvasCall>
 
 export interface VideoProps {
@@ -120,7 +120,7 @@ interface VideoCall { (src: string, controls?: boolean): ModifiableViewNode }
 export const Video = defineBuiltinView<VideoProps>(
   "Video",
   [initializer("Video(src, controls?)", args => args.length >= 1 && args.length <= 2 && typeof args[0] === "string", args => ({ src: args[0] as string, controls: args[1] as boolean | undefined }), [initializerKinds.value(true, "src", undefined, "string"), initializerKinds.value(false, "controls", undefined, "boolean")])],
-  props => viewElement("video", { "data-vune": "Video", ...props }),
+  props => viewElement("video", { "data-mun": "Video", ...props }),
 ) as TypedViewConstructor<VideoProps, VideoCall>
 
 export interface AudioProps { readonly src: string; readonly controls?: boolean; readonly autoplay?: boolean; readonly loop?: boolean; readonly muted?: boolean }
@@ -128,7 +128,7 @@ interface AudioCall { (src: string, controls?: boolean): ModifiableViewNode }
 export const Audio = defineBuiltinView<AudioProps>(
   "Audio",
   [initializer("Audio(src, controls?)", args => args.length >= 1 && args.length <= 2 && typeof args[0] === "string", args => ({ src: args[0] as string, controls: args[1] as boolean | undefined }), [initializerKinds.value(true, "src", undefined, "string"), initializerKinds.value(false, "controls", undefined, "boolean")])],
-  props => viewElement("audio", { "data-vune": "Audio", ...props }),
+  props => viewElement("audio", { "data-mun": "Audio", ...props }),
 ) as TypedViewConstructor<AudioProps, AudioCall>
 
 export interface SvgProps { readonly viewBox?: string; readonly width?: number | string; readonly height?: number | string; readonly content: ViewValue[] }
@@ -136,7 +136,7 @@ interface SvgCall { (viewBox: string, content: ViewBuilderClosure): ModifiableVi
 export const Svg = defineBuiltinView<SvgProps>(
   "Svg",
   [initializer("Svg(viewBox, @ViewBuilder content)", args => args.length === 2 && typeof args[0] === "string" && typeof args[1] === "function", args => ({ viewBox: args[0] as string, content: resolveBuilderInput(args[1]) }), [initializerKinds.value(true, "viewBox", undefined, "string"), initializerKinds.viewBuilder(true, "content")])],
-  ({ viewBox, width, height, content }) => viewElement("svg", { "data-vune": "Svg", viewBox, width, height, xmlns: "http://www.w3.org/2000/svg" }, content),
+  ({ viewBox, width, height, content }) => viewElement("svg", { "data-mun": "Svg", viewBox, width, height, xmlns: "http://www.w3.org/2000/svg" }, content),
 ) as TypedViewConstructor<SvgProps, SvgCall>
 
 export interface PathProps { readonly d: string; readonly fill?: string; readonly stroke?: string; readonly strokeWidth?: number | string }
@@ -144,7 +144,7 @@ interface PathCall { (d: string): ModifiableViewNode }
 export const Path = defineBuiltinView<PathProps>(
   "Path",
   [initializer("Path(d)", args => args.length === 1 && typeof args[0] === "string", args => ({ d: args[0] as string }), [initializerKinds.value(true, "d", undefined, "string")])],
-  props => viewElement("path", { "data-vune": "Path", ...props }),
+  props => viewElement("path", { "data-mun": "Path", ...props }),
 ) as TypedViewConstructor<PathProps, PathCall>
 
 export interface FocusScopeProps { readonly content: ViewValue[]; readonly restoreFocus?: boolean }
@@ -152,7 +152,7 @@ interface FocusScopeCall { (content: ViewBuilderClosure): ModifiableViewNode }
 export const FocusScope = defineBuiltinView<FocusScopeProps>(
   "FocusScope",
   [initializer("FocusScope(@ViewBuilder content)", args => args.length === 1 && typeof args[0] === "function", args => ({ content: resolveBuilderInput(args[0]) }), [initializerKinds.viewBuilder(true, "content")])],
-  ({ content, restoreFocus = true }) => viewElement("div", { "data-vune": "FocusScope", "data-vune-focus-scope": restoreFocus ? "restore" : "contain" }, content),
+  ({ content, restoreFocus = true }) => viewElement("div", { "data-mun": "FocusScope", "data-mun-focus-scope": restoreFocus ? "restore" : "contain" }, content),
 ) as TypedViewConstructor<FocusScopeProps, FocusScopeCall>
 
 export interface PopoverProps { readonly isPresented: BindingRef<boolean>; readonly content: ViewValue[] }
@@ -161,8 +161,8 @@ export const Popover = defineBuiltinView<PopoverProps>(
   "Popover",
   [initializer("Popover(isPresented, @ViewBuilder content)", args => args.length === 2 && isBinding(args[0]) && typeof args[1] === "function", args => ({ isPresented: args[0] as BindingRef<boolean>, content: resolveBuilderInput(args[1]) }), [initializerKinds.binding(true, "isPresented", "boolean"), initializerKinds.viewBuilder(true, "content")])],
   ({ isPresented, content }) => isPresented.value ? viewElement("div", {
-    "data-vune": "Popover",
-    "data-vune-presentation": "popover",
+    "data-mun": "Popover",
+    "data-mun-presentation": "popover",
     popover: "auto",
     role: "dialog",
     onToggle: (event: { newState?: string }) => { if (event.newState === "closed" && isPresented.value) isPresented.value = false },

@@ -1,22 +1,22 @@
 import ts from "typescript"
 import { createSemanticModel } from "./semantic.js"
-import { transformVuneSource } from "./pipeline.js"
+import { transformMunSource } from "./pipeline.js"
 
-export interface VuneVueHostGenerationOptions {
+export interface MunVueHostGenerationOptions {
   /** View to expose when a file contains more than one struct View. */
   readonly viewName?: string
-  /** Module specifier used to import the compiled Vune View. */
+  /** Module specifier used to import the compiled Mün View. */
   readonly viewImport: string
-  /** Framework adapter that exports createVuneWebHost. */
+  /** Framework adapter that exports createMunWebHost. */
   readonly hostFactoryImport?: string
-  /** Optional legacy prop names keyed by Vune initializer field name. */
+  /** Optional legacy prop names keyed by Mun initializer field name. */
   readonly aliases?: Readonly<Record<string, string>>
   readonly initializerIndex?: number
   /** Emit TypeScript-only props declarations/assertions. Disable for Vite runtime transforms. */
   readonly emitTypes?: boolean
 }
 
-export interface VuneVueHostGenerationResult {
+export interface MunVueHostGenerationResult {
   readonly viewName: string
   readonly propsTypeName: string
   readonly code: string
@@ -37,15 +37,15 @@ function propertyName(value: string): string {
 
 /**
  * Generate a thin, typed Vue placement module from the same semantic model the
- * Vune compiler and IDE use. This is intentionally a migration tool: it moves
- * initializer/prop mapping to build time without making Vue part of Vune core.
+ * Mün compiler and IDE use. This is intentionally a migration tool: it moves
+ * initializer/prop mapping to build time without making Vue part of Mun core.
  */
 export function generateVueHostModule(
   source: string,
   fileName: string,
-  options: VuneVueHostGenerationOptions,
-): VuneVueHostGenerationResult {
-  const generatedSource = transformVuneSource(source, fileName)
+  options: MunVueHostGenerationOptions,
+): MunVueHostGenerationResult {
+  const generatedSource = transformMunSource(source, fileName)
   const model = createSemanticModel(source, fileName, generatedSource)
   const defaultExportName = model.typescript.statements.flatMap(statement => ts.isExportAssignment(statement)
     && !statement.isExportEquals
@@ -57,11 +57,11 @@ export function generateVueHostModule(
     : defaultExportName
       ? model.view(defaultExportName)
       : model.views[0]
-  if (!view) throw new TypeError(`No Vune View found in ${fileName}`)
+  if (!view) throw new TypeError(`No Mün View found in ${fileName}`)
   if (options.viewName && view.name !== options.viewName && view.qualifiedName !== options.viewName) {
-    throw new TypeError(`Vune View ${options.viewName} was not found in ${fileName}`)
+    throw new TypeError(`Mün View ${options.viewName} was not found in ${fileName}`)
   }
-  if (view.genericParameters) throw new TypeError(`Generic Vune View ${view.qualifiedName} cannot be emitted as a legacy Vue host`)
+  if (view.genericParameters) throw new TypeError(`Generic Mün View ${view.qualifiedName} cannot be emitted as a legacy Vue host`)
 
   const initializerIndex = options.initializerIndex ?? 0
   const initializer = view.initializers[initializerIndex]
@@ -91,8 +91,8 @@ export function generateVueHostModule(
   // fast Web placement for slotless Views, but use the Vue materializer at the
   // compatibility boundary when the initializer owns a ViewBuilder slot.
   const hostFactory = initializer?.parameters.some(parameter => parameter.kind === "viewBuilder")
-    ? "createVuneVueHost"
-    : "createVuneWebHost"
+    ? "createMunVueHost"
+    : "createMunWebHost"
   const propsDeclaration = properties.length > 0
     ? [`export interface ${propsTypeName} {`, ...properties, "}"].join("\n")
     : `export interface ${propsTypeName} {}`
@@ -103,7 +103,7 @@ export function generateVueHostModule(
   const code = emitTypes
     ? [
       viewImport,
-      `import { ${hostFactory} } from ${JSON.stringify(options.hostFactoryImport ?? "@/vune/compat-vue.js")}`,
+      `import { ${hostFactory} } from ${JSON.stringify(options.hostFactoryImport ?? "@/mun/compat-vue.js")}`,
       "",
       propsDeclaration,
       "",
@@ -113,7 +113,7 @@ export function generateVueHostModule(
     ].join("\n")
     : [
       viewImport,
-      `import { ${hostFactory} } from ${JSON.stringify(options.hostFactoryImport ?? "@/vune/compat-vue.js")}`,
+      `import { ${hostFactory} } from ${JSON.stringify(options.hostFactoryImport ?? "@/mun/compat-vue.js")}`,
       "",
       `const ${hostName} = ${hostFactory}(${view.name}${hostOptions})`,
       `export default ${hostName}`,

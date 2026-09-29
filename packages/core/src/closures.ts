@@ -1,17 +1,17 @@
-export type VuneClosureKind = "value" | "viewBuilder" | "action"
+export type MunClosureKind = "value" | "viewBuilder" | "action"
 
-export const vuneClosureKind = Symbol.for("vune.closure.kind")
-export const vuneClosureVariants = Symbol.for("vune.closure.variants")
+export const munClosureKind = Symbol.for("mun.closure.kind")
+export const munClosureVariants = Symbol.for("mun.closure.variants")
 
-export interface VuneClosureVariants {
+export interface MunClosureVariants {
   readonly value?: (...args: any[]) => any
   readonly viewBuilder?: (...args: any[]) => any
   readonly action?: (...args: any[]) => any
 }
 
-export type VuneClosure<T extends (...args: any[]) => any> = T & {
-  readonly [vuneClosureKind]?: VuneClosureKind
-  readonly [vuneClosureVariants]?: VuneClosureVariants
+export type MunClosure<T extends (...args: any[]) => any> = T & {
+  readonly [munClosureKind]?: MunClosureKind
+  readonly [munClosureVariants]?: MunClosureVariants
 }
 
 function ownDataValue(value: object, key: PropertyKey): unknown {
@@ -26,9 +26,9 @@ function ownDataValue(value: object, key: PropertyKey): unknown {
 export function overloadClosure<Args extends any[] = any[], Result = any>(
   viewBuilder: (...args: Args) => Result,
   action: (...args: Args) => unknown,
-): VuneClosure<(...args: Args) => Result> {
-  const closure = ((...args: Args) => viewBuilder(...args)) as VuneClosure<(...args: Args) => Result>
-  Object.defineProperty(closure, vuneClosureVariants, {
+): MunClosure<(...args: Args) => Result> {
+  const closure = ((...args: Args) => viewBuilder(...args)) as MunClosure<(...args: Args) => Result>
+  Object.defineProperty(closure, munClosureVariants, {
     configurable: false,
     enumerable: false,
     value: Object.freeze({ viewBuilder, action }),
@@ -36,11 +36,11 @@ export function overloadClosure<Args extends any[] = any[], Result = any>(
   return closure
 }
 
-export function closureVariantsOf(value: unknown): VuneClosureVariants | undefined {
+export function closureVariantsOf(value: unknown): MunClosureVariants | undefined {
   if (typeof value !== "function") return undefined
-  const variants = ownDataValue(value, vuneClosureVariants)
+  const variants = ownDataValue(value, munClosureVariants)
   if ((typeof variants !== "object" && typeof variants !== "function") || variants === null) return undefined
-  const snapshot: VuneClosureVariants = Object.freeze(Object.fromEntries(
+  const snapshot: MunClosureVariants = Object.freeze(Object.fromEntries(
     (["value", "viewBuilder", "action"] as const).flatMap(kind => {
       const variant = ownDataValue(variants, kind)
       return typeof variant === "function" ? [[kind, variant]] : []
@@ -49,40 +49,40 @@ export function closureVariantsOf(value: unknown): VuneClosureVariants | undefin
   return Object.keys(snapshot).length > 0 ? snapshot : undefined
 }
 
-export function closureForKind<T extends (...args: any[]) => any>(value: T, kind: VuneClosureKind): T {
+export function closureForKind<T extends (...args: any[]) => any>(value: T, kind: MunClosureKind): T {
   return (closureVariantsOf(value)?.[kind] ?? value) as T
 }
 
-export function markVuneClosure<T extends (...args: any[]) => any>(closure: T, kind: VuneClosureKind): VuneClosure<T> {
-  const current = ownDataValue(closure, vuneClosureKind)
-  if (current === kind) return closure as VuneClosure<T>
+export function markMunClosure<T extends (...args: any[]) => any>(closure: T, kind: MunClosureKind): MunClosure<T> {
+  const current = ownDataValue(closure, munClosureKind)
+  if (current === kind) return closure as MunClosure<T>
   if (current !== undefined) {
-    const wrapped = ((...args: any[]) => closure(...args)) as VuneClosure<T>
-    Object.defineProperty(wrapped, vuneClosureKind, { configurable: false, enumerable: false, value: kind })
+    const wrapped = ((...args: any[]) => closure(...args)) as MunClosure<T>
+    Object.defineProperty(wrapped, munClosureKind, { configurable: false, enumerable: false, value: kind })
     // Preserve overload variants across re-marking so closureForKind and
     // initializer scoring keep working on the wrapped closure.
-    const variants = ownDataValue(closure, vuneClosureVariants)
+    const variants = ownDataValue(closure, munClosureVariants)
     if (variants !== undefined && typeof variants === "object" && variants !== null) {
-      Object.defineProperty(wrapped, vuneClosureVariants, { configurable: false, enumerable: false, value: variants })
+      Object.defineProperty(wrapped, munClosureVariants, { configurable: false, enumerable: false, value: variants })
     }
     return wrapped
   }
   try {
-    Object.defineProperty(closure, vuneClosureKind, { configurable: false, enumerable: false, value: kind })
-    return closure as VuneClosure<T>
+    Object.defineProperty(closure, munClosureKind, { configurable: false, enumerable: false, value: kind })
+    return closure as MunClosure<T>
   } catch {
-    const wrapped = ((...args: any[]) => closure(...args)) as VuneClosure<T>
-    Object.defineProperty(wrapped, vuneClosureKind, { configurable: false, enumerable: false, value: kind })
+    const wrapped = ((...args: any[]) => closure(...args)) as MunClosure<T>
+    Object.defineProperty(wrapped, munClosureKind, { configurable: false, enumerable: false, value: kind })
     return wrapped
   }
 }
 
-export function closureKindOf(value: unknown): VuneClosureKind | undefined {
+export function closureKindOf(value: unknown): MunClosureKind | undefined {
   if (typeof value !== "function") return undefined
-  const kind = ownDataValue(value, vuneClosureKind)
+  const kind = ownDataValue(value, munClosureKind)
   return kind === "value" || kind === "viewBuilder" || kind === "action" ? kind : undefined
 }
 
-export const viewBuilderClosure = <T extends (...args: any[]) => any>(closure: T) => markVuneClosure(closure, "viewBuilder")
-export const actionClosure = <T extends (...args: any[]) => any>(closure: T) => markVuneClosure(closure, "action")
-export const valueClosure = <T extends (...args: any[]) => any>(closure: T) => markVuneClosure(closure, "value")
+export const viewBuilderClosure = <T extends (...args: any[]) => any>(closure: T) => markMunClosure(closure, "viewBuilder")
+export const actionClosure = <T extends (...args: any[]) => any>(closure: T) => markMunClosure(closure, "action")
+export const valueClosure = <T extends (...args: any[]) => any>(closure: T) => markMunClosure(closure, "value")

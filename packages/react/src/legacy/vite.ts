@@ -1,27 +1,27 @@
 import * as ts from 'typescript'
-import { transformVuneBuilderSyntax } from './compiler/builder-transform.js'
-import { transformVuneStructSyntax } from './compiler/struct-transform.js'
-import { createLegacyVuneSourceMap } from './compiler/source-map.js'
+import { transformMunBuilderSyntax } from './compiler/builder-transform.js'
+import { transformMunStructSyntax } from './compiler/struct-transform.js'
+import { createLegacyMunSourceMap } from './compiler/source-map.js'
 
-export interface VuneSourceMap {
+export interface MunSourceMap {
   readonly version: 3
   readonly file?: string
   readonly sources: readonly string[]
   readonly sourcesContent?: readonly string[]
   readonly names: readonly string[]
   readonly mappings: string
-  readonly x_vune?: {
+  readonly x_mun?: {
     readonly lineMappings: readonly { line: number; column: number }[]
   }
 }
 
-export interface VuneMacroPlugin {
+export interface MunMacroPlugin {
   name: string
   enforce: 'pre'
-  transform(this: VuneTransformContext, code: string, id: string): { code: string; map: VuneSourceMap | null } | null
+  transform(this: MunTransformContext, code: string, id: string): { code: string; map: MunSourceMap | null } | null
 }
 
-export interface VuneTransformContext {
+export interface MunTransformContext {
   warn(message: string): void
 }
 
@@ -127,12 +127,12 @@ function collectMacroDiagnostics(sourceFile: ts.SourceFile): MacroDiagnostic[] {
       } else if (!isConst) {
         diagnostics.push({
           start: declaration.getStart(sourceFile),
-          message: 'Top-level State declarations used by view() must use const so the Vune macro can make them instance-local.',
+          message: 'Top-level State declarations used by view() must use const so the Mun macro can make them instance-local.',
         })
       } else if (!ts.isIdentifier(declaration.name)) {
         diagnostics.push({
           start: declaration.getStart(sourceFile),
-          message: 'The Vune macro only hoists identifier State declarations; destructuring remains module-scoped.',
+          message: 'The Mun macro only hoists identifier State declarations; destructuring remains module-scoped.',
         })
       }
     }
@@ -347,7 +347,7 @@ interface SourceMapAnchor {
   originalOffset: number
 }
 
-function buildSourceMap(source: string, anchors: SourceMapAnchor[], id: string): VuneSourceMap {
+function buildSourceMap(source: string, anchors: SourceMapAnchor[], id: string): MunSourceMap {
   let previousOriginalLine = 0
   let previousOriginalColumn = 0
   let previousGeneratedLine = 0
@@ -372,14 +372,14 @@ function buildSourceMap(source: string, anchors: SourceMapAnchor[], id: string):
   return {
     version: 3,
     file: id.split('?', 1)[0] || undefined,
-    sources: [id.split('?', 1)[0] || 'vune-macro.ts'],
+    sources: [id.split('?', 1)[0] || 'mun-macro.ts'],
     sourcesContent: [source],
     names: [],
     mappings: lines.join(';'),
   }
 }
 
-function applyEditsWithMap(source: string, edits: Edit[], id: string): { code: string; map: VuneSourceMap } {
+function applyEditsWithMap(source: string, edits: Edit[], id: string): { code: string; map: MunSourceMap } {
   const sorted = [...edits].sort((left, right) => left.start - right.start)
   let cursor = 0
   let code = ''
@@ -412,7 +412,7 @@ function applyEditsWithMap(source: string, edits: Edit[], id: string): { code: s
     }
   }
 
-  append('/* @vune-ui-macro-transformed */\n', () => 0)
+  append('/* @mun-macro-transformed */\n', () => 0)
   for (const edit of sorted) {
     if (edit.start < cursor) continue
     append(source.slice(cursor, edit.start), index => cursor + index)
@@ -483,13 +483,13 @@ function replacementOrigins(
 
 interface MacroTransformResult {
   code: string
-  map: VuneSourceMap
+  map: MunSourceMap
   diagnostics: MacroDiagnostic[]
 }
 
-function hasVuneSyntax(source: string): boolean {
+function hasMunSyntax(source: string): boolean {
   const hasStruct = /\bstruct\s+[A-Z][A-Za-z0-9_$]*(?:\s*<[^>{}]*>)?\s*:\s*View\b/.test(source)
-  // Do not treat renderer.view(...) or another member call as the Vune view()
+  // Do not treat renderer.view(...) or another member call as the Mun view()
   // entry point. The macro runs before Vite resolves workspace packages, so a
   // false positive here can rewrite ordinary dependency JavaScript.
   const hasView = /(?:^|[^\w.$])view\s*\(/m.test(source)
@@ -501,9 +501,9 @@ function hasVuneSyntax(source: string): boolean {
     || /\.font\s*\(\s*\./.test(source)
 }
 
-function lowerVuneSyntax(source: string): string {
-  if (!hasVuneSyntax(source)) return source
-  const lowered = transformVuneBuilderSyntax(transformVuneStructSyntax(source))
+function lowerMunSyntax(source: string): string {
+  if (!hasMunSyntax(source)) return source
+  const lowered = transformMunBuilderSyntax(transformMunStructSyntax(source))
   const required = [
     ...( /\bBinding\s*\(/.test(lowered) ? ['Binding'] : []),
     ...( /\bnamedArguments\s*\(/.test(lowered) ? ['namedArguments'] : []),
@@ -511,25 +511,25 @@ function lowerVuneSyntax(source: string): string {
   ]
   if (required.length === 0) return lowered
 
-  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])vune-ui\/legacy\2[\t ]*;?/.exec(lowered)
-  if (!existing) return `import { ${required.join(', ')} } from 'vune-ui/legacy'\n${lowered}`
+  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun\/ui\/legacy\2[\t ]*;?/.exec(lowered)
+  if (!existing) return `import { ${required.join(', ')} } from '@mun/ui/legacy'\n${lowered}`
   const imported = existing[1].split(',').map(name => name.trim()).filter(Boolean)
   const merged = [...imported]
   for (const name of required) if (!merged.includes(name)) merged.push(name)
   if (merged.length === imported.length) return lowered
-  const replacement = `import { ${merged.join(', ')} } from 'vune-ui/legacy'`
+  const replacement = `import { ${merged.join(', ')} } from '@mun/ui/legacy'`
   return lowered.slice(0, existing.index) + replacement + lowered.slice(existing.index + existing[0].length)
 }
 
-function transformVuneMacrosWithMap(source: string, id = ''): MacroTransformResult | null {
-  if (source.includes('/* @vune-ui-macro-transformed */')) return null
+function transformMunMacrosWithMap(source: string, id = ''): MacroTransformResult | null {
+  if (source.includes('/* @mun-macro-transformed */')) return null
   if (id) {
     const pathname = id.split('?', 1)[0]
-    if (!/\.vune(?:\.tsx?)?$/i.test(pathname) && !/\.[cm]?[jt]sx?$/.test(pathname)) return null
+    if (!/\.mun(?:\.tsx?)?$/i.test(pathname) && !/\.[cm]?[jt]sx?$/.test(pathname)) return null
   }
 
   const sourceFile = ts.createSourceFile(
-    id.split('?', 1)[0] || 'vune-macro.ts',
+    id.split('?', 1)[0] || 'mun-macro.ts',
     source,
     ts.ScriptTarget.Latest,
     true,
@@ -574,26 +574,26 @@ function transformVuneMacrosWithMap(source: string, id = ''): MacroTransformResu
   return { ...applyEditsWithMap(source, edits, id), diagnostics }
 }
 
-export function vuneMacro(): VuneMacroPlugin {
+export function munMacro(): MunMacroPlugin {
   return {
-    name: 'vune-macro',
+    name: 'mun-macro',
     enforce: 'pre',
     transform(code, id) {
-      const lowered = lowerVuneSyntax(code)
-      const result = transformVuneMacrosWithMap(lowered, id)
+      const lowered = lowerMunSyntax(code)
+      const result = transformMunMacrosWithMap(lowered, id)
       if (result) {
         for (const diagnostic of result.diagnostics) {
           const location = sourceLocation(code, diagnostic.start)
-          this?.warn(`[vune-macro] ${id}:${location.line + 1}:${location.column + 1}: ${diagnostic.message}`)
+          this?.warn(`[mun-macro] ${id}:${location.line + 1}:${location.column + 1}: ${diagnostic.message}`)
         }
         return {
           code: result.code,
-          map: lowered === code ? result.map : createLegacyVuneSourceMap(code, result.code, id) as VuneSourceMap,
+          map: lowered === code ? result.map : createLegacyMunSourceMap(code, result.code, id) as MunSourceMap,
         }
       }
       return lowered === code
         ? null
-        : { code: lowered, map: createLegacyVuneSourceMap(code, lowered, id) as VuneSourceMap }
+        : { code: lowered, map: createLegacyMunSourceMap(code, lowered, id) as MunSourceMap }
     },
   }
 }
@@ -602,7 +602,7 @@ export function vuneMacro(): VuneMacroPlugin {
  * Transform helper kept as a string API for callers that do not need Vite's
  * source-map object. The Vite plugin uses the richer internal result above.
  */
-export function transformVuneMacros(source: string, id = ''): string | null {
-  const lowered = lowerVuneSyntax(source)
-  return transformVuneMacrosWithMap(lowered, id)?.code ?? (lowered === source ? null : lowered)
+export function transformMunMacros(source: string, id = ''): string | null {
+  const lowered = lowerMunSyntax(source)
+  return transformMunMacrosWithMap(lowered, id)?.code ?? (lowered === source ? null : lowered)
 }

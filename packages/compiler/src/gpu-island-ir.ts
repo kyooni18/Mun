@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 
-import type { GPUIslandGraphIR, GPUIslandViewOptions } from "@vune-ui/core/internal/runtime"
-import { gpuIslandView } from "@vune-ui/core/internal/runtime"
-import type { ModifiableViewNode } from "@vune-ui/core"
+import type { GPUIslandGraphIR, GPUIslandViewOptions } from "@mun/core/internal/runtime"
+import { gpuIslandView } from "@mun/core/internal/runtime"
+import type { ModifiableViewNode } from "@mun/core/compat"
 
 export type GPUIslandFallback = "canvas" | "static"
 export type GPUBufferUsageIR = "storage" | "vertex" | "uniform" | "copy-dst"

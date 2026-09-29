@@ -1,6 +1,6 @@
-# @vune-ui/animation
+# @mun/animation
 
-A renderer-agnostic motion runtime focused on interruptibility, low main-thread cost, smooth retargeting, and scalable execution. Vune can consume it through an adapter, but the core has no Vune, DOM, React, or Vue dependency.
+A renderer-agnostic motion runtime focused on interruptibility, low main-thread cost, smooth retargeting, and scalable execution. Mün can consume it through an adapter, but the core has no Mün, DOM, React, or Vue dependency.
 
 ## Current state (0.2.2)
 
@@ -62,9 +62,9 @@ The gesture package is renderer-agnostic. It turns pointer-like coordinates into
 - The DOM adapter consumes `PointerEvent.getCoalescedEvents()` when available, retaining high-frequency pen/touch samples that browsers may merge into one delivered event.
 
 ```js
-import { motionValue } from '@vune-ui/animation';
-import { createDragController } from '@vune-ui/animation/gesture';
-import { bindMotionStyles, bindPointerDrag } from '@vune-ui/animation/dom';
+import { motionValue } from '@mun/animation';
+import { createDragController } from '@mun/animation/gesture';
+import { bindMotionStyles, bindPointerDrag } from '@mun/animation/dom';
 
 const x = motionValue(0);
 const drag = createDragController({
@@ -81,7 +81,7 @@ const unbind = bindPointerDrag(card, drag);
 The numeric core also exposes release motion directly:
 
 ```js
-import { animateInertia } from '@vune-ui/animation';
+import { animateInertia } from '@mun/animation';
 
 animateInertia(x, {
   velocity: 1450, // units per second
@@ -110,7 +110,7 @@ import {
   curves,
   motionValue,
   timeline,
-} from '@vune-ui/animation';
+} from '@mun/animation';
 
 const engine = new MotionEngine();
 const x = motionValue(0);
@@ -153,7 +153,7 @@ const colorTimeline = timeline().fromTo(
 Named phases are convenient for reusable UI choreography:
 
 ```js
-import { createPhaseTimeline } from '@vune-ui/animation/timeline';
+import { createPhaseTimeline } from '@mun/animation/timeline';
 
 const press = createPhaseTimeline({ scale, opacity }, [
   { name: 'idle', values: { scale: 1, opacity: 1 } },
@@ -171,7 +171,7 @@ press.player({ engine }).play();
 Timeline playback can also be driven by a numeric interaction domain instead of a clock:
 
 ```js
-import { createTimelineScrubber } from '@vune-ui/animation/timeline';
+import { createTimelineScrubber } from '@mun/animation/timeline';
 
 // 0..400 can be drag pixels while the timeline remains normalized internally.
 const scrubber = createTimelineScrubber(player, {
@@ -191,8 +191,8 @@ The scrubber only depends on a `MotionValue`; a `DragController`, gamepad axis, 
 The transition package adds named UI state motion without making the numeric core aware of components or renderers. Numeric `MotionValue` bindings are animated directly, so every property retains its own velocity during interruption. Structured bindings (colors, transforms, materials, paths, or custom interpolators) share one precompiled scalar progress animation per state change.
 
 ```js
-import { motionValue, spring } from '@vune-ui/animation';
-import { createStateTransitionGraph } from '@vune-ui/animation/transition';
+import { motionValue, spring } from '@mun/animation';
+import { createStateTransitionGraph } from '@mun/animation/transition';
 
 const x = motionValue(0);
 const opacity = motionValue(0);
@@ -215,7 +215,7 @@ panel.to('visible');
 `TransitionController` is the two-state enter/exit convenience layer. Reversing an enter while it is still moving retargets the same numeric `MotionValue`s instead of restarting them from rest.
 
 ```js
-import { createPresence, createTransition } from '@vune-ui/animation/transition';
+import { createPresence, createTransition } from '@mun/animation/transition';
 
 const transition = createTransition([
   { key: 'opacity', target: opacity, from: 0, to: 1 },
@@ -254,7 +254,7 @@ Path parsing and topology work happen once. Per-frame numeric sampling only lerp
 Supported input commands include `M/L/H/V/C/S/Q/T/A/Z`, absolute or relative. Lines, quadratics and arcs normalize to cubic segments. Paths with different segment counts are equalized by splitting cubic curves. Closed paths can align starting segments and reverse winding to avoid needlessly long morphs.
 
 ```js
-import { createPathMorpher } from '@vune-ui/animation/path';
+import { createPathMorpher } from '@mun/animation/path';
 
 const morph = createPathMorpher(
   'M0 0 L100 0 L100 100 Z',
@@ -275,7 +275,7 @@ For very large closed paths, alignment uses a bounded set of promising start-ind
 The material model is renderer-agnostic. Presets are only convenient starting values.
 
 ```js
-import { materials, mixMaterial } from '@vune-ui/animation/material';
+import { materials, mixMaterial } from '@mun/animation/material';
 
 const material = mixMaterial(materials.ultraThin, materials.glass, 0.5);
 ```
@@ -283,8 +283,8 @@ const material = mixMaterial(materials.ultraThin, materials.glass, 0.5);
 The DOM adapter maps a resolved material to `backdrop-filter` plus a tint color:
 
 ```js
-import { animateMaterial } from '@vune-ui/animation/dom';
-import { smooth } from '@vune-ui/animation';
+import { animateMaterial } from '@mun/animation/dom';
+import { smooth } from '@mun/animation';
 
 animateMaterial(panel, 'ultraThin', 'glass', smooth());
 ```
@@ -307,7 +307,7 @@ Matched geometry across different element instances uses keyed snapshots:
 import {
   captureSharedLayout,
   createSharedLayoutTransition,
-} from '@vune-ui/animation/layout';
+} from '@mun/animation/layout';
 
 const before = captureSharedLayout(oldTree, {
   key: (element) => element.dataset.motionKey,
@@ -338,7 +338,7 @@ The source element does not have to remain mounted. All matched targets in one s
 - Pointer-drag binding with pointer capture, touch-action management, cancellation handling, and coalesced-event sampling.
 
 ```js
-import { configureDomBatching } from '@vune-ui/animation/dom';
+import { configureDomBatching } from '@mun/animation/dom';
 
 configureDomBatching({ scheduler: 'raf' });
 ```
@@ -346,7 +346,7 @@ configureDomBatching({ scheduler: 'raf' });
 ## Basic numeric API
 
 ```js
-import { motionValue, animate, smooth, spring } from '@vune-ui/animation';
+import { motionValue, animate, smooth, spring } from '@mun/animation';
 
 const x = motionValue(0);
 
@@ -371,7 +371,7 @@ setTimeout(() => {
 For deterministic/manual stepping:
 
 ```js
-import { MotionEngine, motionValue, spring } from '@vune-ui/animation';
+import { MotionEngine, motionValue, spring } from '@mun/animation';
 
 const engine = new MotionEngine({ autoStart: false, wasm: false, worker: false });
 const x = motionValue(0);
@@ -385,7 +385,7 @@ for (let frame = 0; frame < 120; frame += 1) {
 ## Color, transform, path, and material interpolation
 
 ```js
-import { animateInterpolated, smooth } from '@vune-ui/animation';
+import { animateInterpolated, smooth } from '@mun/animation';
 
 animateInterpolated(
   '#ff2d55',
@@ -416,8 +416,8 @@ animateInterpolated('clear', 'glass', smooth(), updateMaterial, {
 ## Layout animation
 
 ```js
-import { smooth } from '@vune-ui/animation';
-import { animateLayout } from '@vune-ui/animation/layout';
+import { smooth } from '@mun/animation';
+import { animateLayout } from '@mun/animation/layout';
 
 const { controls } = animateLayout(
   [sidebar, content],
@@ -484,7 +484,7 @@ If shared memory is unavailable, `worker: 'auto'` keeps the regular JS/WASM exec
 `ScrollTracker` is renderer-independent: it maps an arbitrary scalar offset to a normalized `MotionValue`, while preserving offset and normalized velocity. The DOM/window `ScrollObserver` is a thin adapter that coalesces bursts of scroll events into one metric read per animation frame.
 
 ```js
-import { observeScroll, bindScrollTimeline } from '@vune-ui/animation/scroll';
+import { observeScroll, bindScrollTimeline } from '@mun/animation/scroll';
 
 const scroll = observeScroll(scroller, {
   axis: 'y',
@@ -503,7 +503,7 @@ The range may be dynamic, so resizes/content growth can be reflected on the next
 `ConstraintGraph` evaluates relationships between numeric values after source motion commits. The graph is compiled once into a topological operation order and typed arrays, rather than chaining one subscription callback per relationship.
 
 ```js
-import { createConstraintGraph } from '@vune-ui/animation/constraints';
+import { createConstraintGraph } from '@mun/animation/constraints';
 
 const graph = createConstraintGraph();
 const leader = graph.node(x, { name: 'leader' });
@@ -527,7 +527,7 @@ Renderer adapters remain outside the motion solver. They subscribe through the v
 Canvas keeps one retained `Float64Array` snapshot and invokes one draw callback per dirty frame:
 
 ```js
-import { createCanvasRenderer } from '@vune-ui/animation/canvas';
+import { createCanvasRenderer } from '@mun/animation/canvas';
 
 const renderer = createCanvasRenderer(ctx, [x, y, scale], (ctx, values) => {
   const [x, y, scale] = values;
@@ -538,7 +538,7 @@ const renderer = createCanvasRenderer(ctx, [x, y, scale], (ctx, values) => {
 WebGL resolves uniform locations once and batches dirty uniform uploads:
 
 ```js
-import { createWebGLUniformBinder } from '@vune-ui/animation/webgl';
+import { createWebGLUniformBinder } from '@mun/animation/webgl';
 
 const uniforms = createWebGLUniformBinder(gl, program, [
   { name: 'uProgress', value: progress },
@@ -549,7 +549,7 @@ const uniforms = createWebGLUniformBinder(gl, program, [
 WebGPU packs scalar values into one retained `Float32Array` and emits one `queue.writeBuffer()` per dirty frame:
 
 ```js
-import { createWebGPUBufferBinder } from '@vune-ui/animation/webgpu';
+import { createWebGPUBufferBinder } from '@mun/animation/webgpu';
 
 const gpuValues = createWebGPUBufferBinder(device, uniformBuffer, [
   { value: x, index: 0 },
@@ -561,7 +561,7 @@ const gpuValues = createWebGPUBufferBinder(device, uniformBuffer, [
 `WebGPUSpringBatch` is also available for direct dense spring workloads. It uses one storage buffer, one compute dispatch per bounded solver substep, and one readback per frame. Use it for sufficiently large batches; small interactive animations should stay on JS/WASM to avoid GPU submission and readback overhead.
 
 ```js
-import { MotionEngine, motionValue, spring } from '@vune-ui/animation';
+import { MotionEngine, motionValue, spring } from '@mun/animation';
 
 const engine = new MotionEngine({ gpu: 'auto', gpuThreshold: 4096 });
 const value = motionValue(0);
@@ -573,22 +573,22 @@ console.log(engine.getBackendPlan().gpu);
 ## Package entry points
 
 ```text
-@vune-ui/animation
-@vune-ui/animation/dom
-@vune-ui/animation/interpolate
-@vune-ui/animation/layout
-@vune-ui/animation/gesture
-@vune-ui/animation/timeline
-@vune-ui/animation/transition
-@vune-ui/animation/scroll
-@vune-ui/animation/constraints
-@vune-ui/animation/canvas
-@vune-ui/animation/webgl
-@vune-ui/animation/webgpu
-@vune-ui/animation/material
-@vune-ui/animation/path
-@vune-ui/animation/wasm
-@vune-ui/animation/worker
+@mun/animation
+@mun/animation/dom
+@mun/animation/interpolate
+@mun/animation/layout
+@mun/animation/gesture
+@mun/animation/timeline
+@mun/animation/transition
+@mun/animation/scroll
+@mun/animation/constraints
+@mun/animation/canvas
+@mun/animation/webgl
+@mun/animation/webgpu
+@mun/animation/material
+@mun/animation/path
+@mun/animation/wasm
+@mun/animation/worker
 ```
 
 ## Build / test / benchmark
@@ -627,4 +627,4 @@ The numeric benchmarks intentionally exclude browser layout, paint, compositing,
 
 Renderer-specific layout measurement, DOM style parsing, material rendering, path rendering, and framework bindings remain adapters or optional packages. Canvas/WebGL/WebGPU have lightweight value-to-renderer bridges, while dense WebGPU spring compute is an optional asynchronous backend selected by `MotionEngine`.
 
-The next useful layers are a particle/mesh compute backend, richer rotated/skewed shared-layout geometry, declarative constraint presets, and framework bindings such as Vune.
+The next useful layers are a particle/mesh compute backend, richer rotated/skewed shared-layout geometry, declarative constraint presets, and framework bindings such as Mün.

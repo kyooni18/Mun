@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { Alert, Binding, Menu, NavigationLink, NavigationStack, Sheet, State, Text } from "../packages/core/dist/index.js"
+import { Alert, Binding, Menu, NavigationLink, NavigationStack, Sheet, State, Text } from "../packages/core/dist/compat.js"
 import { mount } from "../packages/web/dist/index.js"
 
 async function optionalImport(specifier) {
@@ -28,11 +28,11 @@ test("presentation primitives keep visibility and navigation state in graph prop
     Alert(Binding(presented), "Notice", "Message"),
     Menu("More", () => Text("Action")),
   ])))
-  assert.match(html, /data-vune="NavigationStack"/)
+  assert.match(html, /data-mun="NavigationStack"/)
   assert.match(html, /href="\/settings".*Settings/)
   assert.match(html, /role="dialog".*Sheet/)
   assert.match(html, /role="alertdialog".*Notice/)
-  assert.match(html, /data-vune="Menu"/)
+  assert.match(html, /data-mun="Menu"/)
   presented.value = false
   assert.equal(renderToStaticMarkup(render(Sheet(Binding(presented), () => Text("Hidden")))), "")
 })
@@ -61,7 +61,7 @@ test("top-level presentation Views reevaluate Binding state through the core Vie
   dom.window.close()
 })
 
-test("@vune-ui/react presentation Views are compatibility aliases of core Views", async t => {
+test("@mun/react presentation Views are compatibility aliases of core Views", async t => {
 	const react = await optionalImport("../packages/react/dist/index.js")
 	if (!react) {
 		t.skip("React compatibility dependencies are not installed")

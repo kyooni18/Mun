@@ -13,8 +13,8 @@ import {
 } from 'react'
 import { flattenTransparentFragments, isComponentElement, layoutChild, layoutChildren, layoutPropsOf } from './layout.js'
 import { finalize } from './modifiers.js'
-import { collectChildren, type VuneBuilder } from './builder.js'
-import { closureKindOf, markVuneClosure } from './closures.js'
+import { collectChildren, type MunBuilder } from './builder.js'
+import { closureKindOf, markMunClosure } from './closures.js'
 import { resolveValue } from './state.js'
 import {
   defineBuiltinView,
@@ -132,7 +132,7 @@ const GroupView = defineBuiltinView<{ args: readonly unknown[] }>('Group', [
 ], ({ args }) => viewFragment(
   viewGraphChildren(flatten(collectChildren([...args]) as ReactNode[])),
 )) as unknown as BuiltinViewCallable<{
-  (builder: VuneBuilder): ReactElement
+  (builder: MunBuilder): ReactElement
   (...children: ReactNode[]): ReactElement
 }>
 
@@ -147,7 +147,7 @@ export const Box = defineBuiltinView<{ args: readonly unknown[] }>('Box', [
   initializer('Box(@ViewBuilder content)', builderOnly, builtinArgs, [initializerKinds.viewBuilder(true, 'content')]),
   initializer('Box(...children)', noFunction, builtinArgs),
 ], ({ args }) => buildBox(args)) as unknown as BuiltinViewCallable<{
-  (builder: VuneBuilder): StyledElement
+  (builder: MunBuilder): StyledElement
   (...children: ReactNode[]): StyledElement
 }>
 
@@ -214,10 +214,10 @@ export const VStack = defineBuiltinView<{ args: readonly unknown[] }>('VStack', 
   initializer('VStack(options, @ViewBuilder content)', optionsBuilder, builtinArgs, [initializerKinds.value(true, 'options', ['alignment', 'spacing']), initializerKinds.viewBuilder(true, 'content')]),
   initializer('VStack(...children)', noFunction, builtinArgs),
 ], ({ args }) => buildVStack(args)) as unknown as BuiltinViewCallable<{
-  (builder: VuneBuilder): StyledElement
+  (builder: MunBuilder): StyledElement
   (...children: ReactNode[]): StyledElement
   (options: VStackOptions, ...children: ReactNode[]): StyledElement
-  (options: VStackOptions, builder: VuneBuilder): StyledElement
+  (options: VStackOptions, builder: MunBuilder): StyledElement
 }>
 
 function buildHStack(args: readonly unknown[]): ViewNode {
@@ -241,10 +241,10 @@ export const HStack = defineBuiltinView<{ args: readonly unknown[] }>('HStack', 
   initializer('HStack(options, @ViewBuilder content)', optionsBuilder, builtinArgs, [initializerKinds.value(true, 'options', ['alignment', 'spacing']), initializerKinds.viewBuilder(true, 'content')]),
   initializer('HStack(...children)', noFunction, builtinArgs),
 ], ({ args }) => buildHStack(args)) as unknown as BuiltinViewCallable<{
-  (builder: VuneBuilder): StyledElement
+  (builder: MunBuilder): StyledElement
   (...children: ReactNode[]): StyledElement
   (options: HStackOptions, ...children: ReactNode[]): StyledElement
-  (options: HStackOptions, builder: VuneBuilder): StyledElement
+  (options: HStackOptions, builder: MunBuilder): StyledElement
 }>
 
 function buildZStack(args: readonly unknown[]): ViewNode {
@@ -255,7 +255,7 @@ function buildZStack(args: readonly unknown[]): ViewNode {
     const layout = component ? layoutPropsOf(child) : undefined
     return viewElement('div', {
       key: isValidElement(child) ? child.key ?? index : index,
-      ...(component ? { 'data-vune-layout-host': '' } : {}),
+      ...(component ? { 'data-mun-layout-host': '' } : {}),
       className: Array.isArray(layout?.className) ? layout.className.join(' ') : layout?.className,
       style: { gridArea: '1 / 1', minWidth: 0, minHeight: 0, ...(component ? layout?.style ?? {} : {}) },
     }, [viewGraphChild(child)])
@@ -270,15 +270,15 @@ export const ZStack = defineBuiltinView<{ args: readonly unknown[] }>('ZStack', 
   initializer('ZStack(options, @ViewBuilder content)', optionsBuilder, builtinArgs, [initializerKinds.value(true, 'options', ['alignment']), initializerKinds.viewBuilder(true, 'content')]),
   initializer('ZStack(...children)', noFunction, builtinArgs),
 ], ({ args }) => buildZStack(args)) as unknown as BuiltinViewCallable<{
-  (builder: VuneBuilder): StyledElement
+  (builder: MunBuilder): StyledElement
   (...children: ReactNode[]): StyledElement
   (options: ZStackOptions, ...children: ReactNode[]): StyledElement
-  (options: ZStackOptions, builder: VuneBuilder): StyledElement
+  (options: ZStackOptions, builder: MunBuilder): StyledElement
 }>
 
 function buildGrid(args: readonly unknown[]): ViewNode {
-  const columnsOrOptions = (args[0] ?? 1) as ReactNode | GridOptions | VuneBuilder
-  const children = args.slice(1) as Array<ReactNode | VuneBuilder>
+  const columnsOrOptions = (args[0] ?? 1) as ReactNode | GridOptions | MunBuilder
+  const children = args.slice(1) as Array<ReactNode | MunBuilder>
   const builder = typeof columnsOrOptions === 'function'
   const hasOptions = !builder && (typeof columnsOrOptions === 'number'
     || typeof columnsOrOptions === 'string'
@@ -307,8 +307,8 @@ export const Grid = defineBuiltinView<{ args: readonly unknown[] }>('Grid', [
 ], ({ args }) => buildGrid(args)) as unknown as BuiltinViewCallable<{
   (...children: ReactNode[]): StyledElement
   (columnsOrOptions: number | string | GridOptions, ...children: ReactNode[]): StyledElement
-  (builder: VuneBuilder): StyledElement
-  (columnsOrOptions: number | string | GridOptions, builder: VuneBuilder): StyledElement
+  (builder: MunBuilder): StyledElement
+  (columnsOrOptions: number | string | GridOptions, builder: MunBuilder): StyledElement
 }>
 
 export type TextProps = HTMLAttributes<HTMLSpanElement>
@@ -342,7 +342,7 @@ export const Text = defineBuiltinView<TextBuiltinProps>('Text', [
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
 export interface ButtonConfiguration extends ButtonProps {
   action: (event: any) => unknown
-  label?: ReactNode | Value<string | number> | VuneBuilder
+  label?: ReactNode | Value<string | number> | MunBuilder
   props?: ButtonProps | null
 }
 function buildButton(args: readonly unknown[]): ViewNode {
@@ -367,7 +367,7 @@ function buildButton(args: readonly unknown[]): ViewNode {
   } else if (isOptions(args[0]) && ('action' in args[0] || 'label' in args[0])) {
     const options = args[0] as Record<string, unknown>
     action = typeof options.action === 'function'
-      ? markVuneClosure(options.action as (event: any) => unknown, 'action')
+      ? markMunClosure(options.action as (event: any) => unknown, 'action')
       : null
     label = typeof options.label === 'function'
       ? collectChildren([options.label]) as any
@@ -377,7 +377,7 @@ function buildButton(args: readonly unknown[]): ViewNode {
   } else if (isOptions(args[1]) && typeof (args[1] as any).action === 'function') {
     const options = args[1] as Record<string, unknown>
     label = args[0] as ReactNode
-    action = markVuneClosure(options.action as (event: any) => unknown, 'action')
+    action = markMunClosure(options.action as (event: any) => unknown, 'action')
     props = options.props as ButtonProps | null ?? null
   } else {
     label = args[0] as ReactNode
@@ -413,7 +413,7 @@ export const Button = defineBuiltinView<{ args: readonly unknown[] }>('Button', 
 ], ({ args }) => buildButton(args)) as unknown as BuiltinViewCallable<{
   (action: (event: any) => unknown): StyledElement
   (label: Value<string | number>, action: (event: any) => unknown, props?: ButtonProps | null): StyledElement
-  (configuration: ButtonConfiguration, label?: VuneBuilder): StyledElement
+  (configuration: ButtonConfiguration, label?: MunBuilder): StyledElement
 }>
 
 export type TextFieldOptions = InputHTMLAttributes<HTMLInputElement>

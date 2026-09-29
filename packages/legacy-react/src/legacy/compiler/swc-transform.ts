@@ -3,19 +3,19 @@
  *
  * This module exposes a dependency-free transform adapter. SWC/Babel hosts can
  * pass the source through this adapter before their own AST pipeline without
- * forcing Vune to depend on a specific compiler.
+ * forcing Mun to depend on a specific compiler.
  */
-import { transformVuneBuilderSyntax } from './builder-transform.js'
-import { transformVuneStructSyntax } from './struct-transform.js'
+import { transformMunBuilderSyntax } from './builder-transform.js'
+import { transformMunStructSyntax } from './struct-transform.js'
 
-export interface VuneTransformOptions {}
+export interface MunTransformOptions {}
 
-export function createVuneSwcVisitor(_options: VuneTransformOptions = {}) {
+export function createMunSwcVisitor(_options: MunTransformOptions = {}) {
 
   return {
-    name: 'vune-builder-transform',
+    name: 'mun-builder-transform',
     transform(code: string) {
-      const lowered = transformVuneBuilderSyntax(transformVuneStructSyntax(code))
+      const lowered = transformMunBuilderSyntax(transformMunStructSyntax(code))
       return [
         ...(lowered.includes('namedArguments(') ? ['namedArguments'] : []),
         ...(lowered.includes('overloadClosure(') ? ['overloadClosure'] : []),
@@ -25,11 +25,11 @@ export function createVuneSwcVisitor(_options: VuneTransformOptions = {}) {
 }
 
 function ensureRuntimeImport(source: string, name: string): string {
-  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])vune-ui\/legacy\2[\t ]*;?/.exec(source)
-  if (!existing) return `import { ${name} } from 'vune-ui/legacy'\n${source}`
+  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun\/ui\/legacy\2[\t ]*;?/.exec(source)
+  if (!existing) return `import { ${name} } from '@mun/ui/legacy'\n${source}`
   const imported = existing[1].split(',').map(value => value.trim()).filter(Boolean)
   if (imported.includes(name)) return source
   imported.push(name)
-  const replacement = `import { ${imported.join(', ')} } from 'vune-ui/legacy'`
+  const replacement = `import { ${imported.join(', ')} } from '@mun/ui/legacy'`
   return source.slice(0, existing.index) + replacement + source.slice(existing.index + existing[0].length)
 }

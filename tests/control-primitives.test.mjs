@@ -1,29 +1,29 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { renderToStaticMarkup } from "react-dom/server"
-import { Binding, Image, Link, namedArguments, Slider, State, Switch, TextField, Toggle } from "../packages/core/dist/index.js"
+import { Binding, Image, Link, namedArguments, Slider, State, Switch, TextField, Toggle } from "../packages/core/dist/compat.js"
 import { Image as ReactImage, Switch as ReactSwitch, Toggle as ReactToggle, render } from "../packages/react/dist/index.js"
 
 test("migrated controls expose native semantics and writable bindings", () => {
   const wifi = State(false)
-  const name = State("Vune")
+  const name = State("Mun")
   const volume = State(0.5)
   const html = renderToStaticMarkup(render(
     Toggle("Wi-Fi", Binding(wifi)),
   )) + renderToStaticMarkup(render(TextField(Binding(name), "Name"))) + renderToStaticMarkup(render(Slider(Binding(volume), { min: 0, max: 1, step: 0.1 })))
   assert.match(html, /type="checkbox"/)
-  assert.match(html, /data-vune="TextField"/)
+  assert.match(html, /data-mun="TextField"/)
   assert.match(html, /type="range"/)
   assert.equal(wifi.value, false)
-  assert.equal(name.value, "Vune")
+  assert.equal(name.value, "Mun")
   assert.equal(volume.value, 0.5)
 
   const toggleElement = render(Toggle("Wi-Fi", Binding(wifi)))
   toggleElement.props.children[0].props.onChange({ target: { checked: true } })
   assert.equal(wifi.value, true)
   const fieldElement = render(TextField(Binding(name)))
-  fieldElement.props.onInput({ target: { value: "Vune Core" } })
-  assert.equal(name.value, "Vune Core")
+  fieldElement.props.onInput({ target: { value: "Mun Core" } })
+  assert.equal(name.value, "Mun Core")
   const sliderElement = render(Slider(Binding(volume)))
   sliderElement.props.onInput({ target: { value: "0.75" } })
   assert.equal(volume.value, 0.75)
@@ -62,7 +62,7 @@ test("control options cannot override positional props or execute unknown getter
   assert.match(slider, /min="0"/)
   assert.match(slider, /max="1"/)
 
-  const imageOptions = { source: "/override.png", alt: "Vune" }
+  const imageOptions = { source: "/override.png", alt: "Mun" }
   Object.defineProperty(imageOptions, "unknown", {
     enumerable: true,
     get() {
@@ -74,7 +74,7 @@ test("control options cannot override positional props or execute unknown getter
   imageOptions.alt = "Changed"
   const image = renderToStaticMarkup(render(imageGraph))
   assert.match(image, /src="\/original\.png"/)
-  assert.match(image, /alt="Vune"/)
+  assert.match(image, /alt="Mun"/)
   assert.doesNotMatch(image, /override/)
   assert.equal(getterCalls, 0)
 
@@ -102,12 +102,12 @@ test("Image ignores non-string alt values without coercing them", () => {
 })
 
 test("Image and Link stay graph values until rendered", () => {
-  const image = Image("/vune.png", { alt: "Vune" })
+  const image = Image("/mun.png", { alt: "Mun" })
   assert.equal(image.kind, "element")
   assert.match(renderToStaticMarkup(render(Link("Docs", "/docs"))), /href="\/docs".*Docs/)
 })
 
-test("@vune-ui/react controls are compatibility aliases of core controls", () => {
+test("@mun/react controls are compatibility aliases of core controls", () => {
   assert.equal(ReactImage, Image)
   assert.equal(ReactToggle, Toggle)
   assert.equal(ReactSwitch, Switch)
@@ -118,7 +118,7 @@ test("Switch binds a boolean and toggles it on click", () => {
   const html = renderToStaticMarkup(render(Switch(Binding(wifi))))
   assert.match(html, /role="switch"/)
   assert.match(html, /aria-checked="false"/)
-  assert.match(html, /data-vune="Switch"/)
+  assert.match(html, /data-mun="Switch"/)
 
   const element = render(Switch(Binding(wifi)))
   element.props.onClick()
@@ -149,7 +149,7 @@ test("Switch options customize tint, off state, size, and label", () => {
 test("Switch supports SwiftUI-style labeled and positional title initializers", () => {
   const wifi = State(false)
 
-  // Labeled form: lowered from `Switch("Wi-Fi", isOn: $wifi)` in .vune source.
+  // Labeled form: lowered from `Switch("Wi-Fi", isOn: $wifi)` in .mun source.
   const labeled = render(Switch("Wi-Fi", namedArguments({ isOn: Binding(wifi) })))
   assert.match(renderToStaticMarkup(labeled), /Wi-Fi.*role="switch"/s)
   labeled.props.children[1].props.onClick()

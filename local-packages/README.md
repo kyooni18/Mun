@@ -17,5 +17,5 @@ pnpm local:install ../my-app
 ```
 
 `local:install` writes direct `file:` dependencies plus pnpm 11 workspace overrides for all
-internal `@vune-ui/*` packages, so unpublished transitive dependencies do not
+internal `@mun/*` packages, so unpublished transitive dependencies do not
 fall through to the public npm registry.

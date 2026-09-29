@@ -45,16 +45,16 @@ import {
   type GeometryProxy,
   type BindingRef,
   type ModifiableViewNode,
-  type VuneRenderer,
+  type MunRenderer,
   type StateRef,
   type ViewGraphValue,
   type ViewHostNode,
   type ViewModifierNode,
   type ViewValue,
   viewElement,
-} from "@vune-ui/core"
-import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@vune-ui/core/corners"
-import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@vune-ui/core/internal/runtime"
+} from "@mun/core/compat"
+import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@mun/core/corners"
+import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@mun/core/internal/runtime"
 import {
   keyedCollectionEntryKey,
   keyedCollectionEntries,
@@ -62,8 +62,8 @@ import {
   type KeyedCollectionEntry,
   type KeyedCollectionViewNode,
   type StateMutationBatch,
-} from "@vune-ui/core/internal/runtime"
-import type { GPUIslandViewNode } from "@vune-ui/core/internal/runtime"
+} from "@mun/core/internal/runtime"
+import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
 
 import { geometryFromElement, sameGeometry } from "./geometry.js"
 
@@ -100,14 +100,14 @@ function runVueParticleFallback(canvas: HTMLCanvasElement, node: GPUIslandViewNo
 }
 
 const VueGPUIslandCanvas = defineComponent({
-  name: "VuneGPUIslandCanvas",
+  name: "MunGPUIslandCanvas",
   props: { node: { type: Object as PropType<GPUIslandViewNode>, required: true } },
   setup(props) {
     const canvas = shallowRef<HTMLCanvasElement | null>(null)
     let cleanup: (() => void) | undefined
     onMounted(() => {
       if (!canvas.value) return
-      canvas.value.dataset.vuneGpuBackend = props.node.ir.fallback === "canvas" ? "cpu-canvas" : "static"
+      canvas.value.dataset.munGpuBackend = props.node.ir.fallback === "canvas" ? "cpu-canvas" : "static"
       cleanup = runVueParticleFallback(canvas.value, props.node)
     })
     onBeforeUnmount(() => cleanup?.())
@@ -118,11 +118,11 @@ const VueGPUIslandCanvas = defineComponent({
       class: props.node.options.class,
       style: props.node.options.style,
       "aria-label": props.node.options.ariaLabel,
-      "data-vune-gpu-island": props.node.ir.id,
-      "data-vune-gpu-kind": props.node.ir.kind,
-      "data-vune-gpu-owner": "vue",
-      "data-vune-gpu-readback": "forbidden",
-      "data-vune-gpu-fallback": props.node.ir.fallback,
+      "data-mun-gpu-island": props.node.ir.id,
+      "data-mun-gpu-kind": props.node.ir.kind,
+      "data-mun-gpu-owner": "vue",
+      "data-mun-gpu-readback": "forbidden",
+      "data-mun-gpu-fallback": props.node.ir.fallback,
     })
   },
 })
@@ -156,7 +156,7 @@ function alignmentCSSPlace(value: unknown, fallback = "center"): string {
   }
 }
 const finite = (value: unknown, fallback: number): number => typeof value === "number" && Number.isFinite(value) ? value : fallback
-const filterTemplate = "blur(var(--vune-blur,0px)) brightness(var(--vune-brightness,1)) contrast(var(--vune-contrast,1)) saturate(var(--vune-saturation,1)) grayscale(var(--vune-grayscale,0)) hue-rotate(var(--vune-hue-rotation,0deg)) invert(var(--vune-color-invert,0))"
+const filterTemplate = "blur(var(--mun-blur,0px)) brightness(var(--mun-brightness,1)) contrast(var(--mun-contrast,1)) saturate(var(--mun-saturation,1)) grayscale(var(--mun-grayscale,0)) hue-rotate(var(--mun-hue-rotation,0deg)) invert(var(--mun-color-invert,0))"
 const fontWeights: Readonly<Record<string, number>> = Object.freeze({ ultraLight: 100, thin: 200, light: 300, regular: 400, medium: 500, semibold: 600, bold: 700, heavy: 800, black: 900 })
 
 function longPressProps(modifier: ViewModifierNode): Record<string, unknown> {
@@ -194,7 +194,7 @@ function longPressProps(modifier: ViewModifierNode): Record<string, unknown> {
   }
 }
 
-const vuneVueSlots = Symbol.for("vune.vue.slots")
+const munVueSlots = Symbol.for("mun.vue.slots")
 
 function sync(
   active: Map<StateRef<unknown>, () => void>,
@@ -249,7 +249,7 @@ function pruneCompilerOwnedDependencies(
   }
 }
 
-export type VuneVueSlot = ViewValue | ((props: any, ...args: any[]) => ViewValue)
+export type MunVueSlot = ViewValue | ((props: any, ...args: any[]) => ViewValue)
 export type VueComponentProps<C> = C extends abstract new (...args: any[]) => { $props: infer Props }
   ? Props
   : C extends (props: infer Props, ...args: any[]) => any ? Props : Record<string, unknown>
@@ -261,10 +261,10 @@ type VueComponentEmitProps<C> = C extends { emits?: infer Emits }
 type RequiredVuePropKeys<Props> = {
   [Key in keyof Props]-?: object extends Pick<Props, Key> ? never : Key
 }[keyof Props]
-type VuneVueComponentProps<C> = Omit<VueComponentProps<C>, "slots"> & VueComponentEmitProps<C> & { readonly slots?: Record<string, VuneVueSlot> }
+type MunVueComponentProps<C> = Omit<VueComponentProps<C>, "slots"> & VueComponentEmitProps<C> & { readonly slots?: Record<string, MunVueSlot> }
 type VueComponentArguments<C> = [RequiredVuePropKeys<VueComponentProps<C>>] extends [never]
-  ? [props?: VuneVueComponentProps<C> | null, ...children: ViewValue[]]
-  : [props: VuneVueComponentProps<C>, ...children: ViewValue[]]
+  ? [props?: MunVueComponentProps<C> | null, ...children: ViewValue[]]
+  : [props: MunVueComponentProps<C>, ...children: ViewValue[]]
 export type VueComponentView<C extends object> = ((...args: VueComponentArguments<C>) => ModifiableViewNode) & {
   readonly component: C
 }
@@ -292,11 +292,11 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "baselineOffset": result = { style: { position: "relative", top: `${-finite(value, 0)}px` } }; break
     case "lineSpacing": result = { style: { lineHeight: `calc(1em + ${finite(value, 0)}px)` } }; break
     case "lineLimit": result = { style: typeof value === "number" && value > 0 ? { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: Math.floor(value), overflow: "hidden" } : {} }; break
-    case "minimumScaleFactor": result = { style: { "--vune-minimum-scale-factor": Math.max(0, Math.min(1, finite(value, 1))) } }; break
+    case "minimumScaleFactor": result = { style: { "--mun-minimum-scale-factor": Math.max(0, Math.min(1, finite(value, 1))) } }; break
     case "multilineTextAlignment": result = { style: { textAlign: value === "leading" ? "start" : value === "trailing" ? "end" : "center" } }; break
     case "truncationMode": result = { style: { textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", direction: value === "head" ? "rtl" : undefined } }; break
     case "textCase": result = { style: { textTransform: value === "uppercase" ? "uppercase" : value === "lowercase" ? "lowercase" : "none" } }; break
-    case "allowsTightening": result = { style: { "--vune-allows-tightening": value === false ? 0 : 1 } }; break
+    case "allowsTightening": result = { style: { "--mun-allows-tightening": value === false ? 0 : 1 } }; break
     case "foreground":
     case "foregroundStyle": result = { style: { color: value } }; break
     case "background": result = { style: { background: value, backgroundPosition: alignmentCSSPosition(modifier.arguments[1]) } }; break
@@ -327,7 +327,7 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "scaledToFit": result = { style: { objectFit: "contain", maxWidth: "100%", maxHeight: "100%" } }; break
     case "scaledToFill": result = { style: { objectFit: "cover", width: "100%", height: "100%" } }; break
     case "fixedSize": result = { style: { width: value !== false ? "max-content" : undefined, height: modifier.arguments[1] !== false ? "max-content" : undefined } }; break
-    case "layoutPriority": result = { style: { flexShrink: finite(value, 0) > 0 ? 0 : 1, "--vune-layout-priority": finite(value, 0) } }; break
+    case "layoutPriority": result = { style: { flexShrink: finite(value, 0) > 0 ? 0 : 1, "--mun-layout-priority": finite(value, 0) } }; break
     case "position": result = { style: { position: "absolute", left: `${typeof value === "number" ? value : finite((value as { x?: unknown } | undefined)?.x, 0)}px`, top: `${typeof value === "number" ? finite(modifier.arguments[1], 0) : finite((value as { y?: unknown } | undefined)?.y, 0)}px`, transform: "translate(-50%, -50%)" } }; break
     case "zIndex": result = { style: { zIndex: finite(value, 0), position: "relative" } }; break
     case "ignoresSafeArea": result = { style: ignoresSafeAreaStyle(modifier.arguments[1]) }; break
@@ -354,21 +354,21 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "clipped": result = { style: { overflow: "hidden" } }; break
     case "border": result = { style: { border: `${layoutLength(modifier.arguments[1] ?? 1) ?? "1px"} solid ${String(value)}` } }; break
     case "shadow": result = { style: { boxShadow: `${finite(modifier.arguments[2], 0)}px ${finite(modifier.arguments[3], 0)}px ${Math.max(0, finite(modifier.arguments[1], 0))}px ${String(value)}` } }; break
-    case "blur": result = { style: { filter: filterTemplate, "--vune-blur": `${Math.max(0, finite(value, 0))}px` } }; break
-    case "brightness": result = { style: { filter: filterTemplate, "--vune-brightness": Math.max(0, 1 + finite(value, 0)) } }; break
-    case "contrast": result = { style: { filter: filterTemplate, "--vune-contrast": Math.max(0, finite(value, 1)) } }; break
-    case "saturation": result = { style: { filter: filterTemplate, "--vune-saturation": Math.max(0, finite(value, 1)) } }; break
-    case "grayscale": result = { style: { filter: filterTemplate, "--vune-grayscale": Math.max(0, Math.min(1, finite(value, 0))) } }; break
-    case "hueRotation": result = { style: { filter: filterTemplate, "--vune-hue-rotation": `${finite(value, 0)}deg` } }; break
-    case "colorInvert": result = { style: { filter: filterTemplate, "--vune-color-invert": 1 } }; break
-    case "colorMultiply": result = { style: { "--vune-color-multiply": String(value) } }; break
+    case "blur": result = { style: { filter: filterTemplate, "--mun-blur": `${Math.max(0, finite(value, 0))}px` } }; break
+    case "brightness": result = { style: { filter: filterTemplate, "--mun-brightness": Math.max(0, 1 + finite(value, 0)) } }; break
+    case "contrast": result = { style: { filter: filterTemplate, "--mun-contrast": Math.max(0, finite(value, 1)) } }; break
+    case "saturation": result = { style: { filter: filterTemplate, "--mun-saturation": Math.max(0, finite(value, 1)) } }; break
+    case "grayscale": result = { style: { filter: filterTemplate, "--mun-grayscale": Math.max(0, Math.min(1, finite(value, 0))) } }; break
+    case "hueRotation": result = { style: { filter: filterTemplate, "--mun-hue-rotation": `${finite(value, 0)}deg` } }; break
+    case "colorInvert": result = { style: { filter: filterTemplate, "--mun-color-invert": 1 } }; break
+    case "colorMultiply": result = { style: { "--mun-color-multiply": String(value) } }; break
     case "blendMode": result = { style: { mixBlendMode: value === "colorDodge" ? "color-dodge" : value === "colorBurn" ? "color-burn" : value === "softLight" ? "soft-light" : value === "hardLight" ? "hard-light" : value === "plusLighter" ? "plus-lighter" : value } }; break
     case "compositingGroup": result = { style: { isolation: "isolate" } }; break
     case "drawingGroup": result = { style: { isolation: "isolate", contain: "paint" } }; break
     case "luminanceToAlpha": result = { style: { filter: `${filterTemplate} grayscale(1)` } }; break
-    case "tint": result = { style: { accentColor: value ?? "auto", "--vune-tint": value ?? "initial" } }; break
-    case "backgroundStyle": result = { style: { background: String(value), "--vune-background-style": String(value) } }; break
-    case "dynamicTypeSize": result = { style: { "--vune-dynamic-type-size": String(value) } }; break
+    case "tint": result = { style: { accentColor: value ?? "auto", "--mun-tint": value ?? "initial" } }; break
+    case "backgroundStyle": result = { style: { background: String(value), "--mun-background-style": String(value) } }; break
+    case "dynamicTypeSize": result = { style: { "--mun-dynamic-type-size": String(value) } }; break
     case "disabled": result = value === true ? { disabled: true, inert: true, "aria-disabled": true } : { disabled: false, inert: false, "aria-disabled": false }; break
     case "hidden": result = { style: { visibility: "hidden" } }; break
     case "allowsHitTesting": result = { style: { pointerEvents: value === false ? "none" : "auto" } }; break
@@ -381,15 +381,15 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "onLongPressGesture": result = longPressProps(modifier); break
     case "onHover": result = typeof value === "function" ? { onPointerenter: () => value(true), onPointerleave: () => value(false) } : {}; break
     case "preferredColorScheme": result = { style: { colorScheme: value === "light" || value === "dark" ? value : "normal" } }; break
-    case "controlSize": result = { style: { "--vune-control-size": String(value) } }; break
-    case "buttonStyle": result = { style: { "--vune-button-style": String(value) } }; break
-    case "toggleStyle": result = { style: { "--vune-toggle-style": String(value) } }; break
-    case "pickerStyle": result = { style: { "--vune-picker-style": String(value) } }; break
-    case "textFieldStyle": result = { style: { "--vune-text-field-style": String(value) } }; break
-    case "textEditorStyle": result = { style: { "--vune-text-editor-style": String(value) } }; break
-    case "listStyle": result = { style: { "--vune-list-style": String(value) } }; break
-    case "labelStyle": result = { style: { "--vune-label-style": String(value) } }; break
-    case "progressViewStyle": result = { style: { "--vune-progress-view-style": String(value) } }; break
+    case "controlSize": result = { style: { "--mun-control-size": String(value) } }; break
+    case "buttonStyle": result = { style: { "--mun-button-style": String(value) } }; break
+    case "toggleStyle": result = { style: { "--mun-toggle-style": String(value) } }; break
+    case "pickerStyle": result = { style: { "--mun-picker-style": String(value) } }; break
+    case "textFieldStyle": result = { style: { "--mun-text-field-style": String(value) } }; break
+    case "textEditorStyle": result = { style: { "--mun-text-editor-style": String(value) } }; break
+    case "listStyle": result = { style: { "--mun-list-style": String(value) } }; break
+    case "labelStyle": result = { style: { "--mun-label-style": String(value) } }; break
+    case "progressViewStyle": result = { style: { "--mun-progress-view-style": String(value) } }; break
     case "scrollDisabled": result = { style: value === true ? { overflow: "hidden" } : {} }; break
     case "scrollIndicators": result = { style: value === "hidden" ? { scrollbarWidth: "none" } : {} }; break
     case "scrollBounceBehavior": result = { style: { overscrollBehavior: value === "always" || value === "basedOnSize" ? "auto" : "none" } }; break
@@ -398,15 +398,15 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "listRowBackground": result = { style: typeof value === "string" ? { background: value } : {} }; break
     case "listRowSeparator":
     case "listSectionSeparator": result = { style: value === "hidden" ? { borderBlockStyle: "none" } : value === "visible" ? { borderBlockStyle: "solid" } : {} }; break
-    case "symbolRenderingMode": result = { style: { "--vune-symbol-rendering-mode": value == null ? "automatic" : String(value) } }; break
-    case "symbolVariant": result = { style: { "--vune-symbol-variant": String(value) } }; break
-    case "id": result = { "data-vune-id": String(value), key: value }; break
+    case "symbolRenderingMode": result = { style: { "--mun-symbol-rendering-mode": value == null ? "automatic" : String(value) } }; break
+    case "symbolVariant": result = { style: { "--mun-symbol-variant": String(value) } }; break
+    case "id": result = { "data-mun-id": String(value), key: value }; break
     case "onSubmit": result = typeof value === "function" ? { onSubmit: (event: { preventDefault?: () => void }) => { event.preventDefault?.(); value() } } : {}; break
     case "focusable": result = value === false ? { tabindex: -1 } : { tabindex: 0, ...(typeof modifier.arguments[1] === "function" ? { onFocus: () => (modifier.arguments[1] as (focused: boolean) => void)(true), onBlur: () => (modifier.arguments[1] as (focused: boolean) => void)(false) } : {}) }; break
-    case "draggable": result = { draggable: true, onDragstart: (event: { dataTransfer?: { setData?: (type: string, value: string) => void } }) => { let serialized = String(value); try { serialized = typeof value === "string" ? value : JSON.stringify(value) } catch {}; event.dataTransfer?.setData?.("application/x-vune+json", serialized) } }; break
+    case "draggable": result = { draggable: true, onDragstart: (event: { dataTransfer?: { setData?: (type: string, value: string) => void } }) => { let serialized = String(value); try { serialized = typeof value === "string" ? value : JSON.stringify(value) } catch {}; event.dataTransfer?.setData?.("application/x-mun+json", serialized) } }; break
     case "dropDestination": {
       const action = modifier.arguments[1]; const targeted = modifier.arguments[2]
-      result = typeof action === "function" ? { onDragenter: (event: { preventDefault?: () => void }) => { event.preventDefault?.(); if (typeof targeted === "function") targeted(true) }, onDragover: (event: { preventDefault?: () => void }) => event.preventDefault?.(), onDragleave: () => { if (typeof targeted === "function") targeted(false) }, onDrop: (event: { preventDefault?: () => void; clientX?: number; clientY?: number; dataTransfer?: { getData?: (type: string) => string } }) => { event.preventDefault?.(); if (typeof targeted === "function") targeted(false); const raw = event.dataTransfer?.getData?.("application/x-vune+json") ?? ""; let item: unknown = raw; try { item = JSON.parse(raw) } catch {}; action([item], { x: finite(event.clientX, 0), y: finite(event.clientY, 0) }) } } : {}; break
+      result = typeof action === "function" ? { onDragenter: (event: { preventDefault?: () => void }) => { event.preventDefault?.(); if (typeof targeted === "function") targeted(true) }, onDragover: (event: { preventDefault?: () => void }) => event.preventDefault?.(), onDragleave: () => { if (typeof targeted === "function") targeted(false) }, onDrop: (event: { preventDefault?: () => void; clientX?: number; clientY?: number; dataTransfer?: { getData?: (type: string) => string } }) => { event.preventDefault?.(); if (typeof targeted === "function") targeted(false); const raw = event.dataTransfer?.getData?.("application/x-mun+json") ?? ""; let item: unknown = raw; try { item = JSON.parse(raw) } catch {}; action([item], { x: finite(event.clientX, 0), y: finite(event.clientY, 0) }) } } : {}; break
     }
     case "scrollDismissesKeyboard": result = value === "never" ? {} : { onScroll(event: { currentTarget?: { ownerDocument?: Document } }) { const active = event?.currentTarget?.ownerDocument?.activeElement as HTMLElement | null | undefined; active?.blur?.() } }; break
     case "accessibilityLabel": result = { "aria-label": String(value) }; break
@@ -420,7 +420,7 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "accessibilityAction": result = typeof modifier.arguments[1] === "function" ? { "data-accessibility-action": String(value), onClick: modifier.arguments[1] } : {}; break
     case "continuousCorners": {
       const smoothing = typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : APPLE_CONTINUOUS_CORNER_SMOOTHING
-      result = { style: { cornerShape: "squircle", "--vune-corner-style": "continuous", "--vune-corner-smoothing": smoothing, "--vune-corner-preserve-smoothing": 1 } }
+      result = { style: { cornerShape: "squircle", "--mun-corner-style": "continuous", "--mun-corner-smoothing": smoothing, "--mun-corner-preserve-smoothing": 1 } }
       break
     }
     case "style": result = value && typeof value === "object" ? { style: value } : {}; break
@@ -499,14 +499,14 @@ function nativeElementProps(props: Record<string, unknown>): Record<string, unkn
 }
 
 function renderVueElement(type: unknown, props: Record<string, unknown> | null, children: VNodeChild[]): VNode {
-  const rawSlots = (props as Record<PropertyKey, unknown> | null)?.[vuneVueSlots] as Record<string, VuneVueSlot> | undefined
+  const rawSlots = (props as Record<PropertyKey, unknown> | null)?.[munVueSlots] as Record<string, MunVueSlot> | undefined
   if (typeof type === "string" && !rawSlots) {
     let needsNormalization = false
     for (const key of Object.keys(props ?? {})) {
       const value = props![key]
       if (key === "style" || key === "class" || (typeof value === "function" && /^on[a-z]/.test(key))
         || (key === "style" && value && typeof value === "object"
-          && (value as Record<string, unknown>)["--vune-corner-style"] === "continuous")) {
+          && (value as Record<string, unknown>)["--mun-corner-style"] === "continuous")) {
         needsNormalization = true
         break
       }
@@ -514,7 +514,7 @@ function renderVueElement(type: unknown, props: Record<string, unknown> | null, 
     if (!needsNormalization) return h(type, props, children)
   }
   let normalizedProps = props ? { ...props } : null
-  if (normalizedProps) delete (normalizedProps as Record<PropertyKey, unknown>)[vuneVueSlots]
+  if (normalizedProps) delete (normalizedProps as Record<PropertyKey, unknown>)[munVueSlots]
   if (normalizedProps) {
     for (const [key, value] of Object.entries(normalizedProps)) {
       if (typeof value === "function" && /^on[a-z]/.test(key)) {
@@ -530,7 +530,7 @@ function renderVueElement(type: unknown, props: Record<string, unknown> | null, 
     if (foreign.key !== undefined) normalizedProps.key = foreign.key
   }
   const style = normalizedProps?.style
-  if (style && typeof style === "object" && (style as Record<string, unknown>)["--vune-corner-style"] === "continuous") {
+  if (style && typeof style === "object" && (style as Record<string, unknown>)["--mun-corner-style"] === "continuous") {
     const previousRef = normalizedProps!.ref
     normalizedProps!.ref = (value: unknown) => {
       if (typeof previousRef === "function") previousRef(value)
@@ -572,7 +572,7 @@ function directCollectionPropsSafe(props: Record<string, unknown> | null): boole
       const descriptor = Object.getOwnPropertyDescriptor(props, key)
       if (!descriptor || !("value" in descriptor)) return false
       const value = descriptor.value
-      if (directCollectionUnsafeProps.has(key) || key.startsWith("data-vune-") || /^on[a-z]/i.test(key)) return false
+      if (directCollectionUnsafeProps.has(key) || key.startsWith("data-mun-") || /^on[a-z]/i.test(key)) return false
       if (key === "style") {
         if (value === undefined || value === null || typeof value === "string") continue
         if (typeof value !== "object") return false
@@ -972,8 +972,8 @@ function renderStableVueCompiledReplacementRows(
   return { children, rows }
 }
 
-const VuneCollectionHost = defineComponent({
-  name: "VuneCollectionHost",
+const MunCollectionHost = defineComponent({
+  name: "MunCollectionHost",
   props: {
     node: { type: Object as PropType<KeyedCollectionViewNode>, required: true },
     renderEntry: { type: Function as PropType<(entry: KeyedCollectionEntry) => VNodeChild>, required: true },
@@ -1069,7 +1069,7 @@ function compileVueTemplate(value: CompiledTemplateValue): VueTemplateFactory {
   return () => staticValue
 }
 
-const renderer: VuneRenderer<VNodeChild> = {
+const renderer: MunRenderer<VNodeChild> = {
   element(type, props, ...children) {
     return renderVueElement(type, props, children)
   },
@@ -1091,7 +1091,7 @@ const renderer: VuneRenderer<VNodeChild> = {
     return factory(renderSlot)
   },
   collection(node, renderEntry, identity) {
-    return h(VuneCollectionHost, { key: viewIdentityKey(identity), node, renderEntry })
+    return h(MunCollectionHost, { key: viewIdentityKey(identity), node, renderEntry })
   },
   modifier(content, modifier, renderArgument) {
     if (modifier.name === "frame") {
@@ -1111,15 +1111,15 @@ const renderer: VuneRenderer<VNodeChild> = {
     return h(Fragment, extra, [content])
   },
   view(node, _render, identity) {
-    return h(VuneViewHost, { key: viewIdentityKey(identity), node })
+    return h(MunViewHost, { key: viewIdentityKey(identity), node })
   },
   geometry(_node, render) {
-    return h(GeometryVuneValue, { render })
+    return h(GeometryMunValue, { render })
   },
 }
 
-const ReactiveVuneValue = defineComponent({
-  name: "ReactiveVuneValue",
+const ReactiveMunValue = defineComponent({
+  name: "ReactiveMunValue",
   props: {
     factory: { type: Function as PropType<() => ViewGraphValue>, required: true },
     dependencies: { type: Function as PropType<() => readonly StateRef<unknown>[]>, required: false },
@@ -1163,8 +1163,8 @@ const ReactiveVuneValue = defineComponent({
   },
 })
 
-const GeometryVuneValue = defineComponent({
-  name: "VuneGeometryReader",
+const GeometryMunValue = defineComponent({
+  name: "MunGeometryReader",
   props: {
     render: { type: Function as PropType<(geometry: GeometryProxy) => VNodeChild>, required: true },
   },
@@ -1208,12 +1208,12 @@ const GeometryVuneValue = defineComponent({
       }
     })
     onBeforeUnmount(() => disconnect())
-    return () => h("div", { ref: host, "data-vune": "GeometryReader", style: { boxSizing: "border-box", width: "100%" } }, value.value === null ? undefined : [value.value])
+    return () => h("div", { ref: host, "data-mun": "GeometryReader", style: { boxSizing: "border-box", width: "100%" } }, value.value === null ? undefined : [value.value])
   },
 })
 
-const VuneViewHost = defineComponent({
-  name: "VuneViewHost",
+const MunViewHost = defineComponent({
+  name: "MunViewHost",
   props: {
     node: { type: Object as PropType<ViewHostNode>, required: true },
   },
@@ -1221,7 +1221,7 @@ const VuneViewHost = defineComponent({
     const state = props.node.state?.(props.node.props) ?? {}
     return () => {
       const resolvedProps = { ...props.node.props, ...state }
-      return h(ReactiveVuneValue, {
+      return h(ReactiveMunValue, {
         factory: () => props.node.render(resolvedProps),
         ...(props.node.dependencies ? { dependencies: () => props.node.dependencies!(resolvedProps) } : {}),
         ...(props.node.dependenciesComplete ? { dependenciesComplete: true } : {}),
@@ -1230,27 +1230,27 @@ const VuneViewHost = defineComponent({
   },
 })
 
-/** Render any renderer-independent Vune ViewGraph value as Vue VNodes. */
+/** Render any renderer-independent Mün ViewGraph value as Vue VNodes. */
 export function render(value: ViewGraphValue): VNodeChild {
   return renderViewNode(value, renderer)
 }
 
-export interface VuneViewProps {
+export interface MunViewProps {
   readonly value?: ViewGraphValue
   readonly render?: () => ViewGraphValue
   readonly disablesAnimations?: boolean
 }
 
 /** Component for direct use from a Vue SFC template. */
-export const VuneView = defineComponent({
-  name: "VuneView",
+export const MunView = defineComponent({
+  name: "MunView",
   props: {
     value: { type: null as unknown as PropType<ViewGraphValue>, required: false },
     render: { type: Function as PropType<() => ViewGraphValue>, required: false },
     disablesAnimations: { type: Boolean, required: false, default: false },
   },
   setup(props) {
-    return () => h(ReactiveVuneValue, {
+    return () => h(ReactiveMunValue, {
       factory: () => props.render ? props.render() : props.value ?? null,
       disablesAnimations: props.disablesAnimations,
     })
@@ -1262,9 +1262,9 @@ export function createVueView<Props extends Record<string, unknown> = Record<str
   body: (props: Props) => ViewGraphValue,
 ): VueComponentType<Props> {
   return defineComponent({
-    name: "VuneViewAdapter",
+    name: "MunViewAdapter",
     setup(_props, { attrs }) {
-      return () => h(ReactiveVuneValue, { factory: () => body(attrs as Props) })
+      return () => h(ReactiveMunValue, { factory: () => body(attrs as Props) })
     },
   }) as VueComponentType<Props>
 }
@@ -1280,17 +1280,17 @@ function isComponentPropsRecord(value: unknown): value is Record<string, unknown
 
 function snapshotComponentProps(value: unknown): {
   readonly props: Record<string, unknown>
-  readonly slots?: Record<string, VuneVueSlot>
+  readonly slots?: Record<string, MunVueSlot>
 } {
   if (!isComponentPropsRecord(value)) return { props: {} }
   try {
     const props: Record<PropertyKey, unknown> = {}
-    let slots: Record<string, VuneVueSlot> | undefined
+    let slots: Record<string, MunVueSlot> | undefined
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       if (!descriptor || !("value" in descriptor)) continue
       if (key === "slots") {
-        if (isComponentPropsRecord(descriptor.value)) slots = descriptor.value as Record<string, VuneVueSlot>
+        if (isComponentPropsRecord(descriptor.value)) slots = descriptor.value as Record<string, MunVueSlot>
         continue
       }
       Object.defineProperty(props, key, { ...descriptor, configurable: true })
@@ -1301,13 +1301,13 @@ function snapshotComponentProps(value: unknown): {
   }
 }
 
-/** Place a Vue component or native HTML element in the same Vune graph. */
-export function Component<C extends object>(type: C, props: Omit<VuneVueComponentProps<NoInfer<C>>, "slots"> & { readonly slots?: Record<string, any> }, ...children: ViewValue[]): ModifiableViewNode
+/** Place a Vue component or native HTML element in the same Mün graph. */
+export function Component<C extends object>(type: C, props: Omit<MunVueComponentProps<NoInfer<C>>, "slots"> & { readonly slots?: Record<string, any> }, ...children: ViewValue[]): ModifiableViewNode
 export function Component<C extends object>(type: C, ...args: VueComponentArguments<NoInfer<C>>): ModifiableViewNode
 export function Component(type: string, props?: Record<string, unknown> | null, ...children: ViewValue[]): ModifiableViewNode
 export function Component(
   type: VueComponentType | string,
-  props: (Record<string, unknown> & { readonly slots?: Record<string, VuneVueSlot> }) | null = null,
+  props: (Record<string, unknown> & { readonly slots?: Record<string, MunVueSlot> }) | null = null,
   ...children: ViewValue[]
 ): ModifiableViewNode {
   if (typeof type === "string") return viewElement(type, props, children)
@@ -1315,7 +1315,7 @@ export function Component(
   return ForeignComponent(type, snapshot, ...children)
 }
 
-/** Adapt a Vue component definition into a Vune-callable, preserving its Vue prop surface. */
+/** Adapt a Vue component definition into a Mun-callable, preserving its Vue prop surface. */
 export function vueComponent<C extends object>(type: C): VueComponentView<C> {
   const name = typeof type === "function" && (type as { name?: string }).name ? (type as { name: string }).name : "VueComponent"
   const View = defineView(name, {
@@ -1325,7 +1325,7 @@ export function vueComponent<C extends object>(type: C): VueComponentView<C> {
       args => ({ props: args[0] ?? null }),
     )],
     intrinsic: true,
-    body: ({ props }: { readonly props: Record<string, unknown> | null }) => Component(type, (props ?? {}) as VuneVueComponentProps<C>),
+    body: ({ props }: { readonly props: Record<string, unknown> | null }) => Component(type, (props ?? {}) as MunVueComponentProps<C>),
   }) as unknown as VueComponentView<C>
   Object.defineProperty(View, "component", { configurable: false, enumerable: false, value: type })
   return View
@@ -1336,7 +1336,7 @@ export function foreignComponent<C extends object>(type: C): VueComponentView<C>
   return vueComponent(type)
 }
 
-/** Bridge Vune State to a Vue Ref without making State a Vue primitive. */
+/** Bridge Mun State to a Vue Ref without making State a Vue primitive. */
 export function toVueRef<T>(state: StateRef<T>): Ref<T> {
   return customRef<T>((track, trigger) => {
     const unsubscribe = subscribeState(state, trigger)
@@ -1348,7 +1348,7 @@ export function toVueRef<T>(state: StateRef<T>): Ref<T> {
   })
 }
 
-/** Bridge any Vue Ref to a writable Vune Binding lens. */
+/** Bridge any Vue Ref to a writable Mun Binding lens. */
 export function fromVueRef<T>(ref: Ref<T>): BindingRef<T> {
   return Binding(() => ref.value, value => { ref.value = value })
 }
@@ -1360,7 +1360,7 @@ export interface VueMountOptions {
 
 /** Mount a graph into Vue, optionally hydrating markup produced by SSR. */
 export function mount(value: ViewGraphValue, target: Element, options: VueMountOptions = {}): () => void {
-  const app = options.hydrate ? createSSRApp(VuneView, { value }) : createApp(VuneView, { value })
+  const app = options.hydrate ? createSSRApp(MunView, { value }) : createApp(MunView, { value })
   app.mount(target)
   return () => app.unmount()
 }

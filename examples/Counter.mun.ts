@@ -1,5 +1,5 @@
-import { Button, State, Text, VStack } from "vune-ui"
-import { view } from "@vune-ui/react"
+import { Button, State, Text, VStack } from "@mun/core/compat"
+import { view } from "@mun/react"
 
 const count = State(0)
 

@@ -1,4 +1,4 @@
-import { FrameBudgetGovernor as ExecutionFrameBudgetGovernor } from '@vune-ui/execution';
+import { FrameBudgetGovernor as ExecutionFrameBudgetGovernor } from '@mun/execution';
 
 // Backend threshold policy remains animation-owned. The sampling, EMA,
 // pressure, and subscription signal are shared with other execution clients.

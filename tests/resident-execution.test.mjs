@@ -187,8 +187,8 @@ test("the compiler emits a direct fused TypedArray loop instead of a row-time IR
   })
   const name = "__testResidentExecutor"
   const source = emitResidentRegionJS(region, name)
-  assert.match(source, /for \(let __vuneRangeIndex = 0;/)
-  assert.match(source, /for \(let __vuneIndex = __vuneRange\.start;/)
+  assert.match(source, /for \(let __munRangeIndex = 0;/)
+  assert.match(source, /for \(let __munIndex = __munRange\.start;/)
   assert.doesNotMatch(source, /evaluateResident|\.map\(/)
   const executor = Function(`"use strict"; ${source}; return ${name}`)()
   const buffers = storage.buffers

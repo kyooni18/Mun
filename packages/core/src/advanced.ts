@@ -38,21 +38,21 @@ export const Box = defineBuiltinView<BoxProps>(
     initializer("Box(@ViewBuilder content)", args => args.length === 1 && typeof args[0] === "function", args => ({ children: resolveBuilderInput(args[0]) }), [initializerKinds.viewBuilder(true, "content")]),
     initializer("Box(...children)", staticChildren, args => ({ children: flattenChildren(args as ViewBuilderContent[]) })),
   ],
-  ({ children }) => viewElement("div", { "data-vune": "Box" }, children),
+  ({ children }) => viewElement("div", { "data-mun": "Box" }, children),
 ) as TypedViewConstructor<BoxProps, BoxCall>
 
 const emptyView = (name: string, style?: Record<string, unknown>) => defineBuiltinView(
   name,
   [initializer(`${name}()`, args => args.length === 0)],
-  () => viewElement("div", { "data-vune": name, style }),
+  () => viewElement("div", { "data-mun": name, style }),
 )
 
 const continuousCornerStyle = (borderRadius: string): Record<string, unknown> => ({
   borderRadius,
   cornerShape: "squircle",
-  "--vune-corner-style": "continuous",
-  "--vune-corner-smoothing": String(APPLE_CONTINUOUS_CORNER_SMOOTHING),
-  "--vune-corner-preserve-smoothing": "1",
+  "--mun-corner-style": "continuous",
+  "--mun-corner-smoothing": String(APPLE_CONTINUOUS_CORNER_SMOOTHING),
+  "--mun-corner-preserve-smoothing": "1",
 })
 
 export const Rectangle = emptyView("Rectangle") as TypedViewConstructor<Record<string, never>, { (): ModifiableViewNode }>
@@ -65,7 +65,7 @@ export const RoundedRectangle = defineBuiltinView<RoundedRectangleProps>(
   "RoundedRectangle",
   [initializer("RoundedRectangle(radius?)", args => args.length <= 1 && (args[0] === undefined || typeof args[0] === "number" || typeof args[0] === "string"), args => ({ radius: args[0] as number | string | undefined }), [initializerKinds.value(false, "radius", undefined, "number | string")])],
   ({ radius = 8 }) => viewElement("div", {
-    "data-vune": "RoundedRectangle",
+    "data-mun": "RoundedRectangle",
     style: continuousCornerStyle(layoutLength(radius) ?? "8px"),
   }),
 ) as TypedViewConstructor<RoundedRectangleProps, RoundedRectangleCall>
@@ -110,7 +110,7 @@ export const Grid = defineBuiltinView<GridProps>(
     initializer("Grid(...children)", staticChildren, args => ({ children: flattenChildren(args as ViewBuilderContent[]) })),
   ],
   ({ options = {}, children }) => viewElement("div", {
-    "data-vune": "Grid",
+    "data-mun": "Grid",
     style: {
       display: "grid",
       gridTemplateColumns: gridTrackTemplate(options.columns),
@@ -125,7 +125,7 @@ interface TextAreaCall { (value: BindingRef<string>, placeholder?: string): Modi
 export const TextArea = defineBuiltinView<TextAreaProps>(
   "TextArea",
   [initializer("TextArea(value, placeholder?)", args => args.length >= 1 && args.length <= 2 && isBinding(args[0]) && (args[1] === undefined || typeof args[1] === "string"), args => ({ value: args[0] as BindingRef<string>, placeholder: args[1] as string | undefined }), [initializerKinds.binding(true, "value", "string"), initializerKinds.value(false, "placeholder", undefined, "string")])],
-  ({ value, placeholder }) => viewElement("textarea", { "data-vune": "TextArea", value: value.value, placeholder, onInput(event: { target?: { value?: string } }) { value.value = String(event.target && event.target.value !== undefined ? event.target.value : "") } }),
+  ({ value, placeholder }) => viewElement("textarea", { "data-mun": "TextArea", value: value.value, placeholder, onInput(event: { target?: { value?: string } }) { value.value = String(event.target && event.target.value !== undefined ? event.target.value : "") } }),
 ) as TypedViewConstructor<TextAreaProps, TextAreaCall>
 
 export interface PickerOption<T extends string | number> { readonly label: string; readonly value: T; readonly disabled?: boolean }
@@ -174,7 +174,7 @@ function requirePickerOptions(value: unknown): readonly PickerOption<string | nu
 export const Picker = defineBuiltinView<PickerProps>(
   "Picker",
   [initializer("Picker(value, options)", args => args.length === 2 && isBinding(args[0]) && snapshotPickerOptions(args[1]) !== undefined, args => ({ value: args[0] as BindingRef<string | number>, options: requirePickerOptions(args[1]) }), [initializerKinds.binding(true, "value", "string | number"), initializerKinds.value(true, "options", undefined, "array")])],
-  ({ value, options }) => viewElement("select", { "data-vune": "Picker", value: value.value, onChange(event: { target?: { value?: string } }) { const selectedValue = event.target ? event.target.value : undefined; const option = options.find(item => String(item.value) === selectedValue); if (option) value.value = option.value } }, options.map(option => viewElement("option", { value: option.value, disabled: option.disabled }, [option.label]))),
+  ({ value, options }) => viewElement("select", { "data-mun": "Picker", value: value.value, onChange(event: { target?: { value?: string } }) { const selectedValue = event.target ? event.target.value : undefined; const option = options.find(item => String(item.value) === selectedValue); if (option) value.value = option.value } }, options.map(option => viewElement("option", { value: option.value, disabled: option.disabled }, [option.label]))),
 ) as TypedViewConstructor<PickerProps, PickerCall>
 
 export interface ProgressViewOptions { readonly label?: string; readonly max?: number }
@@ -193,7 +193,7 @@ export const ProgressView = defineBuiltinView<ProgressViewProps>(
   ({ value, label, max = 1 }) => {
     const normalizedMax = Number.isFinite(max) && max > 0 ? max : 1
     const normalizedValue = value !== undefined && Number.isFinite(value) ? Math.min(normalizedMax, Math.max(0, value)) : undefined
-    return viewElement("div", { "data-vune": "ProgressView" }, [viewElement("progress", { max: normalizedMax, ...(normalizedValue === undefined ? {} : { value: normalizedValue }) }), ...(label === undefined ? [] : [Text(label)])])
+    return viewElement("div", { "data-mun": "ProgressView" }, [viewElement("progress", { max: normalizedMax, ...(normalizedValue === undefined ? {} : { value: normalizedValue }) }), ...(label === undefined ? [] : [Text(label)])])
   },
 ) as TypedViewConstructor<ProgressViewProps, ProgressViewCall>
 
@@ -212,7 +212,7 @@ export const Stepper = defineBuiltinView<StepperProps>(
   [initializer("Stepper(value, step?)", args => args.length >= 1 && args.length <= 2 && isBinding(args[0]) && (args[1] === undefined || typeof args[1] === "number"), args => ({ value: args[0] as BindingRef<number>, step: args[1] as number | undefined }), [initializerKinds.binding(true, "value", "number"), initializerKinds.value(false, "step", undefined, "number")])],
   ({ value, step = 1 }) => {
     const normalizedStep = Number.isFinite(step) ? step : 1
-    return HStack(Text(String(value.value)), viewElement("button", { type: "button", onClick() { value.value += normalizedStep } }, ["+"])).withProps({ "data-vune": "Stepper" })
+    return HStack(Text(String(value.value)), viewElement("button", { type: "button", onClick() { value.value += normalizedStep } }, ["+"])).withProps({ "data-mun": "Stepper" })
   },
 ) as TypedViewConstructor<StepperProps, StepperCall>
 
@@ -241,10 +241,10 @@ export const LazyGrid = defineBuiltinView<LazyGridProps>(
     const normalizedEstimate = normalizedLazyEstimate(options.estimatedItemSize)
     const estimated = layoutLength(normalizedEstimate) ?? "44px"
     return lazyView("LazyGrid", "grid", {
-      "data-vune": "LazyGrid",
-      "data-vune-lazy": "grid",
-      "data-vune-lazy-estimate": normalizedEstimate,
-      "data-vune-lazy-overscan": normalizedLazyOverscan(options.overscan),
+      "data-mun": "LazyGrid",
+      "data-mun-lazy": "grid",
+      "data-mun-lazy-estimate": normalizedEstimate,
+      "data-mun-lazy-overscan": normalizedLazyOverscan(options.overscan),
       style: {
         display: "grid",
         gridTemplateColumns: gridTrackTemplate(options.columns),

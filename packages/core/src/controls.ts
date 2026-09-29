@@ -27,7 +27,7 @@ export const Toggle = defineBuiltinView<ToggleProps>(
     args => ({ title: args[0] as string, isOn: args[1] as BindingRef<boolean> }),
     [initializerKinds.value(true, "title", undefined, "string"), initializerKinds.binding(true, "isOn", "boolean")],
   )],
-  ({ title, isOn }) => viewElement("label", { "data-vune": "Toggle" }, [
+  ({ title, isOn }) => viewElement("label", { "data-mun": "Toggle" }, [
     viewElement("input", {
       type: "checkbox",
       checked: Boolean(isOn.value),
@@ -109,7 +109,7 @@ export const Switch = defineBuiltinView<SwitchProps>(
     const inset = Math.max(2, Math.round(height / 10))
     const thumbSize = height - inset * 2
     const thumbTravel = Math.max(0, width - thumbSize - inset * 2)
-    const switchColor = (name: string, fallback: string): string => `var(--vune-switch-${name}, ${fallback})`
+    const switchColor = (name: string, fallback: string): string => `var(--mun-switch-${name}, ${fallback})`
     const activeTrackColor = tint ?? switchColor("on-bg", "light-dark(#34c759, #0a84ff)")
     const inactiveTrackColor = offTint ?? switchColor("off-bg", "light-dark(#e9e9ea, #3a3a3c)")
     const thumbColor = isOn.value
@@ -124,7 +124,7 @@ export const Switch = defineBuiltinView<SwitchProps>(
     // an opacity-animated active layer keeps the hot path compositor-friendly
     // and makes the visual transition independent from color syntax.
     const activeTrack = animateChange(viewElement("span", {
-      "data-vune": "SwitchTrack",
+      "data-mun": "SwitchTrack",
       "aria-hidden": "true",
     }).style({
       position: "absolute",
@@ -139,7 +139,7 @@ export const Switch = defineBuiltinView<SwitchProps>(
       pointerEvents: "none",
     }))
     const thumb = animateChange(viewElement("span", {
-      "data-vune": "SwitchThumb",
+      "data-mun": "SwitchThumb",
     }).style({
       position: "absolute",
       top: `${inset}px`,
@@ -157,13 +157,13 @@ export const Switch = defineBuiltinView<SwitchProps>(
       ? {
           type: "button",
           role: "switch",
-          "data-vune": "Switch",
+          "data-mun": "Switch",
           "aria-checked": Boolean(isOn.value),
           ...(label !== undefined ? { "aria-label": label } : title === undefined ? {} : { "aria-label": title }),
           onClick() { isOn.value = !isOn.value },
         }
       : {
-          "data-vune": "Switch",
+          "data-mun": "Switch",
           "aria-hidden": "true",
         }
     const control = viewElement(interactive ? "button" : "span", controlProps, [activeTrack, thumb]).style({
@@ -179,7 +179,7 @@ export const Switch = defineBuiltinView<SwitchProps>(
     })
     if (title === undefined) return control
     return viewElement("span", {
-      "data-vune": "Switch",
+      "data-mun": "Switch",
       style: {
         display: "inline-flex",
         alignItems: "center",
@@ -201,7 +201,7 @@ export const TextField = defineBuiltinView<TextFieldProps>(
     [initializerKinds.binding(true, "value", "string"), initializerKinds.value(false, "placeholder", undefined, "string")],
   )],
   ({ value, placeholder }) => viewElement("input", {
-    "data-vune": "TextField",
+    "data-mun": "TextField",
     type: "text",
     value: value.value,
     placeholder,
@@ -236,7 +236,7 @@ export const Slider = defineBuiltinView<SliderProps>(
     const normalizedValue = Number.isFinite(value.value) ? value.value : normalizedMin
     const normalizedStep = step !== undefined && Number.isFinite(step) && step > 0 ? step : undefined
     return viewElement("input", {
-      "data-vune": "Slider",
+      "data-mun": "Slider",
       type: "range",
       value: normalizedValue,
       min: normalizedMin,
@@ -277,14 +277,14 @@ export const Image = defineBuiltinView<ImageProps>(
     if (!symbol) return viewElement("img", { src: source, alt })
     const descriptor = symbol.descriptor
     return viewElement("svg", {
-      "data-vune": "VectorSymbol",
-      "data-vune-symbol": descriptor.name ?? "",
+      "data-mun": "VectorSymbol",
+      "data-mun-symbol": descriptor.name ?? "",
       viewBox: descriptor.viewBox,
       xmlns: "http://www.w3.org/2000/svg",
       ...(alt ? { role: "img", "aria-label": alt } : { "aria-hidden": "true" }),
     }, descriptor.layers.map(layer => viewElement("path", {
       key: layer.id,
-      "data-vune-symbol-layer": layer.id,
+      "data-mun-symbol-layer": layer.id,
       d: layer.d,
       ...(layer.fill !== undefined ? { fill: layer.fill } : {}),
       ...(layer.stroke !== undefined ? { stroke: layer.stroke } : {}),

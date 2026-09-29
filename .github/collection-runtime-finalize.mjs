@@ -367,35 +367,35 @@ fs.writeFileSync(domPath, dom)
 const testPath = 'tests/compiler-package.test.mjs'
 let tests = fs.readFileSync(testPath, 'utf8')
 const oldOwned = `test("compiler keeps proven top-level State collections owned by the ForEach boundary", () => {
-  const source = \`import { State, Element, ForEach, defineView, initializer } from "@vune-ui/core"
+  const source = \`import { State, Element, ForEach, defineView, initializer } from "@mun/core"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", null, item.value))) })\`
-  const output = transformVuneSource(source, "StateOwnedCollection.vune.ts")
+  const output = transformMunSource(source, "StateOwnedCollection.mun.ts")
   assert.match(output, /ForEach\\.viewType\\.createNodeCompiled\\(0, \\[items, compiledCollectionContent/)
   assert.doesNotMatch(output, /createNodeCompiled\\(0, \\[items\\.value, compiledCollectionContent/)
 })`
 const newOwned = `test("compiler keeps proven keyed State collections owned by the collection executor", () => {
-  const source = \`import { State, Element, ForEach, defineView, initializer } from "@vune-ui/core"
+  const source = \`import { State, Element, ForEach, defineView, initializer } from "@mun/core"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => item.id, item => Element("span", null, item.value))) })\`
-  const output = transformVuneSource(source, "StateOwnedCollection.vune.ts")
+  const output = transformMunSource(source, "StateOwnedCollection.mun.ts")
   assert.match(output, /ForEach\\.viewType\\.createNodeCompiled\\(1, \\[items, item => item\\.id, compiledCollectionContent/)
   assert.match(output, /evaluateKey: item => item\\.id/)
 })`
 if (!tests.includes(oldOwned)) throw new Error('owned compiler test marker missing')
 tests = tests.replace(oldOwned, newOwned)
 const oldAlias = `test("compiler recognizes aliased State constructors for collection ownership", () => {
-  const source = \`import { State as S, Element, ForEach, defineView, initializer } from "@vune-ui/core"
+  const source = \`import { State as S, Element, ForEach, defineView, initializer } from "@mun/core"
 const items = S([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", null, item.value))) })\`
-  const output = transformVuneSource(source, "AliasedStateCollection.vune.ts")
+  const output = transformMunSource(source, "AliasedStateCollection.mun.ts")
   assert.match(output, /ForEach\\.viewType\\.createNodeCompiled\\(0, \\[items, compiledCollectionContent/)
 })`
 const newAlias = `test("compiler recognizes aliased State constructors for keyed collection ownership", () => {
-  const source = \`import { State as S, Element, ForEach, defineView, initializer } from "@vune-ui/core"
+  const source = \`import { State as S, Element, ForEach, defineView, initializer } from "@mun/core"
 const items = S([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => item.id, item => Element("span", null, item.value))) })\`
-  const output = transformVuneSource(source, "AliasedStateCollection.vune.ts")
+  const output = transformMunSource(source, "AliasedStateCollection.mun.ts")
   assert.match(output, /ForEach\\.viewType\\.createNodeCompiled\\(1, \\[items, item => item\\.id, compiledCollectionContent/)
 })`
 if (!tests.includes(oldAlias)) throw new Error('alias compiler test marker missing')
@@ -403,10 +403,10 @@ tests = tests.replace(oldAlias, newAlias)
 tests += `
 
 test("compiler keeps implicit-key State collections on the conservative parent-owned path", () => {
-  const source = \`import { State, Element, ForEach, defineView, initializer } from "@vune-ui/core"
+  const source = \`import { State, Element, ForEach, defineView, initializer } from "@mun/core"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", null, item.value))) })\`
-  const output = transformVuneSource(source, "ImplicitStateCollection.vune.ts")
+  const output = transformMunSource(source, "ImplicitStateCollection.mun.ts")
   assert.match(output, /ForEach\\.viewType\\.createNodeCompiled\\(0, \\[items\\.value, compiledCollectionContent/)
 })
 `
@@ -416,7 +416,7 @@ const webTestPath = 'tests/web-package.test.mjs'
 let webTests = fs.readFileSync(webTestPath, 'utf8')
 webTests += `
 
-test("@vune-ui/web lets a compiled keyed collection own its State subscription", async () => {
+test("@mun/web lets a compiled keyed collection own its State subscription", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)

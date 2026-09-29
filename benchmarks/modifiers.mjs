@@ -2,18 +2,18 @@ import { performance } from 'node:perf_hooks'
 import { createElement } from 'react'
 import { Text, VStack, modifiedContent } from '../packages/core/dist/index.js'
 
-const ci = process.env.VUNE_BENCH_CI === '1'
-const defaultCounts = process.env.VUNE_BENCH_CI === '1' ? [100, 1000] : [100, 1000, 10000]
-const itemCounts = (process.env.VUNE_BENCH_ITEMS ?? defaultCounts.join(','))
+const ci = process.env.MUN_BENCH_CI === '1'
+const defaultCounts = process.env.MUN_BENCH_CI === '1' ? [100, 1000] : [100, 1000, 10000]
+const itemCounts = (process.env.MUN_BENCH_ITEMS ?? defaultCounts.join(','))
   .split(',')
   .map(value => Number(value.trim()))
   .filter(value => Number.isFinite(value) && value > 0)
 const depths = [1, 5, 10, 20]
-const rounds = Number(process.env.VUNE_BENCH_ROUNDS ?? (process.env.VUNE_BENCH_CI === '1' ? 2 : 5))
-const maxRatio = Number(process.env.VUNE_BENCH_MAX_RATIO)
-const baseRatio = Number(process.env.VUNE_BENCH_BASE_RATIO ?? (Number.isFinite(maxRatio) ? maxRatio : Number.NaN))
-const depthRatio = Number(process.env.VUNE_BENCH_DEPTH_RATIO ?? 0)
-const flatRatio = Number(process.env.VUNE_BENCH_FLAT_RATIO ?? 1.5)
+const rounds = Number(process.env.MUN_BENCH_ROUNDS ?? (process.env.MUN_BENCH_CI === '1' ? 2 : 5))
+const maxRatio = Number(process.env.MUN_BENCH_MAX_RATIO)
+const baseRatio = Number(process.env.MUN_BENCH_BASE_RATIO ?? (Number.isFinite(maxRatio) ? maxRatio : Number.NaN))
+const depthRatio = Number(process.env.MUN_BENCH_DEPTH_RATIO ?? 0)
+const flatRatio = Number(process.env.MUN_BENCH_FLAT_RATIO ?? 1.5)
 const results = []
 
 function measure(name, itemCount, factory) {
@@ -87,7 +87,7 @@ for (const itemCount of itemCounts) {
   })
 
   for (const depth of depths) {
-    const average = measure(`Vune modifier chain depth ${depth}`, itemCount, () => {
+    const average = measure(`Mun modifier chain depth ${depth}`, itemCount, () => {
       VStack(...Array.from({ length: itemCount }, (_, index) => {
         let element = Text(String(index))
         for (let step = 0; step < depth; step += 1) element = modifierSteps[step % modifierSteps.length](element)
@@ -98,18 +98,18 @@ for (const itemCount of itemCounts) {
       const ratio = average / Math.max(raw, 0.001)
       const budget = baseRatio + depthRatio * depth
       if (ratio > budget) {
-        throw new Error(`Vune modifier chain exceeded ${budget}x at ${itemCount} items and depth ${depth}: ${ratio.toFixed(2)}x`)
+        throw new Error(`Mun modifier chain exceeded ${budget}x at ${itemCount} items and depth ${depth}: ${ratio.toFixed(2)}x`)
       }
     }
   }
 
-  const chained = measure('Vune chained modifier construction', itemCount, () => {
+  const chained = measure('Mun chained modifier construction', itemCount, () => {
     for (let index = 0; index < itemCount; index += 1) {
       let element = Text(String(index))
       for (const step of modifierSteps) element = step(element)
     }
   })
-  const flat = measure('Vune flat modifier construction', itemCount, () => {
+  const flat = measure('Mun flat modifier construction', itemCount, () => {
     for (let index = 0; index < itemCount; index += 1) {
       modifiedContent(Text(String(index)), modifierRecords)
     }

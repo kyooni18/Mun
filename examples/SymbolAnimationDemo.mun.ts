@@ -7,7 +7,7 @@ import {
   Text,
   VStack,
   VectorSymbol,
-} from "vune-ui"
+} from "@mun/core/compat"
 import { Pause, Play, Volume2, VolumeX } from "@lucide/icons"
 
 const phase = State(false)
@@ -41,7 +41,7 @@ struct SymbolAnimationDemo: View {
   var body: some View {
     VStack() {
       VStack() {
-        Text("Vune Symbol Animation")
+        Text("Mun Symbol Animation")
           .className("symbol-demo-title")
         Text("Real icon-pack geometry, spring topology morphing, custom SVGs, and richer text transitions")
           .className("symbol-demo-subtitle")

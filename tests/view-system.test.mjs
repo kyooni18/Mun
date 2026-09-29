@@ -43,7 +43,7 @@ import {
   isViewNode,
   viewNodeOf,
 } from '../dist/legacy.js'
-import { createVuneLanguageService, createVuneTypeScriptLanguageService, diagnoseVuneSource, formatVuneSource, lowerVuneBuilderAst, mapGeneratedPosition, mapOriginalPosition, parseVuneBuilder, parseVuneStructs, transformVuneBuilderSyntax, transformVuneStructSyntax } from '../dist/compiler/index.js'
+import { createMunLanguageService, createMunTypeScriptLanguageService, diagnoseMunSource, formatMunSource, lowerMunBuilderAst, mapGeneratedPosition, mapOriginalPosition, parseMunBuilder, parseMunStructs, transformMunBuilderSyntax, transformMunStructSyntax } from '../dist/compiler/index.js'
 import {
   Action as CoreAction,
   Binding as CoreBinding,
@@ -57,10 +57,10 @@ import {
   resolveBuilderClosure as CoreResolveBuilderClosure,
   resolveInitializer as CoreResolveInitializer,
   viewBuilderClosure as CoreViewBuilderClosure,
-} from '../packages/core/dist/index.js'
+} from '../packages/core/dist/compat.js'
 
 test('struct syntax lowers to initializer metadata, a body, and instance State', () => {
-  const output = transformVuneStructSyntax(`
+  const output = transformMunStructSyntax(`
     export struct Counter: View {
       @State var count = 0
       var body: some View {
@@ -78,15 +78,15 @@ test('struct syntax lowers to initializer metadata, a body, and instance State',
 })
 
 test('legacy struct lowering keeps canonical imports separate from compatibility runtime helpers', () => {
-  const output = transformVuneStructSyntax(`
-    import { Binding, Text } from 'vune-ui'
+  const output = transformMunStructSyntax(`
+    import { Binding, Text } from '@mun/ui'
     struct Counter: View {
       @State var count = 0
       var body: some View { Toggle("Count", isOn: $count) }
     }
   `)
-  const canonicalImports = output.match(/import \{[^}]+\} from 'vune-ui'/g) ?? []
-  const legacyImports = output.match(/import \{[^}]+\} from 'vune-ui\/legacy'/g) ?? []
+  const canonicalImports = output.match(/import \{[^}]+\} from '@mun\/ui'/g) ?? []
+  const legacyImports = output.match(/import \{[^}]+\} from '@mun\/ui\/legacy'/g) ?? []
   assert.equal(canonicalImports.length, 1)
   assert.match(canonicalImports[0], /Binding/)
   assert.match(canonicalImports[0], /Text/)
@@ -96,7 +96,7 @@ test('legacy struct lowering keeps canonical imports separate from compatibility
 })
 
 test('struct @Binding fields lower to writable View inputs without React hook syntax', () => {
-  const output = transformVuneStructSyntax(`
+  const output = transformMunStructSyntax(`
     struct ToggleRow: View {
       @Binding var isOn: Bool
       var body: some View { Toggle("Wi-Fi", isOn: $isOn) }
@@ -120,7 +120,7 @@ test('compiled generic struct Card uses the same runtime init and builder bounda
       var body: some View { VStack() { content } }
     }
   `
-  const generated = transformVuneStructSyntax(source)
+  const generated = transformMunStructSyntax(source)
     .replace(/^import [^\n]+\n/, '')
     .replace(/\s+as any\b/g, '')
     .replace(/: any\b/g, '')
@@ -138,7 +138,7 @@ test('compiled generic struct Card uses the same runtime init and builder bounda
 })
 
 test('each custom struct initializer keeps its own field assignments', () => {
-  const output = transformVuneStructSyntax(`
+  const output = transformMunStructSyntax(`
     struct Badge: View {
       let title: string
       init(_ title: string) { self.title = title }
@@ -153,7 +153,7 @@ test('each custom struct initializer keeps its own field assignments', () => {
 })
 
 test('struct initializer defaults participate in metadata and runtime construction', () => {
-  const output = transformVuneStructSyntax(`
+  const output = transformMunStructSyntax(`
     struct Greeting: View {
       let title: string
       init(title: string = "Hello") { self.title = title }
@@ -174,7 +174,7 @@ test('struct lowering ignores declaration words inside strings and comments', ()
       var body: some View { Text(text) }
     }
   `
-  const output = transformVuneStructSyntax(source)
+  const output = transformMunStructSyntax(source)
   assert.match(output, /const text = 'struct Fake: View \{\}'/)
   assert.match(output, /struct Comment: View/)
   assert.match(output, /const Real = defineView\("Real"/)
@@ -182,22 +182,22 @@ test('struct lowering ignores declaration words inside strings and comments', ()
 })
 
 test('struct diagnostics point at the original declaration', () => {
-  assert.deepEqual(diagnoseVuneSource('struct Card: View {}'), [{
+  assert.deepEqual(diagnoseMunSource('struct Card: View {}'), [{
     severity: 'error',
-    code: 'VUNE_SYNTAX',
+    code: 'MUN_SYNTAX',
     message: 'struct Card must declare var body',
     line: 1,
     column: 1,
   }])
 })
 
-test('Vune struct parser retains generic and body source ranges before lowering', () => {
+test('Mun struct parser retains generic and body source ranges before lowering', () => {
   const source = `const label = 'struct Fake: View {}'
 struct Card<Content: View>: View {
   let content: Content
   var body: some View { VStack() { content } }
 }`
-  const declarations = parseVuneStructs(source)
+  const declarations = parseMunStructs(source)
   assert.equal(declarations.length, 1)
   assert.equal(declarations[0].name, 'Card')
   assert.equal(declarations[0].genericParameters, 'Content: View')
@@ -247,21 +247,21 @@ test('ViewBuilder conditionals and ForEach compose in the same graph', () => {
 })
 
 test('compiler language hooks preserve labeled closure overloads and diagnostics', () => {
-  const output = formatVuneSource('Button(label: { Text("Save") }, action: { const value = 1; save(value) })')
+  const output = formatMunSource('Button(label: { Text("Save") }, action: { const value = 1; save(value) })')
   assert.match(output, /Button\(namedArguments\(\{ label: \(\) => \[Text\("Save"\)\], action: overloadClosure\(\(\) => \[\], \(\) => \{/)
-  assert.equal(formatVuneSource(output), output)
-  assert.deepEqual(diagnoseVuneSource('VStack() { Text("missing")'), [{
+  assert.equal(formatMunSource(output), output)
+  assert.deepEqual(diagnoseMunSource('VStack() { Text("missing")'), [{
     severity: 'error',
-    code: 'VUNE_SYNTAX',
-    message: 'Unclosed { block in Vune builder source',
+    code: 'MUN_SYNTAX',
+    message: 'Unclosed { block in Mun builder source',
     line: 1,
     column: 10,
   }])
-  assert.equal(transformVuneBuilderSyntax('Text("Hello")'), 'Text("Hello")')
+  assert.equal(transformMunBuilderSyntax('Text("Hello")'), 'Text("Hello")')
 })
 
 test('editor language service keeps source positions and source maps in one contract', () => {
-  const service = createVuneLanguageService()
+  const service = createMunLanguageService()
   const source = 'VStack() {\n  Text("Hello")\n}'
   const offset = source.indexOf('Text')
   const position = service.positionAt(source, offset)
@@ -274,28 +274,28 @@ test('editor language service keeps source positions and source maps in one cont
 
 test('source maps retain token-level positions through collapsed builder lines', () => {
   const source = 'VStack() {\n  Text("Hello")\n}'
-  const service = createVuneLanguageService()
+  const service = createMunLanguageService()
   const transformed = service.transform(source, '/src/View.ts')
   const generatedOffset = transformed.code.indexOf('Text')
   const generatedPosition = service.positionAt(transformed.code, generatedOffset)
   assert.deepEqual(mapGeneratedPosition(transformed.map, generatedPosition), { line: 2, column: 3 })
   assert.deepEqual(mapOriginalPosition(transformed.map, { line: 2, column: 3 }), generatedPosition)
-  assert.deepEqual(transformed.map.x_vune.segments[0].map(segment => segment.line), [0, 1, 1])
+  assert.deepEqual(transformed.map.x_mun.segments[0].map(segment => segment.line), [0, 1, 1])
 })
 
 test('source maps align repeated View occurrences by token order', () => {
   const source = 'VStack() {\n  Text("A")\n  Text("B")\n}'
-  const service = createVuneLanguageService()
+  const service = createMunLanguageService()
   const transformed = service.transform(source, '/src/Repeated.ts')
   const secondText = transformed.code.lastIndexOf('Text')
   const mapped = mapGeneratedPosition(transformed.map, service.positionAt(transformed.code, secondText))
   assert.deepEqual(mapped, { line: 3, column: 3 })
 })
 
-test('TypeScript language service host parses lowered Vune snapshots', () => {
+test('TypeScript language service host parses lowered Mun snapshots', () => {
   const fileName = '/src/Editor.ts'
   const source = `
-import { Text, VStack } from 'vune-ui'
+import { Text, VStack } from '@mun/ui'
 export const screen = VStack() { Text('Editor') }
 `
   const host = {
@@ -313,14 +313,14 @@ export const screen = VStack() { Text('Editor') }
     readFile: ts.sys.readFile,
     readDirectory: ts.sys.readDirectory,
   }
-  const languageService = createVuneTypeScriptLanguageService(host)
+  const languageService = createMunTypeScriptLanguageService(host)
   const file = languageService.getProgram()?.getSourceFile(fileName)
   assert.ok(file)
   assert.doesNotMatch(file.text, /VStack\(\) \{/)
   assert.equal(languageService.getSyntacticDiagnostics(fileName).length, 0)
 })
 
-test('TypeScript diagnostics from lowered snapshots return original Vune spans', () => {
+test('TypeScript diagnostics from lowered snapshots return original Mun spans', () => {
   const fileName = '/src/Diagnostics.ts'
   const source = `declare function Text(value: string): string
 const value: number = Text('bad')
@@ -336,7 +336,7 @@ const value: number = Text('bad')
     readFile: () => undefined,
     readDirectory: () => [],
   }
-  const languageService = createVuneTypeScriptLanguageService(host)
+  const languageService = createMunTypeScriptLanguageService(host)
   const diagnostic = languageService.getSemanticDiagnostics(fileName)
     .find(value => String(value.messageText).includes('not assignable'))
   assert.ok(diagnostic)
@@ -345,11 +345,11 @@ const value: number = Text('bad')
 
 test('labeled arguments lower without a component allow-list and resolve through metadata', () => {
   assert.equal(
-    transformVuneBuilderSyntax('VStack(alignment: .leading, spacing: 12) { Text("Header") }'),
+    transformMunBuilderSyntax('VStack(alignment: .leading, spacing: 12) { Text("Header") }'),
     'VStack(namedArguments({ alignment: \'leading\', spacing: 12 }), () => [Text("Header")])',
   )
   assert.equal(
-    transformVuneBuilderSyntax('Toggle("Wi-Fi", isOn: $wifi)'),
+    transformMunBuilderSyntax('Toggle("Wi-Fi", isOn: $wifi)'),
     'Toggle("Wi-Fi", namedArguments({ isOn: Binding(wifi) }))',
   )
   assert.match(renderToStaticMarkup(VStack(
@@ -363,7 +363,7 @@ test('labeled arguments lower without a component allow-list and resolve through
 })
 
 test('ViewBuilder syntax lowers if/else and item closures with one normalization rule', () => {
-  const output = transformVuneBuilderSyntax(`
+  const output = transformMunBuilderSyntax(`
     VStack() {
       Text("Header")
       if (enabled) {
@@ -415,16 +415,16 @@ test('legacy renderer and ViewBuilder arrays do not execute accessors or leak re
     return pair.proxy
   }
   assert.throws(() => ViewBuilder.buildArray(revoked()), /Legacy ViewBuilder arrays must be inspectable/)
-  assert.throws(() => renderViewNode(revoked(), renderer), /Legacy Vune View graph array inputs must be inspectable/)
+  assert.throws(() => renderViewNode(revoked(), renderer), /Legacy Mün View graph array inputs must be inspectable/)
 })
 
-test('Vune builder parser produces a source-ranged AST consumed by the lowering pass', () => {
+test('Mun builder parser produces a source-ranged AST consumed by the lowering pass', () => {
   const source = `VStack(alignment: .leading, spacing: 12) {
     Text("Header")
     if (enabled) { EnabledView() } else { DisabledView() }
     ForEach(items) { item in Row(item) }
   }`
-  const ast = parseVuneBuilder(source)
+  const ast = parseMunBuilder(source)
   assert.equal(ast.kind, 'program')
   assert.equal(ast.statements.length, 1)
   const stack = ast.statements[0]
@@ -438,13 +438,13 @@ test('Vune builder parser produces a source-ranged AST consumed by the lowering 
   assert.equal(stack.trailing?.body.statements[2]?.kind === 'call' && stack.trailing.body.statements[2].trailing?.parameter, 'item')
   assert.equal(ast.range.start, 0)
   assert.equal(ast.range.end, source.length)
-  const lower = program => lowerVuneBuilderAst(program, {
+  const lower = program => lowerMunBuilderAst(program, {
     transformRaw: value => value,
-    closure: (body, parameter) => `${parameter ? `(${parameter})` : '()'} => [${lower(parseVuneBuilder(body)).join(', ')}]`,
+    closure: (body, parameter) => `${parameter ? `(${parameter})` : '()'} => [${lower(parseMunBuilder(body)).join(', ')}]`,
   })
-  const lowered = lowerVuneBuilderAst(ast, {
+  const lowered = lowerMunBuilderAst(ast, {
     transformRaw: value => value,
-    closure: (body, parameter) => `${parameter ? `(${parameter})` : '()'} => [${lower(parseVuneBuilder(body)).join(', ')}]`,
+    closure: (body, parameter) => `${parameter ? `(${parameter})` : '()'} => [${lower(parseMunBuilder(body)).join(', ')}]`,
   })
   assert.deepEqual(lowered, [
     "VStack(namedArguments({ alignment: .leading, spacing: 12 }), () => [Text(\"Header\"), (enabled ? [EnabledView()] : [DisabledView()]), ForEach(items, (item) => [Row(item)])])",
@@ -463,7 +463,7 @@ test('Button, VStack, and Card share the same trailing and labeled builder bound
   })
 
   assert.equal(
-    transformVuneBuilderSyntax('Card(content: { Text("Card") })'),
+    transformMunBuilderSyntax('Card(content: { Text("Card") })'),
     'Card(namedArguments({ content: () => [Text("Card")] }))',
   )
   assert.match(renderToStaticMarkup(Card({ content: () => Text('Card') })), /Card/)
@@ -485,7 +485,7 @@ test('compiled Button forms resolve the same action and label overloads end to e
   ]
   let saves = 0
   for (const source of sources) {
-    const generated = formatVuneSource(source).replace(/^import [^\n]+\n/, '')
+    const generated = formatMunSource(source).replace(/^import [^\n]+\n/, '')
     const button = Function(
       'Button',
       'Text',
@@ -537,8 +537,8 @@ test('closure role selection is declaration-driven for arbitrary labels', () => 
   assert.equal(closureKindOf(resolved.args[0]), 'action')
   resolved.args[0]()
   assert.equal(actionCalls, 1)
-  assert.match(transformVuneBuilderSyntax('RoleView(handler: { const value = 1; save(value) })'), /overloadClosure\(/)
-  assert.match(formatVuneSource('RoleView(handler: { const value = 1; save(value) })'), /import \{ namedArguments, overloadClosure \}/)
+  assert.match(transformMunBuilderSyntax('RoleView(handler: { const value = 1; save(value) })'), /overloadClosure\(/)
+  assert.match(formatMunSource('RoleView(handler: { const value = 1; save(value) })'), /import \{ namedArguments, overloadClosure \}/)
 })
 
 test('initializer resolution scores declared value types instead of using registration order', () => {
@@ -550,7 +550,7 @@ test('initializer resolution scores declared value types instead of using regist
     body: ({ value }) => Text(String(value)),
   })
 
-  assert.equal(resolveInitializer(Overloaded, ['Vune']).initializer.signature, 'Overloaded(string)')
+  assert.equal(resolveInitializer(Overloaded, ['Mun']).initializer.signature, 'Overloaded(string)')
   assert.equal(resolveInitializer(Overloaded, [42]).initializer.signature, 'Overloaded(number)')
   assert.throws(() => resolveInitializer(Overloaded, [true]), /No matching initializer for Overloaded/)
   assert.equal(resolveInitializer(Text, [undefined]).args.length, 1)
@@ -607,7 +607,7 @@ test('Binding is a writable lens and modifiers produce an immutable graph', () =
 
 test('modifier shorthand lowers to an immutable ModifiedContent graph', () => {
   assert.equal(
-    transformVuneBuilderSyntax('Text("Hello").font(.title).padding()'),
+    transformMunBuilderSyntax('Text("Hello").font(.title).padding()'),
     'Text("Hello").font(\'title\').padding()',
   )
   const original = Text('Hello')

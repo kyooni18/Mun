@@ -6,18 +6,18 @@ import { isViewNode, markViewNode, viewElement, viewFragment, viewGraphChild, vi
 import { arrayCheck, snapshotArrayValues } from './runtime/arrays.js'
 import { useViewIdentityStorage } from './runtime/view-storage.js'
 import { markIntrinsic } from './layout.js'
-import { closureForKind, closureKindOf, closureVariantsOf, markVuneClosure, type VuneClosureKind } from './closures.js'
+import { closureForKind, closureKindOf, closureVariantsOf, markMunClosure, type MunClosureKind } from './closures.js'
 import type { Modifiers } from './types.js'
 
-/** The marker used by values produced by Vune's struct/View model. */
-export const vuneView = Symbol.for('vune.view')
-export const vuneInitializers = Symbol.for('vune.initializers')
-/** Marks objects synthesized by the Vune parser for labeled arguments. */
-export const vuneNamedArguments = Symbol.for('vune.named.arguments')
-const vuneViewNodeFactory = Symbol.for('vune.view.node.factory')
+/** The marker used by values produced by Mun's struct/View model. */
+export const munView = Symbol.for('mun.view')
+export const munInitializers = Symbol.for('mun.initializers')
+/** Marks objects synthesized by the Mun parser for labeled arguments. */
+export const munNamedArguments = Symbol.for('mun.named.arguments')
+const munViewNodeFactory = Symbol.for('mun.view.node.factory')
 
 export interface ViewObject {
-  readonly [vuneView]: true
+  readonly [munView]: true
   readonly body: ReactNode | (() => ReactNode)
 }
 
@@ -64,8 +64,8 @@ export interface ViewDefinition<Props extends object = Record<string, unknown>> 
 
 export type ViewConstructor<Props extends object = Record<string, unknown>> = {
   (...args: unknown[]): ReactElement & Modifiers
-  readonly [vuneView]: true
-  readonly [vuneInitializers]: readonly InitializerMatch[]
+  readonly [munView]: true
+  readonly [munInitializers]: readonly InitializerMatch[]
   readonly viewType: ViewType<Props>
   readonly displayName?: string
 }
@@ -74,7 +74,7 @@ export type ViewConstructor<Props extends object = Record<string, unknown>> = {
 export type ViewCallable<Call extends (...args: any[]) => any, Props extends object = Record<string, unknown>> =
   Call & Pick<ViewConstructor<Props>, 'viewType'>
 
-export class VuneInitializerError extends TypeError {
+export class MunInitializerError extends TypeError {
   readonly typeName: string
   readonly arguments: readonly unknown[]
   readonly candidates: readonly string[]
@@ -83,7 +83,7 @@ export class VuneInitializerError extends TypeError {
     const rendered = args.map(value => typeof value === 'function' ? 'closure' : typeof value).join(', ')
     const available = candidates.length > 0 ? ` Available initializers: ${candidates.join('; ')}.` : ''
     super(`No matching initializer for ${typeName}(${rendered}).${available}`)
-    this.name = 'VuneInitializerError'
+    this.name = 'MunInitializerError'
     this.typeName = typeName
     this.arguments = args
     this.candidates = candidates
@@ -98,7 +98,7 @@ function typeName(target: unknown): string {
 
 function metadataOf(target: unknown): readonly InitializerMatch[] {
   if (typeof target !== 'function') return []
-  return ((target as any)[vuneInitializers] as readonly InitializerMatch[] | undefined) ?? []
+  return ((target as any)[munInitializers] as readonly InitializerMatch[] | undefined) ?? []
 }
 
 /** Register overload metadata on a callable View without changing its identity. */
@@ -106,10 +106,10 @@ export function registerInitializers<T extends Function>(
   target: T,
   initializers: readonly InitializerMatch[],
 ): T {
-  if (!(target as any)[vuneView]) {
-    Object.defineProperty(target, vuneView, { configurable: true, enumerable: false, value: true })
+  if (!(target as any)[munView]) {
+    Object.defineProperty(target, munView, { configurable: true, enumerable: false, value: true })
   }
-  Object.defineProperty(target, vuneInitializers, {
+  Object.defineProperty(target, munInitializers, {
     configurable: true,
     enumerable: false,
     value: Object.freeze([...initializers]),
@@ -123,7 +123,7 @@ export function initializersOf(target: unknown): readonly InitializerMatch[] {
 
 /** Internal labeled-argument carrier; plain objects remain a compatibility API. */
 export function namedArguments<T extends Record<string, unknown>>(value: T): T {
-  Object.defineProperty(value, vuneNamedArguments, { configurable: false, enumerable: false, value: true })
+  Object.defineProperty(value, munNamedArguments, { configurable: false, enumerable: false, value: true })
   return value
 }
 
@@ -259,7 +259,7 @@ function initializerScore(candidate: InitializerMatch, args: readonly unknown[],
 /** Resolve overloads exactly once at the View boundary. */
 export function resolveInitializer(target: unknown, args: readonly unknown[]): InitializerResolution {
   // React 19 invokes function components with a legacy second argument. It is
-  // always undefined for Vune constructors and must not become an initializer
+  // always undefined for Mun constructors and must not become an initializer
   // argument when a callable View is used directly as a React component.
   const suppliedArgs = args.length === 2
     && args[1] === undefined
@@ -277,8 +277,8 @@ export function resolveInitializer(target: unknown, args: readonly unknown[]): I
         ? candidateArgs.map((value, index) => {
           const parameter = candidate.parameters?.[index]
           if (typeof value !== 'function' || !parameter || (parameter.kind !== 'value' && parameter.kind !== 'viewBuilder' && parameter.kind !== 'action')) return value
-          const selected = closureForKind(value as (...args: any[]) => any, parameter.kind as VuneClosureKind)
-          return markVuneClosure(selected, parameter.kind as VuneClosureKind)
+          const selected = closureForKind(value as (...args: any[]) => any, parameter.kind as MunClosureKind)
+          return markMunClosure(selected, parameter.kind as MunClosureKind)
         })
         : candidateArgs
       return { candidate, args: typedArgs, score }
@@ -286,7 +286,7 @@ export function resolveInitializer(target: unknown, args: readonly unknown[]): I
     .filter((value): value is { candidate: InitializerMatch; args: readonly unknown[]; score: number } => value !== null)
     .sort((left, right) => right.score - left.score)[0]
   const initializer = match?.candidate
-  if (!initializer) throw new VuneInitializerError(typeName(target), suppliedArgs, candidates.map(candidate => candidate.signature))
+  if (!initializer) throw new MunInitializerError(typeName(target), suppliedArgs, candidates.map(candidate => candidate.signature))
   return { initializer, args: match?.args ?? suppliedArgs }
 }
 
@@ -320,12 +320,12 @@ export const ViewBuilder = Object.freeze({
 })
 
 export function resolveBuilderClosure(closure: ViewBuilderClosure): View[] {
-  return ViewBuilder.buildBlock(markVuneClosure(closure, 'viewBuilder')())
+  return ViewBuilder.buildBlock(markMunClosure(closure, 'viewBuilder')())
 }
 
 function renderView(value: View): ReactNode {
   if (isViewNode(value)) return reactRenderer.render(value)
-  if (value && typeof value === 'object' && vuneView in (value as object)) {
+  if (value && typeof value === 'object' && munView in (value as object)) {
     const body = (value as any).body
     return typeof body === 'function' ? body() : body
   }
@@ -436,11 +436,11 @@ export function defineView<Props extends object = Record<string, unknown>>(
     return element
   }) as ViewConstructor<Props>
 
-  Object.defineProperty(Type, vuneView, { configurable: false, value: true })
+  Object.defineProperty(Type, munView, { configurable: false, value: true })
   Object.defineProperty(Type, 'displayName', { configurable: true, value: name })
   Object.defineProperty(Type, 'viewType', { configurable: false, value: viewType })
   viewType.bind(Type)
-  Object.defineProperty(Type, vuneViewNodeFactory, {
+  Object.defineProperty(Type, munViewNodeFactory, {
     configurable: false,
     value: (...args: unknown[]) => viewType.createNode(args),
   })
@@ -451,9 +451,9 @@ export function defineView<Props extends object = Record<string, unknown>>(
 /** Build a renderer-neutral View graph node without creating a React element. */
 export function createViewNode(target: unknown, args: readonly unknown[] = []): ViewNode {
   const factory = typeof target === 'function'
-    ? (target as { [vuneViewNodeFactory]?: (...values: unknown[]) => ViewNode })[vuneViewNodeFactory]
+    ? (target as { [munViewNodeFactory]?: (...values: unknown[]) => ViewNode })[munViewNodeFactory]
     : undefined
-  if (!factory) throw new TypeError(`Target ${typeName(target)} is not a Vune View constructor`)
+  if (!factory) throw new TypeError(`Target ${typeName(target)} is not a Mün View constructor`)
   return factory(...args)
 }
 

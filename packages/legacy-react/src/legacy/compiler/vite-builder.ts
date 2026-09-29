@@ -1,10 +1,10 @@
-import { transformVuneBuilderSyntax } from './builder-transform.js'
-import { transformVuneStructSyntax } from './struct-transform.js'
-import { createLegacyVuneSourceMap } from './source-map.js'
+import { transformMunBuilderSyntax } from './builder-transform.js'
+import { transformMunStructSyntax } from './struct-transform.js'
+import { createLegacyMunSourceMap } from './source-map.js'
 
-export interface VuneViteBuilderOptions {}
+export interface MunViteBuilderOptions {}
 
-function containsVuneSyntax(source: string): boolean {
+function containsMunSyntax(source: string): boolean {
   return /\bstruct\s+[A-Z][A-Za-z0-9_$]*(?:\s*<[^>{}]*>)?\s*:\s*View\b/.test(source)
     || /\b[A-Z][A-Za-z0-9_$]*\s*\([^\n]*\)\s*\{/.test(source)
     || /\b[A-Za-z_$][A-Za-z0-9_$]*\s*:\s*(?:\.|\$|\{)/.test(source)
@@ -12,29 +12,29 @@ function containsVuneSyntax(source: string): boolean {
 }
 
 function ensureRuntimeImport(source: string, name: string): string {
-  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])vune-ui\/legacy\2[\t ]*;?/.exec(source)
-  if (!existing) return `import { ${name} } from 'vune-ui/legacy'\n${source}`
+  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun\/ui\/legacy\2[\t ]*;?/.exec(source)
+  if (!existing) return `import { ${name} } from '@mun/ui/legacy'\n${source}`
   const imported = existing[1].split(',').map(value => value.trim()).filter(Boolean)
   if (imported.includes(name)) return source
   imported.push(name)
-  const replacement = `import { ${imported.join(', ')} } from 'vune-ui/legacy'`
+  const replacement = `import { ${imported.join(', ')} } from '@mun/ui/legacy'`
   return source.slice(0, existing.index) + replacement + source.slice(existing.index + existing[0].length)
 }
 
-export function createVuneVitePlugin(_options: VuneViteBuilderOptions = {}) {
+export function createMunVitePlugin(_options: MunViteBuilderOptions = {}) {
   return {
-    name: 'vune-builder-transform',
+    name: 'mun-builder-transform',
     enforce: 'pre' as const,
     transform(code: string, id: string) {
       if (!/\.[cm]?[jt]sx?$/.test(id.split('?', 1)[0])) return null
-      if (!containsVuneSyntax(code)) return null
-      const structCode = transformVuneStructSyntax(code)
-      const lowered = transformVuneBuilderSyntax(structCode)
+      if (!containsMunSyntax(code)) return null
+      const structCode = transformMunStructSyntax(code)
+      const lowered = transformMunBuilderSyntax(structCode)
       const result = [
         ...(lowered.includes('namedArguments(') ? ['namedArguments'] : []),
         ...(lowered.includes('overloadClosure(') ? ['overloadClosure'] : []),
       ].reduce((value, name) => ensureRuntimeImport(value, name), lowered)
-      return result === code ? null : { code: result, map: createLegacyVuneSourceMap(code, result, id.split('?', 1)[0]) }
+      return result === code ? null : { code: result, map: createLegacyMunSourceMap(code, result, id.split('?', 1)[0]) }
     }
   }
 }

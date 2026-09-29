@@ -1,19 +1,19 @@
 import type { ReactElement } from 'react'
 
-export const vuneNode = Symbol.for('vune.node')
+export const munNode = Symbol.for('mun.node')
 
-export interface VuneNodeMetadata {
+export interface MunNodeMetadata {
   modifiers: unknown[]
   layout?: unknown
 }
 
-const metadata = new WeakMap<object, VuneNodeMetadata>()
+const metadata = new WeakMap<object, MunNodeMetadata>()
 
-export function markVuneNode(element: ReactElement, data: VuneNodeMetadata): ReactElement {
+export function markMunNode(element: ReactElement, data: MunNodeMetadata): ReactElement {
   metadata.set(element, data)
   return element
 }
 
-export function getVuneNodeMetadata(element: ReactElement): VuneNodeMetadata | undefined {
+export function getMunNodeMetadata(element: ReactElement): MunNodeMetadata | undefined {
   return metadata.get(element)
 }

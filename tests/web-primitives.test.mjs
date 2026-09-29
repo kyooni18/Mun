@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { Binding, Path, State, TextEditor } from '../packages/core/dist/index.js'
+import { Binding, Path, State, TextEditor } from '../packages/core/dist/compat.js'
 import { Canvas, ContentEditable, FilePicker, FocusScope, Popover, Svg, Video } from '../packages/core/dist/web-primitives.js'
 
 function element(value) {
@@ -12,7 +12,7 @@ test('native browser primitives stay graph-first and preserve bindings', () => {
   const text = State('hello')
   const editor = element(TextEditor(Binding(text), 'Write', 5))
   assert.equal(editor.type, 'textarea')
-  assert.equal(editor.props['data-vune'], 'TextEditor')
+  assert.equal(editor.props['data-mun'], 'TextEditor')
   editor.props.onInput({ target: { value: 'updated' } })
   assert.equal(text.value, 'updated')
 
@@ -33,10 +33,10 @@ test('SVG, focus and popover primitives avoid raw host escape hatches', () => {
   assert.equal(svg.type, 'svg')
   assert.equal(svg.children[0].type, 'path')
   const focus = element(FocusScope(() => [Canvas(1, 1)]))
-  assert.equal(focus.props['data-vune-focus-scope'], 'restore')
+  assert.equal(focus.props['data-mun-focus-scope'], 'restore')
   const shown = State(true)
   const popover = element(Popover(Binding(shown), () => [Canvas(1, 1)]))
   assert.equal(popover.props.role, 'dialog')
-  assert.equal(popover.props['data-vune-presentation'], 'popover')
+  assert.equal(popover.props['data-mun-presentation'], 'popover')
   assert.equal(popover.props.popover, 'auto')
 })

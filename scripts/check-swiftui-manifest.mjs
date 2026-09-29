@@ -26,7 +26,7 @@ for (const [name, spec] of Object.entries(manifest.views)) {
   }
   const runtime = Core[name]
   if (typeof runtime !== "function") {
-    failures.push(`View ${name} is in the SwiftUI manifest but is not exported by @vune-ui/core.`)
+    failures.push(`View ${name} is in the SwiftUI manifest but is not exported by @mun/core.`)
     continue
   }
   const generated = Core.swiftUIInitializerSymbols(name) ?? []
@@ -94,5 +94,5 @@ if (failures.length > 0) {
     .reduce((count, modifier) => count + modifier.signatures.length - swiftUISignatures(modifier).length, 0)
   const fidelityCounts = [...Object.values(manifest.views), ...manifest.modifiers.filter(modifier => !modifier.compatibility)]
     .reduce((counts, entry) => ({ ...counts, [entry.fidelity]: (counts[entry.fidelity] ?? 0) + 1 }), {})
-  console.log(`SwiftUI manifest OK: ${Object.keys(manifest.views).length} canonical views, ${canonicalModifiers} canonical modifiers, ${compatibilityModifiers} compatibility modifiers, ${extensionSignatures} same-name Vune extension signature(s); fidelity source=${fidelityCounts.source ?? 0}, subset=${fidelityCounts["source-subset"] ?? 0}, web=${fidelityCounts["web-approximation"] ?? 0}.`)
+  console.log(`SwiftUI manifest OK: ${Object.keys(manifest.views).length} canonical views, ${canonicalModifiers} canonical modifiers, ${compatibilityModifiers} compatibility modifiers, ${extensionSignatures} same-name Mün extension signature(s); fidelity source=${fidelityCounts.source ?? 0}, subset=${fidelityCounts["source-subset"] ?? 0}, web=${fidelityCounts["web-approximation"] ?? 0}.`)
 }

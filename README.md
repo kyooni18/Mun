@@ -1,49 +1,75 @@
-# Vune UI
+# Mün UI
 
-Vune UI is a renderer-independent declarative UI framework hosted by TypeScript.
-Its `vune-ui` package and `@vune-ui/core` build immutable Vune View graphs;
-`@vune-ui/react`, `@vune-ui/vue`, and `@vune-ui/web` materialize those graphs for their
-respective runtimes. Legacy React APIs are isolated under `vune-ui/legacy`.
+Mün is a native-first standalone UI language, compiler, runtime, and framework.
+Canonical `.mun` source lowers into backend-neutral Semantic UI IR. The native
+runtime is the primary consumer; Web and Astro are secondary consumers of the
+same compiler and semantic model.
 
 The dependency direction is:
 
 ```text
-.vune / .vune.ts -> @vune-ui/compiler -> Vune View graph -> @vune-ui/react, @vune-ui/vue, or @vune-ui/web
+.mun
+  -> @mun/compiler
+  -> Mün Semantic UI IR
+     -> mun-runtime
+        -> mun-native
+           -> macOS / Windows / Linux
+     -> secondary Web / Astro backends
 ```
 
-Data-oriented acceleration follows the separate
-[Resident Compute Islands](docs/RESIDENT_COMPUTE.md) rule: only an entire
-packed producer-to-consumer region may be promoted. Ordinary object State and
-DOM rendering remain on their existing paths.
+Mün owns its component, layout, state, input, animation, rendering, and semantic
+models. Native Mün does not use HTML, DOM, CSS, WebView, or Chromium internally.
+Platform differences stay behind the shared runtime/backend boundary rather than
+becoming platform-specific language semantics.
 
-React is a renderer, not the definition of a Vune View.
+The older React, Vue, Web, and Astro adapters remain compatibility and secondary
+integration surfaces while the native path is completed. Legacy React APIs are
+isolated under `@mun/ui/legacy`.
 
-New framework code should import graph values from `vune-ui` and select a renderer
-explicitly from `@vune-ui/react`, `@vune-ui/vue`, or `@vune-ui/web`. The
-`vune-ui/legacy` entry point remains available for compatibility and is implemented
-inside `@vune-ui/react`; the separate `@vune-ui/legacy-react` package remains only
-as a compatibility distribution.
-
-Installing `vune-ui` also installs the published Vune compiler, renderer
-packages, and Vite adapter. The `create-vune-ui` scaffolding CLI remains a
-separate package.
-
-The canonical Vite workflow lowers Vune builders and custom `struct ...: View` declarations without coupling the graph to a renderer. The compatibility React workflow also offers `State`, `Action`, and `view` macros.
+Resident Compute Islands remain a separate data-oriented acceleration mechanism;
+they do not define Mün's native UI architecture.
 
 ## Quick start
 
-### Local checkout (recommended while Vune is unpublished)
+### Native checkout
 
-Vune can be used from a completely separate project without publishing any
-`@vune-ui/*` package to npm. Install and build the Vune checkout once:
+From the Mün repository, build the compiler packages once:
 
 ```bash
-cd ~/Code/Web/React/Vune
+pnpm install
+pnpm build:workspace
+```
+
+Then run the representative native application through the complete
+source-to-window path:
+
+```bash
+node bin/mun.mjs run examples/NativeDemo.mun
+```
+
+The same command accepts any canonical standalone Mün file:
+
+```bash
+mun run path/to/App.mun
+```
+
+`mun run` compiles `.mun` into Semantic UI IR, resolves the native host, and
+passes that backend-neutral program to `mun-native`. A packaged native binary is
+used when available; source checkouts and source-only packages fall back to the
+locked Rust workspace without changing Mün language semantics.
+
+### Local checkout (recommended while Mün is unpublished)
+
+Mün can be used from a completely separate project without publishing any
+`@mun/*` package to npm. Install and build the Mün checkout once:
+
+```bash
+cd ~/Code/Mun
 pnpm install
 pnpm build
 ```
 
-Then link an existing React project from the Vune repository:
+Then link an existing React project from the Mün repository:
 
 ```bash
 pnpm dev:link ~/Code/Web/React/MyApp
@@ -52,25 +78,25 @@ pnpm dev:link ~/Code/Web/React/MyApp
 `dev:link` writes direct `link:` entries for the selected renderer plus the
 internal `core/compiler` plumbing that bundlers must resolve, and pnpm
 11-compatible `overrides:` in the target `pnpm-workspace.yaml` for every
-internal `@vune-ui/*` package. That last part is important: unpublished
-transitive packages such as `@vune-ui/compiler` never fall through to the
+internal `@mun/*` facade package. That last part is important: unpublished
+transitive facade packages such as `@mun/compiler` never fall through to the
 public npm registry.
 
-Run a watch build while developing Vune itself:
+Run a watch build while developing Mün itself:
 
 ```bash
 pnpm dev:watch
 ```
 
-Now edits in the Vune checkout update package `dist/` outputs while the separate
-application keeps using the linked packages.
+Now edits in the Mün checkout update facade package `dist/` outputs while the separate
+application keeps using the linked facade packages.
 
 To create a brand-new separate project using this checkout:
 
 ```bash
-cd ~/Code/Web/React/Vune
-pnpm dev:create ~/Code/Web/React/MyVuneApp --no-install
-cd ~/Code/Web/React/MyVuneApp
+cd ~/Code/Mun
+pnpm dev:create ~/Code/Web/React/MyMunApp --no-install
+cd ~/Code/Web/React/MyMunApp
 pnpm install
 pnpm dev
 ```
@@ -78,18 +104,19 @@ pnpm dev
 The equivalent direct CLI is:
 
 ```bash
-node ~/Code/Web/React/Vune/bin/vune-ui.mjs create ./MyVuneApp --local
+node ~/Code/Mun/bin/mun.mjs create ./MyMunApp --local
 ```
 
-For Vue or the native Web renderer in an existing project:
+For Astro, Vue, or the native Web renderer in an existing project:
 
 ```bash
+pnpm dev:link /path/to/astro-app --renderer astro
 pnpm dev:link /path/to/vue-app --renderer vue
 pnpm dev:link /path/to/web-app --renderer web
 ```
 
-If you specifically need portable tarballs instead of source links, Vune can
-build a complete local package set and install it with pnpm 11 workspace overrides automatically:
+If you specifically need portable tarballs instead of source links, Mün can
+build a complete local facade package set and install it with pnpm 11 workspace overrides automatically:
 
 ```bash
 pnpm pack:local
@@ -101,46 +128,123 @@ Git so stale versions cannot be committed accidentally.
 
 ### Published-package workflow
 
-After the packages are published, the standard initializer is:
+After the facade packages are published, the standard initializer is:
 
 ```bash
-pnpm create vune-ui my-vune-app
-cd my-vune-app
+pnpm create mun my-mun-app
+cd my-mun-app
 pnpm dev
 ```
 
-The generated app uses Vune's direct Web renderer and does not install or
-configure React or Vue. Add a renderer package separately when an existing
+The generated app uses Mün's direct Web renderer and does not install or
+configure React or Vue. Add a renderer facade package separately when an existing
 React or Vue application needs framework-specific interop.
 
-The equivalent CLI form is `pnpm dlx vune-ui create my-vune-app`. From an empty
+The equivalent CLI form is `pnpm dlx mun create my-mun-app`. From an empty
 directory, pass `.` to create the app in place. The CLI installs dependencies
 by default and prints the command to start development. Use `--no-install` to
-inspect the generated files first; Vune will print both the install and dev
+inspect the generated files first; Mün will print both the install and dev
 commands so setup remains resumable. If installation fails, the scaffold is
 kept and the CLI prints the exact recovery command.
 
 Local source scaffolding and linking use pnpm automatically because they rely
-on pnpm 11 workspace overrides. `vune-ui link` detects React or Vue from the
-target package manifest and falls back to the direct Web renderer when neither
-is present; pass `--renderer` when you need to override detection.
+on pnpm 11 workspace overrides. `mun link` detects Astro, React, or Vue from the
+target package manifest and falls back to the direct Web renderer when none is present;
+pass `--renderer` when you need to override detection.
 
-For the canonical Vite compiler, put `vunePlugin()` before the renderer plugin:
+For the canonical Vite compiler, put `munPlugin()` before the renderer plugin:
 
 ```ts
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import { vunePlugin } from '@vune-ui/vite'
+import { munPlugin } from '@mun/vite'
 
 export default defineConfig({
   plugins: [
-    vunePlugin(),
+    munPlugin(),
     react(),
   ],
 })
 ```
 
-A Vune screen can stay in ordinary TypeScript when you do not need builder
+
+### Astro
+
+Install the integration in an Astro project and register it once:
+
+```js
+// astro.config.mjs
+import { defineConfig } from 'astro/config'
+import mun from '@mun/astro'
+
+export default defineConfig({
+  integrations: [mun()],
+})
+```
+
+A `.astro` file can embed a native Mün region without wrapping it in HTML:
+
+```astro
+---
+const title = 'Dashboard'
+---
+
+<main>
+  <h1>{title}</h1>
+
+  @mun Hero {
+    VStack(spacing: 8) {
+      Text(title)
+      Text("Static Mün")
+    }
+  }
+</main>
+```
+
+Static `@mun` regions render on the server and add no client JavaScript. If the
+embedded Mün region uses state, bindings, action closures, or client effects, the
+integration turns it into an Astro island automatically:
+
+```astro
+@mun Counter {
+  const count = State(0)
+
+  Button(String(count.value)) {
+    count.value += 1
+  }
+}
+```
+
+Use an explicit Astro hydration policy when needed:
+
+```astro
+@mun (client: visible) {
+  ExpensiveInteractiveView()
+}
+
+@mun (client: media("(min-width: 900px)")) {
+  DesktopControls()
+}
+```
+
+Standalone `.mun` Views can also be imported as Astro components. Static imports
+need no client directive; interactive standalone Views use Astro's normal
+`client:*` directives:
+
+```astro
+---
+import { Greeting } from '../components/Greeting.mun'
+---
+
+<Greeting name="Ada" />
+```
+
+The boundary is intentionally strict: canonical `.mun` files and embedded
+`@mun` regions contain Mün Views, not raw HTML. Keep host HTML in Astro and compose
+Mün UI with `Text`, `VStack`, `Button`, and other Mün Views inside the Mün region.
+Astro HTML slots are not passed through a Mün View boundary.
+
+A Mün screen can stay in ordinary TypeScript when you do not need builder
 syntax:
 
 ```ts
@@ -151,15 +255,15 @@ import {
   State,
   Text,
   VStack,
-} from 'vune-ui'
-import { Action, view } from '@vune-ui/react'
+} from '@mun/ui'
+import { Action, view } from '@mun/react'
 
 const count = State(0)
 
 export default view(() => (
   VStack(
     { alignment: 'leading', spacing: 16 },
-    Text('Hello, Vune').fontSize(28).bold(),
+    Text('Hello, Mün').fontSize(28).bold(),
     Text(`Count: ${count.value}`),
     Button('Increase', Action(() => { count.value += 1 })),
     HStack(
@@ -173,41 +277,42 @@ export default view(() => (
 ))
 ```
 
-`@vune-ui/vite` lowers `.vune` and `.vune.ts` builders, labeled initializers, shorthand
-modifiers, raw HTML, and custom `struct ...: View` declarations. The root
-`vune-ui` entry remains renderer-independent; select React, Vue, or Web from the
-corresponding `@vune-ui/*` renderer package.
+`@mun/vite` lowers `.mun` and compatibility `.mun.ts` builders, labeled
+initializers, shorthand modifiers, and custom `struct ...: View` declarations.
+Canonical `.mun` rejects raw HTML; legacy host-file compatibility remains isolated
+to the older `.mun.ts`/framework paths. The root `mun` entry remains renderer-independent;
+select React, Vue, Web, or Astro from the corresponding `@mun/*` renderer facade package.
 
 ## Publishing to npm
 
-Once the npm scope is ready, the repository can publish the complete synchronized package set with one command:
+Once the npm scope is ready, the repository can publish the complete synchronized facade package set with one command:
 
 ```bash
 pnpm release:dry   # full verification + npm dry-run
 pnpm release       # publish the current version
-pnpm release:patch # bump every package, verify, and publish
+pnpm release:patch # bump every facade package, verify, and publish
 ```
 
-The release helper publishes in dependency order and can resume a partial release by skipping versions that already exist on npm. See [Publishing Vune to npm](docs/PUBLISHING.md) for first-time npm setup, versioning, tags, and recovery.
+The release helper publishes in dependency order and can resume a partial release by skipping versions that already exist on npm. See [Publishing Mün to npm](docs/PUBLISHING.md) for first-time npm setup, versioning, tags, and recovery.
 
 See [Local development](docs/LOCAL_DEVELOPMENT.md) for the complete separate-
 project workflow.
 
 ## Editor and LSP integration
 
-Vune includes a standalone stdio language server and setup generator for Vim,
+Mün includes a standalone stdio language server and setup generator for Vim,
 Neovim, VS Code, Zed, Helix, and generic LSP clients:
 
 ```bash
-npx vune-ui editor install --editor all
-vune-ui lsp --stdio
+npx mun editor install --editor all
+mun lsp --stdio
 ```
 
 To export the included VS Code extension as an installable VSIX:
 
 ```bash
 pnpm vscode:package
-code --install-extension dist/vune-language-support-<version>.vsix
+code --install-extension dist/mun-language-support-<version>.vsix
 ```
 
 See [Editor integrations](docs/EDITORS.md) for global installs and client
@@ -215,13 +320,13 @@ configuration details.
 
 ## View values, initializers, and builders
 
-Vune's declarative core now has a View/initializer boundary. Built-in Views and
+Mün's declarative core now has a View/initializer boundary. Built-in Views and
 user Views select a registered initializer from the actual argument list before
 rendering; a trailing block is valid only when that selected initializer accepts
 `@ViewBuilder` or `@Action`.
 
 ```ts
-import { defineView, initializer, resolveBuilderClosure, Text, VStack } from 'vune-ui'
+import { defineView, initializer, resolveBuilderClosure, Text, VStack } from '@mun/ui'
 
 const Card = defineView('Card', {
   initializers: [initializer(
@@ -243,7 +348,7 @@ model, including `var body`, `@ViewBuilder`, `@Action`, and `@State` fields.
 Builder blocks support nested Views, conditionals, optional branches, and
 `ForEach(items) { item in ... }`. The compiler resolves syntax by initializer
 metadata rather than a hard-coded component-name list; malformed calls produce
-structured compiler diagnostics and `VuneInitializerError` at the runtime
+structured compiler diagnostics and `MunInitializerError` at the runtime
 boundary. When a same-file custom View call has exactly one declaration-defined
 initializer match, or an imported View exposes one unique non-variadic typed
 call signature, the compiler emits a direct initializer-index path. Calls that
@@ -269,7 +374,7 @@ all other Views continue to use runtime dependency collection.
 
 The same source syntax can be used with built-in and custom Views:
 
-`Button` intentionally has only these two Vune forms:
+`Button` intentionally has only these two Mün forms:
 
 ```ts
 Button('Save') { save() }
@@ -294,17 +399,17 @@ Button(action: { save() }, label: {
 })
 ```
 
-`vunePlugin()` lowers these builder, labeled-argument, shorthand-modifier, and
-`struct` forms before the TypeScript/React transform. `parseVuneBuilder()` and
-`parseVuneStructs()` expose the source-ranged AST consumed by that lowering
+`munPlugin()` lowers these builder, labeled-argument, shorthand-modifier, and
+`struct` forms before the TypeScript/React transform. `parseMunBuilder()` and
+`parseMunStructs()` expose the source-ranged AST consumed by that lowering
 pass, without a component-name allow-list. Labeled calls use an internal
 `namedArguments()` carrier; JavaScript object calls remain available as the
 compatibility form. Editor integrations that do not
-run Vite can use `createVuneLanguageService()` from `@vune-ui/compiler`;
-its diagnostics and positions remain in the original Vune source space. A
-TypeScript host can use `createVuneTypeScriptLanguageService()` to parse the
+run Vite can use `createMunLanguageService()` from `@mun/compiler`;
+its diagnostics and positions remain in the original Mün source space. A
+TypeScript host can use `createMunTypeScriptLanguageService()` to parse the
 same lowered snapshots in editor tooling; diagnostics and common text spans are
-mapped back to the original Vune file.
+mapped back to the original Mün file.
 
 ## React entry point
 
@@ -328,7 +433,7 @@ const Greeting = view((props: { name: string }) =>
 )
 ```
 
-State-scoped views can initialize their local Vune state from React props too:
+State-scoped views can initialize their local Mün state from React props too:
 
 ```ts
 type CounterProps = {
@@ -353,7 +458,7 @@ Arrays and plain objects stored in `State()` are mutation-aware, including neste
 
 ```ts
 const todos = State([
-  { title: 'Ship Vune', done: false },
+  { title: 'Ship Mün', done: false },
 ])
 
 Button('Add', Action(
@@ -383,18 +488,18 @@ metadata/plugin registry, and block-builder transform are experimental while
 their integration contract is being consolidated:
 
 ```ts
-import { layoutPass, registerVunePlugin } from 'vune-ui/experimental'
+import { layoutPass, registerMunPlugin } from '@mun/ui/experimental'
 ```
 
-The automatic JSX runtime remains available through `vune-ui/jsx-runtime` and
-`vune-ui/jsx-dev-runtime`. Function-DSL and JSX-created elements both pass through
+The automatic JSX runtime remains available through `@mun/ui/jsx-runtime` and
+`@mun/ui/jsx-dev-runtime`. Function-DSL and JSX-created elements both pass through
 registered experimental plugins. The block-builder compiler adapter remains
-available through `vune-ui/compiler`; it is not part of the stable root DSL
+available through `@mun/ui/compiler`; it is not part of the stable root DSL
 contract.
 
 ## Coordinate-free layout
 
-Vune prefers relationships over x/y coordinates:
+Mün prefers relationships over x/y coordinates:
 
 ```ts
 VStack(
@@ -464,13 +569,13 @@ CSS escape hatch through `.style()` and `.className()`.
 ## React compatibility JSX
 
 Automatic JSX remains an optional React compatibility surface. Set
-`jsxImportSource` to `vune-ui` when using its legacy JSX runtime. New
-renderer-independent code should use the `vune-ui` function DSL; the canonical
+`jsxImportSource` to `mun` when using its legacy JSX runtime. New
+renderer-independent code should use the `mun` function DSL; the canonical
 graph does not depend on JSX or React's runtime.
 
 ## React components are first-class layout items
 
-Ordinary React components can sit beside Vune primitives and `Spacer()`:
+Ordinary React components can sit beside Mün primitives and `Spacer()`:
 
 ```ts
 function ProfileCard(props: { name: string }) {
@@ -480,13 +585,13 @@ function ProfileCard(props: { name: string }) {
 HStack(
   Text('Profile'),
   Spacer(),
-  Component(ProfileCard, { name: 'Vune' })
+  Component(ProfileCard, { name: 'Mün' })
     .padding(12)
     .frame({ minWidth: 240 }),
 )
 ```
 
-Inside a Vune layout container, a normal React component gets one neutral outer layout host. Layout modifiers apply to that host instead of being pushed into the component's own props. React keeps ownership of the component itself, including hooks, refs, context, props, children, and rendering. Direct React elements, `memo(...)`, and `forwardRef(...)` components follow the same layout-host rule.
+Inside a Mün layout container, a normal React component gets one neutral outer layout host. Layout modifiers apply to that host instead of being pushed into the component's own props. React keeps ownership of the component itself, including hooks, refs, context, props, children, and rendering. Direct React elements, `memo(...)`, and `forwardRef(...)` components follow the same layout-host rule.
 
 `Raw(element)` accepts an already-created React element when modifier chaining is needed.
 
@@ -513,7 +618,7 @@ Stepper(quantity, { min: 0, max: 10 })
 `VectorSymbol` accepts both authored symbols and real icon-pack geometry.
 Ordinary SVG primitives are normalized to paths, while explicit layer ids keep
 semantic identity separate from rendered SVG geometry. `@lucide/icons` data can
-be used directly without a Vune/Lucide runtime bridge:
+be used directly without a Mün/Lucide runtime bridge:
 
 ```ts
 import { Pause, Play } from '@lucide/icons'
@@ -544,7 +649,7 @@ role before split/merge duplication. Added stroke-only layers draw on/off,
 while unrelated topology can still split or converge continuously. Differing
 viewBoxes and nested SVG transforms are normalized as part of the transition.
 
-Vune source accepts the matching Swift-style shorthand:
+Mün source accepts the matching Swift-style shorthand:
 
 ```ts
 Image(icon)
@@ -598,7 +703,7 @@ LazyHStack(...cards)
 LazyGrid({ columns: 3, estimatedItemSize: 160 }, ...cards)
 ```
 
-`Lazy*` carries estimated-size metadata for every renderer. Direct `@vune-ui/web`
+`Lazy*` carries estimated-size metadata for every renderer. Direct `@mun/web`
 mounts window children and updates the range on scroll/resize; SSR, React, and
 Vue materialize the full graph while retaining the browser `content-visibility`
 hint.
@@ -656,20 +761,20 @@ pnpm run benchmark:performance:ci
 ```
 
 The application-style benchmark includes raw React and raw Vue client baselines
-for full-tree, single-item, and keyed-reverse updates alongside the Vune React
+for full-tree, single-item, and keyed-reverse updates alongside the Mün React
 and Vue adapters. Ratio thresholds are regression guards rather than claims
 that a renderer is intrinsically a fixed multiple faster or slower.
 
-`test:browser` is opt-in and uses `VUNE_BROWSER_URL` so it can target a running
+`test:browser` is opt-in and uses `MUN_BROWSER_URL` so it can target a running
 demo server, for example
-`VUNE_BROWSER_URL=http://localhost:5173 pnpm run test:browser`. CI uses the
+`MUN_BROWSER_URL=http://localhost:5173 pnpm run test:browser`. CI uses the
 committed `pnpm-lock.yaml` with frozen-lockfile mode
 and runs the suite against React 18 and React 19.
 
 ## End-to-end example
 
 The Vite example is a small component demo in [`examples/App.ts`](examples/App.ts). It
-shows a text field, slider, checkbox, button, and progress view in a Vune
+shows a text field, slider, checkbox, button, and progress view in a Mün
 layout.
 
 Run it locally with:
@@ -683,11 +788,11 @@ toggle, button, progress view, and responsive stack layout.
 
 ## Status
 
-The package family is currently versioned as `0.1.0`. React is an optional
+The facade package family is currently versioned as `0.1.0`. React is an optional
 renderer; Vue and direct web/DOM renderers are first-class canonical adapters.
 The previous root API remains available only through the explicit legacy layer.
 
-Vune's layout API is SwiftUI-inspired and CSS-native rather than a promise of
+Mün's layout API is SwiftUI-inspired and CSS-native rather than a promise of
 SwiftUI's proposal-based geometry algorithm. `frame`, `Spacer`, stacks, and
 infinity sizing translate the relationship into CSS-native web layout semantics; they
 do not guarantee pixel-for-pixel SwiftUI behavior.
@@ -696,5 +801,5 @@ See [Getting started](docs/GETTING_STARTED.md), [Design](docs/DESIGN.md),
 [Styling](docs/STYLING.md), [Migration](docs/MIGRATION.md), [API](docs/API.md),
 [Roadmap](docs/ROADMAP.md), and [Changelog](docs/CHANGELOG.md).
 
-For a complete learning-oriented treatment, read [Vune: a human-first guide](docs/VUNE_BOOK.md).
-For coding agents and compact retrieval, use the [Vune AI agent reference](docs/AI_AGENT_REFERENCE.md).
+For a complete learning-oriented treatment, read [Mün: a human-first guide](docs/MUN_BOOK.md).
+For coding agents and compact retrieval, use the [Mün AI agent reference](docs/AI_AGENT_REFERENCE.md).

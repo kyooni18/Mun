@@ -1,5 +1,5 @@
-import { isForeignComponent, renderViewNode, zeroGeometry, type CompiledTemplateValue, type VuneRenderer, type ViewGraphValue, type ViewHostNode } from "@vune-ui/core"
-import type { GPUIslandViewNode } from "@vune-ui/core/internal/runtime"
+import { isForeignComponent, renderViewNode, zeroGeometry, type CompiledTemplateValue, type MunRenderer, type ViewGraphValue, type ViewHostNode } from "@mun/core/compat"
+import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
 import { assertHtmlName, classNameOf, escape, escapeAttribute, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, nativeElementProps, normalizedRawTextValue, normalizedTextAreaValue, propsOf, rawTextHtmlElements, styleAttribute, styleOf, styleText, validTableChildElements, voidHtmlElements } from "./shared.js"
 
 
@@ -131,12 +131,12 @@ function compileHtmlTemplate(value: CompiledTemplateValue): HtmlTemplateFactory 
   return () => staticValue
 }
 
-const htmlRenderer: VuneRenderer<string> = {
+const htmlRenderer: MunRenderer<string> = {
   element(type, props, ...children) {
     const foreign = isForeignComponent(type) ? type : undefined
     const tag = assertHtmlName(typeof type === "string" ? type : "div", "tag")
     const effectiveProps = foreign
-      ? { ...foreign.props, ...foreign.events, ...(foreign.ref === undefined ? {} : { ref: foreign.ref }), ...(props ?? {}), "data-vune-foreign": foreign.name }
+      ? { ...foreign.props, ...foreign.events, ...(foreign.ref === undefined ? {} : { ref: foreign.ref }), ...(props ?? {}), "data-mun-foreign": foreign.name }
       : props
     const isTextArea = tag.toLowerCase() === "textarea"
     const isSelect = tag.toLowerCase() === "select"
@@ -172,12 +172,12 @@ const htmlRenderer: VuneRenderer<string> = {
       ...(node.options.class === undefined ? {} : { class: node.options.class }),
       ...(node.options.style === undefined ? {} : { style: node.options.style }),
       ...(node.options.ariaLabel === undefined ? {} : { "aria-label": node.options.ariaLabel }),
-      "data-vune-gpu-island": node.ir.id,
-      "data-vune-gpu-kind": node.ir.kind,
-      "data-vune-gpu-owner": "web-ssr",
-      "data-vune-gpu-readback": "forbidden",
-      "data-vune-gpu-fallback": node.ir.fallback,
-      "data-vune-gpu-inert": "",
+      "data-mun-gpu-island": node.ir.id,
+      "data-mun-gpu-kind": node.ir.kind,
+      "data-mun-gpu-owner": "web-ssr",
+      "data-mun-gpu-readback": "forbidden",
+      "data-mun-gpu-fallback": node.ir.fallback,
+      "data-mun-gpu-inert": "",
     })
   },
   template(node, renderSlot) {
@@ -275,7 +275,7 @@ const htmlRenderer: VuneRenderer<string> = {
     return render({ ...node.props, ...state })
   },
   geometry(_node, render) {
-    return `<div data-vune="GeometryReader">${render(zeroGeometry)}</div>`
+    return `<div data-mun="GeometryReader">${render(zeroGeometry)}</div>`
   },
 }
 export function renderToHTML(value: ViewGraphValue): string {

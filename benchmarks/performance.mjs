@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup, renderToString as renderReactToString } from "react-dom/server"
 import { JSDOM } from "jsdom"
-import { compileVuneFile } from "../packages/compiler/dist/index.js"
+import { compileMunFile } from "../packages/compiler/dist/index.js"
 import {
   Element,
   ForEach,
@@ -22,13 +22,13 @@ import { compiledCollectionContent } from "../packages/core/dist/internal-runtim
 import { render as renderReact } from "../packages/react/dist/index.js"
 import { mount, renderToHTML } from "../packages/web/dist/index.js"
 
-const ci = process.env.VUNE_BENCH_CI === "1"
-const counts = (process.env.VUNE_BENCH_ITEMS ?? (ci ? "100,1000" : "100,1000,10000"))
+const ci = process.env.MUN_BENCH_CI === "1"
+const counts = (process.env.MUN_BENCH_ITEMS ?? (ci ? "100,1000" : "100,1000,10000"))
   .split(",")
   .map(value => Number(value.trim()))
   .filter(value => Number.isFinite(value) && value > 0)
-const rounds = Number(process.env.VUNE_BENCH_ROUNDS ?? (ci ? 3 : 5))
-const warmupRounds = Number(process.env.VUNE_BENCH_WARMUP_ROUNDS ?? 1)
+const rounds = Number(process.env.MUN_BENCH_ROUNDS ?? (ci ? 3 : 5))
+const warmupRounds = Number(process.env.MUN_BENCH_WARMUP_ROUNDS ?? 1)
 const results = []
 let vueBenchmarkRuntime
 const budgets = {
@@ -40,22 +40,22 @@ const budgets = {
   dom: 25,
   heap: 10,
   specialization: 1.25,
-  templateConstruction: Number(process.env.VUNE_BENCH_TEMPLATE_RATIO ?? 1.25),
+  templateConstruction: Number(process.env.MUN_BENCH_TEMPLATE_RATIO ?? 1.25),
   state: 25,
-  compiler: Number(process.env.VUNE_BENCH_COMPILER_MS ?? 250),
+  compiler: Number(process.env.MUN_BENCH_COMPILER_MS ?? 250),
   hydration: 1000,
-  reactHydrationRatio: Number(process.env.VUNE_BENCH_REACT_HYDRATION_RATIO ?? 10),
-  vueHydrationRatio: Number(process.env.VUNE_BENCH_VUE_HYDRATION_RATIO ?? 10),
+  reactHydrationRatio: Number(process.env.MUN_BENCH_REACT_HYDRATION_RATIO ?? 10),
+  vueHydrationRatio: Number(process.env.MUN_BENCH_VUE_HYDRATION_RATIO ?? 10),
   keyedDom: 2000,
   reactRerender: 2000,
   vueRerender: 2000,
-  reactClientRatio: Number(process.env.VUNE_BENCH_REACT_CLIENT_RATIO ?? 10),
-  vueClientRatio: Number(process.env.VUNE_BENCH_VUE_CLIENT_RATIO ?? 10),
+  reactClientRatio: Number(process.env.MUN_BENCH_REACT_CLIENT_RATIO ?? 10),
+  vueClientRatio: Number(process.env.MUN_BENCH_VUE_CLIENT_RATIO ?? 10),
   deepState: 25,
   burstDom: 1500,
   conditionalDom: 2000,
   lazyScroll: 2000,
-  showcaseCompiler: Number(process.env.VUNE_BENCH_SHOWCASE_COMPILER_MS ?? 500),
+  showcaseCompiler: Number(process.env.MUN_BENCH_SHOWCASE_COMPILER_MS ?? 500),
 }
 
 function median(samples) {
@@ -150,18 +150,18 @@ const PerformanceCard = defineView("PerformanceCard", {
   body: ({ title }) => Element("span", null, title),
 })
 
-const specializationCount = Number(process.env.VUNE_BENCH_SPECIALIZATION_ITEMS ?? (ci ? 1000 : 10000))
+const specializationCount = Number(process.env.MUN_BENCH_SPECIALIZATION_ITEMS ?? (ci ? 1000 : 10000))
 const dynamicInitializer = measure(`dynamic initializer resolution ${specializationCount}`, () => Array.from({ length: specializationCount }, () => PerformanceCard("static")))
 const specializedInitializer = measure(`specialized initializer construction ${specializationCount}`, () => Array.from({ length: specializationCount }, () => PerformanceCard.viewType.createNodeSpecialized(0, ["static"])))
 ratio("specialized initializer construction", specializedInitializer, dynamicInitializer, budgets.specialization)
 const compiledInitializer = measure(`compiled initializer construction ${specializationCount}`, () => Array.from({ length: specializationCount }, () => PerformanceCard.viewType.createNodeCompiled(0, ["static"])))
 ratio("compiled initializer construction", compiledInitializer, specializedInitializer, budgets.specialization)
 
-const templateConstructionCount = Number(process.env.VUNE_BENCH_TEMPLATE_ITEMS ?? (ci ? 1000 : 10000))
+const templateConstructionCount = Number(process.env.MUN_BENCH_TEMPLATE_ITEMS ?? (ci ? 1000 : 10000))
 const dynamicTextTemplate = defineCompiledTemplate({
   kind: "element",
   type: "div",
-  props: { "data-vune": "VStack", style: { display: "flex", flexDirection: "column" } },
+  props: { "data-mun": "VStack", style: { display: "flex", flexDirection: "column" } },
   children: [
     { kind: "element", type: "span", props: null, children: ["Static"] },
     { kind: "element", type: "span", props: null, children: [{ kind: "slot", index: 0, identity: ["element", 1, "element", 0] }] },
@@ -171,22 +171,22 @@ const ordinaryDynamicGraph = measure(`ordinary dynamic graph construction ${temp
 const templateDynamicGraph = measure(`compiled template construction ${templateConstructionCount}`, () => Array.from({ length: templateConstructionCount }, (_, index) => compiledTemplate(dynamicTextTemplate, [String(index)])))
 ratio("compiled template construction", templateDynamicGraph, ordinaryDynamicGraph, budgets.templateConstruction)
 
-const compilerSource = `import { Text, VStack } from "vune-ui"
+const compilerSource = `import { Text, VStack } from "@mun/ui"
 struct BenchCard: View {
   let title: string
   init(title: string) { self.title = title }
   var body: some View { VStack { Text(title).padding(4) } }
 }
 export const bench = BenchCard(title: "benchmark")`
-const compilerTransform = measure(".vune.ts compiler transform", () => compileVuneFile(compilerSource, "benchmark.vune.ts"))
+const compilerTransform = measure(".mun.ts compiler transform", () => compileMunFile(compilerSource, "benchmark.mun.ts"))
 if (!Number.isFinite(compilerTransform)) throw new Error("Compiler benchmark produced a non-finite measurement")
 console.log(`compiler transform budget: ${budgets.compiler} ms ceiling for one fixture`)
 if (ci && compilerTransform > budgets.compiler) throw new Error(`Compiler transform exceeded ${budgets.compiler} ms: ${compilerTransform.toFixed(2)} ms`)
 
-const showcaseSource = readFileSync(new URL("../examples/Showcase.vune.ts", import.meta.url), "utf8")
+const showcaseSource = readFileSync(new URL("../examples/Showcase.mun.ts", import.meta.url), "utf8")
 // Warm the static TypeScript program/source-file caches before measuring the editing loop.
-compileVuneFile(showcaseSource, "examples/Showcase.vune.ts")
-const showcaseCompiler = measure("Showcase warm compiler transform", () => compileVuneFile(showcaseSource, "examples/Showcase.vune.ts"))
+compileMunFile(showcaseSource, "examples/Showcase.mun.ts")
+const showcaseCompiler = measure("Showcase warm compiler transform", () => compileMunFile(showcaseSource, "examples/Showcase.mun.ts"))
 console.log(`Showcase compiler budget: ${budgets.showcaseCompiler} ms ceiling for one medium fixture`)
 if (ci && showcaseCompiler > budgets.showcaseCompiler) throw new Error(`Showcase compiler transform exceeded ${budgets.showcaseCompiler} ms: ${showcaseCompiler.toFixed(2)} ms`)
 
@@ -195,31 +195,31 @@ for (const count of counts) {
   const items = Array.from({ length: count }, (_, index) => ({ id: index, value: String(index) }))
 
   const rawConstruction = measure(`raw React construction ${count}`, () => rawReactItems(count))
-  const vuneConstruction = measure(`Vune View construction ${count}`, () => VStack(...itemViews(count)))
-  ratio(`View construction ${count}`, vuneConstruction, rawConstruction, budgets.construction)
+  const munConstruction = measure(`Mun View construction ${count}`, () => VStack(...itemViews(count)))
+  ratio(`View construction ${count}`, munConstruction, rawConstruction, budgets.construction)
   const rawHeap = retainedHeap(() => rawReactItems(count))
-  const vuneHeap = retainedHeap(() => VStack(...itemViews(count)))
-  if (rawHeap !== undefined && vuneHeap !== undefined) {
-    console.log(`retained heap ${count}: raw ${(rawHeap / 1024).toFixed(1)} KiB, Vune ${(vuneHeap / 1024).toFixed(1)} KiB`)
-    if (rawHeap > 0) ratio(`retained heap ${count}`, vuneHeap, rawHeap, budgets.heap)
+  const munHeap = retainedHeap(() => VStack(...itemViews(count)))
+  if (rawHeap !== undefined && munHeap !== undefined) {
+    console.log(`retained heap ${count}: raw ${(rawHeap / 1024).toFixed(1)} KiB, Mun ${(munHeap / 1024).toFixed(1)} KiB`)
+    if (rawHeap > 0) ratio(`retained heap ${count}`, munHeap, rawHeap, budgets.heap)
     else console.log(`retained heap ${count} ratio skipped: baseline below measurable heap resolution`)
   }
 
   const rawForEach = measure(`raw React list construction ${count}`, () => rawReactItems(count))
-  const vuneForEach = measure(`Vune ForEach construction ${count}`, () => ForEach(items, item => Text(item.value)))
-  ratio(`ForEach construction ${count}`, vuneForEach, rawForEach, budgets.forEach)
+  const munForEach = measure(`Mun ForEach construction ${count}`, () => ForEach(items, item => Text(item.value)))
+  ratio(`ForEach construction ${count}`, munForEach, rawForEach, budgets.forEach)
 
   const tree = VStack(...views)
   const rawSSR = measure(`raw React SSR ${count}`, () => renderToStaticMarkup(createElement("div", null, ...rawReactItems(count))))
-  const reactSSR = measure(`Vune React SSR ${count}`, () => renderToStaticMarkup(renderReact(tree)))
+  const reactSSR = measure(`Mun React SSR ${count}`, () => renderToStaticMarkup(renderReact(tree)))
   ratio(`React SSR ${count}`, reactSSR, rawSSR, budgets.reactSSR)
 
-  const webSSR = measure(`Vune Web SSR ${count}`, () => renderToHTML(tree))
+  const webSSR = measure(`Mun Web SSR ${count}`, () => renderToHTML(tree))
   ratio(`Web SSR ${count}`, webSSR, rawSSR, budgets.webSSR)
 
-  const { runtime: vue, vuneRenderer, serverRenderer } = await getVueRuntime()
-  const vueSSR = await measureAsync(`Vune Vue SSR ${count}`, async () => {
-    await serverRenderer.renderToString(vue.createSSRApp({ render: () => vuneRenderer.render(tree) }))
+  const { runtime: vue, munRenderer, serverRenderer } = await getVueRuntime()
+  const vueSSR = await measureAsync(`Mun Vue SSR ${count}`, async () => {
+    await serverRenderer.renderToString(vue.createSSRApp({ render: () => munRenderer.render(tree) }))
   })
   const rawVueSSR = await measureAsync(`raw Vue SSR ${count}`, async () => {
     await serverRenderer.renderToString(vue.createSSRApp({ render: () => vue.h("div", null, rawVueItems(count, vue.h)) }))
@@ -244,7 +244,7 @@ async function rawDomUpdate(count) {
   return elapsed
 }
 
-async function vuneDomUpdate(count) {
+async function munDomUpdate(count) {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   const values = State(Array.from({ length: count }, (_, index) => String(index)))
@@ -374,9 +374,9 @@ async function getVueRuntime() {
     const dom = new JSDOM("<div id=vue-benchmark-app></div>")
     const restore = installRendererDOM(dom)
     const runtime = await import("vue")
-    const vuneRenderer = await import("../packages/vue/dist/index.js")
+    const munRenderer = await import("../packages/vue/dist/index.js")
     const serverRenderer = await import("@vue/server-renderer")
-    vueBenchmarkRuntime = { dom, restore, runtime, vuneRenderer, serverRenderer }
+    vueBenchmarkRuntime = { dom, restore, runtime, munRenderer, serverRenderer }
   }
   return vueBenchmarkRuntime
 }
@@ -573,7 +573,7 @@ async function rawVueOwnedMutation(count) {
 }
 
 async function vueRerender(count, mode = "full") {
-  const { dom, runtime: vue, vuneRenderer } = await getVueRuntime()
+  const { dom, runtime: vue, munRenderer } = await getVueRuntime()
   const container = dom.window.document.querySelector("#vue-benchmark-app")
   container.replaceChildren()
   try {
@@ -582,7 +582,7 @@ async function vueRerender(count, mode = "full") {
       initializers: [initializer(`VuePerformanceApp${count}${mode}()`, args => args.length === 0)],
       body: () => Element("div", null, items.value.map(item => Element("span", { key: item.id }, item.value))),
     })
-    const app = vue.createApp({ render: () => vuneRenderer.render(App()) })
+    const app = vue.createApp({ render: () => munRenderer.render(App()) })
     app.mount(container)
     const start = performance.now()
     items.value = updateClientItems(items.value, mode)
@@ -596,7 +596,7 @@ async function vueRerender(count, mode = "full") {
 }
 
 async function vueCompiledCollectionRerender(count, ownedMutation = false) {
-  const { dom, runtime: vue, vuneRenderer } = await getVueRuntime()
+  const { dom, runtime: vue, munRenderer } = await getVueRuntime()
   const container = dom.window.document.querySelector("#vue-benchmark-app")
   container.replaceChildren()
   try {
@@ -611,7 +611,7 @@ async function vueCompiledCollectionRerender(count, ownedMutation = false) {
       },
     )
     const graph = Element("div", null, ForEach(items, item => item.id, content))
-    const app = vue.createApp({ render: () => vuneRenderer.render(graph) })
+    const app = vue.createApp({ render: () => munRenderer.render(graph) })
     app.mount(container)
     const start = performance.now()
     if (ownedMutation) {
@@ -636,7 +636,7 @@ function rawStateUpdate(count) {
   return value
 }
 
-function vuneStateUpdate(count) {
+function munStateUpdate(count) {
   const state = State(0)
   const unsubscribe = subscribeState(state, () => {})
   for (let index = 0; index < count; index += 1) state.value = index
@@ -655,7 +655,7 @@ function rawDeepStateUpdate(count, depth = 8) {
   return cursor.value
 }
 
-function vuneDeepStateUpdate(count, depth = 8) {
+function munDeepStateUpdate(count, depth = 8) {
   const root = {}
   let cursor = root
   for (let level = 0; level < depth; level += 1) {
@@ -746,43 +746,43 @@ async function measureRounds(factory) {
   return median(samples)
 }
 
-const arrayMutationCount = Number(process.env.VUNE_BENCH_ARRAY_MUTATION_ITEMS ?? 1000)
-const arrayMutationBudget = Number(process.env.VUNE_BENCH_ARRAY_MUTATION_MS ?? 25)
+const arrayMutationCount = Number(process.env.MUN_BENCH_ARRAY_MUTATION_ITEMS ?? 1000)
+const arrayMutationBudget = Number(process.env.MUN_BENCH_ARRAY_MUTATION_MS ?? 25)
 const stateArrayFixture = () => {
   const state = State(Array.from({ length: arrayMutationCount }, (_, index) => ({ id: index })))
   const unsubscribe = subscribeState(state, () => {})
   return { state, cleanup: unsubscribe }
 }
-const arrayReverse = measureMutation(`Vune State in-place reverse ${arrayMutationCount}`, stateArrayFixture, ({ state }) => state.value.reverse())
-const arraySort = measureMutation(`Vune State in-place sort ${arrayMutationCount}`, stateArrayFixture, ({ state }) => state.value.sort((left, right) => right.id - left.id))
+const arrayReverse = measureMutation(`Mun State in-place reverse ${arrayMutationCount}`, stateArrayFixture, ({ state }) => state.value.reverse())
+const arraySort = measureMutation(`Mun State in-place sort ${arrayMutationCount}`, stateArrayFixture, ({ state }) => state.value.sort((left, right) => right.id - left.id))
 if (ci && arrayReverse > arrayMutationBudget) throw new Error(`State in-place reverse exceeded ${arrayMutationBudget} ms: ${arrayReverse.toFixed(2)} ms`)
 if (ci && arraySort > arrayMutationBudget) throw new Error(`State in-place sort exceeded ${arrayMutationBudget} ms: ${arraySort.toFixed(2)} ms`)
 
 for (const count of counts.slice(0, ci ? 2 : counts.length)) {
   const rawState = measure(`raw state update ${count}`, () => rawStateUpdate(count))
-  const vuneState = measure(`Vune State update ${count}`, () => vuneStateUpdate(count))
-  ratio(`State update ${count}`, vuneState, rawState, Number.POSITIVE_INFINITY, false)
-  if (ci && vuneState > budgets.state) throw new Error(`State update exceeded ${budgets.state} ms for ${count}: ${vuneState.toFixed(2)} ms`)
+  const munState = measure(`Mun State update ${count}`, () => munStateUpdate(count))
+  ratio(`State update ${count}`, munState, rawState, Number.POSITIVE_INFINITY, false)
+  if (ci && munState > budgets.state) throw new Error(`State update exceeded ${budgets.state} ms for ${count}: ${munState.toFixed(2)} ms`)
   const rawDeepState = measure(`raw deep State update ${count}`, () => rawDeepStateUpdate(count))
-  const vuneDeepState = measure(`Vune deep State update ${count}`, () => vuneDeepStateUpdate(count))
-  ratio(`Deep State update ${count}`, vuneDeepState, rawDeepState, Number.POSITIVE_INFINITY, false)
-  if (ci && vuneDeepState > budgets.deepState) throw new Error(`Deep State update exceeded ${budgets.deepState} ms for ${count}: ${vuneDeepState.toFixed(2)} ms`)
+  const munDeepState = measure(`Mun deep State update ${count}`, () => munDeepStateUpdate(count))
+  ratio(`Deep State update ${count}`, munDeepState, rawDeepState, Number.POSITIVE_INFINITY, false)
+  if (ci && munDeepState > budgets.deepState) throw new Error(`Deep State update exceeded ${budgets.deepState} ms for ${count}: ${munDeepState.toFixed(2)} ms`)
 
   // DOM rounds are intentionally sequential. Running independent JSDOM instances
   // concurrently makes microtask scheduling and GC contention dominate the ratio.
   const raw = await measureRounds(() => rawDomUpdate(count))
-  const vune = await measureRounds(() => vuneDomUpdate(count))
+  const mun = await measureRounds(() => munDomUpdate(count))
   const keyed = await measureRounds(() => keyedDomUpdate(count))
   const hydration = await measureRounds(() => webHydration(count))
   const rawReactHydrationTime = await measureRounds(() => rawReactHydration(count))
   const rawVueHydrationTime = await measureRounds(() => rawVueHydration(count))
   console.log(`raw DOM update ${count}: ${raw.toFixed(2)} ms`)
-  console.log(`Vune DOM reconciliation ${count}: ${vune.toFixed(2)} ms`)
-  console.log(`Vune keyed DOM update ${count}: ${keyed.toFixed(2)} ms`)
-  console.log(`Vune Web hydration ${count}: ${hydration.toFixed(2)} ms`)
+  console.log(`Mun DOM reconciliation ${count}: ${mun.toFixed(2)} ms`)
+  console.log(`Mun keyed DOM update ${count}: ${keyed.toFixed(2)} ms`)
+  console.log(`Mun Web hydration ${count}: ${hydration.toFixed(2)} ms`)
   console.log(`raw React hydration ${count}: ${rawReactHydrationTime.toFixed(2)} ms`)
   console.log(`raw Vue hydration ${count}: ${rawVueHydrationTime.toFixed(2)} ms`)
-  ratio(`DOM reconciliation ${count}`, vune, raw, budgets.dom)
+  ratio(`DOM reconciliation ${count}`, mun, raw, budgets.dom)
   ratio(`Web hydration vs React ${count}`, hydration, rawReactHydrationTime, budgets.reactHydrationRatio)
   // Keep this JSDOM comparison visible, but let the production Chromium suite
   // own the release gate. Vue's JSDOM hydration path is an unusually low floor
@@ -798,9 +798,9 @@ for (const count of counts.slice(0, ci ? 2 : counts.length)) {
     const rawVueRerenderTime = await measureRounds(() => rawVueRerender(count, mode))
     const vueRerenderTime = await measureRounds(() => vueRerender(count, mode))
     console.log(`raw React ${mode} rerender ${count}: ${rawReactRerenderTime.toFixed(2)} ms`)
-    console.log(`Vune React ${mode} rerender ${count}: ${reactRerenderTime.toFixed(2)} ms`)
+    console.log(`Mun React ${mode} rerender ${count}: ${reactRerenderTime.toFixed(2)} ms`)
     console.log(`raw Vue ${mode} rerender ${count}: ${rawVueRerenderTime.toFixed(2)} ms`)
-    console.log(`Vune Vue ${mode} rerender ${count}: ${vueRerenderTime.toFixed(2)} ms`)
+    console.log(`Mun Vue ${mode} rerender ${count}: ${vueRerenderTime.toFixed(2)} ms`)
     ratio(`React client ${mode} ${count}`, reactRerenderTime, rawReactRerenderTime, budgets.reactClientRatio)
     ratio(`Vue client ${mode} ${count}`, vueRerenderTime, rawVueRerenderTime, budgets.vueClientRatio)
     if (mode === "single") {
@@ -812,10 +812,10 @@ for (const count of counts.slice(0, ci ? 2 : counts.length)) {
       const vueOwnedCollectionTime = await measureRounds(() => vueCompiledCollectionRerender(count, true))
       console.log(`raw React memoized single rerender ${count}: ${rawReactMemoTime.toFixed(2)} ms`)
       console.log(`raw Vue owned single mutation ${count}: ${rawVueOwnedTime.toFixed(2)} ms`)
-      console.log(`Vune React compiled collection single rerender ${count}: ${reactCompiledCollectionTime.toFixed(2)} ms`)
-      console.log(`Vune Vue compiled collection single rerender ${count}: ${vueCompiledCollectionTime.toFixed(2)} ms`)
-      console.log(`Vune React compiled collection owned single mutation ${count}: ${reactOwnedCollectionTime.toFixed(2)} ms`)
-      console.log(`Vune Vue compiled collection owned single mutation ${count}: ${vueOwnedCollectionTime.toFixed(2)} ms`)
+      console.log(`Mun React compiled collection single rerender ${count}: ${reactCompiledCollectionTime.toFixed(2)} ms`)
+      console.log(`Mun Vue compiled collection single rerender ${count}: ${vueCompiledCollectionTime.toFixed(2)} ms`)
+      console.log(`Mun React compiled collection owned single mutation ${count}: ${reactOwnedCollectionTime.toFixed(2)} ms`)
+      console.log(`Mun Vue compiled collection owned single mutation ${count}: ${vueOwnedCollectionTime.toFixed(2)} ms`)
       ratio(`React compiled collection single ${count}`, reactCompiledCollectionTime, rawReactRerenderTime, budgets.reactClientRatio)
       ratio(`Vue compiled collection single ${count}`, vueCompiledCollectionTime, rawVueRerenderTime, budgets.vueClientRatio)
       if (![rawReactMemoTime, rawVueOwnedTime, reactOwnedCollectionTime, vueOwnedCollectionTime].every(Number.isFinite)) throw new Error(`Compiled collection owned mutation benchmark produced a non-finite measurement for ${count}`)
@@ -829,9 +829,9 @@ for (const count of counts.slice(0, ci ? 2 : counts.length)) {
 const burstDom = await measureRounds(() => burstDomUpdate(ci ? 50 : 100, ci ? 100 : 250))
 const conditionalDom = await measureRounds(() => conditionalSubtreeToggle(ci ? 500 : 1000))
 const lazyScroll = await measureRounds(() => lazyScrollUpdate(ci ? 1000 : 10000))
-console.log(`Vune burst DOM update: ${burstDom.toFixed(2)} ms`)
-console.log(`Vune conditional subtree toggle: ${conditionalDom.toFixed(2)} ms`)
-console.log(`Vune LazyVStack scroll: ${lazyScroll.toFixed(2)} ms`)
+console.log(`Mun burst DOM update: ${burstDom.toFixed(2)} ms`)
+console.log(`Mun conditional subtree toggle: ${conditionalDom.toFixed(2)} ms`)
+console.log(`Mun LazyVStack scroll: ${lazyScroll.toFixed(2)} ms`)
 for (const [name, actual, budget] of [
   ["Burst DOM update", burstDom, budgets.burstDom],
   ["Conditional DOM toggle", conditionalDom, budgets.conditionalDom],

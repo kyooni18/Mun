@@ -9,7 +9,7 @@ import {
   viewIdentityKey,
   withRenderTransaction,
   zeroGeometry,
-  type VuneRenderer,
+  type MunRenderer,
   type CompiledTemplateDescriptor,
   type CompiledTemplateValue,
   type GeometryProxy,
@@ -23,7 +23,7 @@ import {
   type ViewGraphValue,
   type ViewHostNode,
   type ViewModifierNode,
-} from "@vune-ui/core"
+} from "@mun/core/compat"
 import {
   keyedCollectionChildKey,
   keyedCollectionEntryKey,
@@ -35,14 +35,14 @@ import {
   type CompiledPatchValues,
   type GPUIslandViewNode,
   type StateMutation,
-} from "@vune-ui/core/internal/runtime"
-import { compositorMotionPropertyMask, layoutMotionPropertyMask, motionPropertyBit, paintMotionPropertyMask } from "@vune-ui/core/internal/motion-abi"
+} from "@mun/core/internal/runtime"
+import { compositorMotionPropertyMask, layoutMotionPropertyMask, motionPropertyBit, paintMotionPropertyMask } from "@mun/core/internal/motion-abi"
 import { renderToHTML } from "./ssr.js"
 import { activateReusedHydratedTree, hydratedPropsMatch, hydrateNode } from "./hydration.js"
 import { applyDomProps, clearDomEvents, commitStagedDomProps, patchDomProps, setDomRef, synchronizeDomSelectValue, type DomAttributeMotionPolicy, type DomStyleMotionPolicy } from "./props.js"
 import { disposeContinuousCorners } from "./continuous-corners.js"
 import { animateDomLayout, cancelDomAnimations, type DomLayoutBox } from "./motion.js"
-import { recordVuneBoundaryDisposed, recordVuneBoundaryRender, recordVuneRuntimeEvent, vuneDevtoolsEnabled } from "./devtools.js"
+import { recordMunBoundaryDisposed, recordMunBoundaryRender, recordMunRuntimeEvent, munDevtoolsEnabled } from "./devtools.js"
 import { classNameOf, cssPropertyName, domContentContainer, nativeElementProps, normalizedRawTextValue, propsOf, rawTextHtmlElements, styleOf, validTableChildElements, voidHtmlElements, type DomRenderContext } from "./shared.js"
 import { disposeFocusScope } from "./focus.js"
 import { LazyMeasurementIndex, lazyViewportOffset } from "./lazy-index.js"
@@ -140,7 +140,7 @@ interface DomCollectionInstance {
 }
 
 interface DomAnimationDomain {
-  /** undefined selects Vune's property-aware automatic timing. */
+  /** undefined selects Mun's property-aware automatic timing. */
   readonly animation: Animation | null | undefined
   readonly trigger: unknown
   readonly automatic: boolean
@@ -406,7 +406,7 @@ const automaticColorAnimation = Animation.easeInOut(0.2)
 const automaticDefaultAnimation = Animation.easeInOut(0.22)
 const automaticSymbolContentAnimation = Animation.spring(0.28, 0.86)
 const automaticTextContentAnimation = Animation.easeInOut(0.2)
-const contentMotionProperty = "--vune-content"
+const contentMotionProperty = "--mun-content"
 
 function automaticAnimationForProperty(property: string): Animation {
   if (property === "opacity") return automaticOpacityAnimation
@@ -670,7 +670,7 @@ function resolveContentTransitionState(
 }
 
 function contentAttributeMotionPolicy(element: Element, context: DomRenderContext): DomAttributeMotionPolicy | undefined {
-  if (!element.hasAttribute("data-vune-symbol-layer")) return undefined
+  if (!element.hasAttribute("data-mun-symbol-layer")) return undefined
   const parent = element.parentElement
   const state = parent ? runtimeFor(context)?.contentTransitionStates.get(parent) : undefined
   if (!state || state.transition.descriptor.kind !== "symbolEffect" || !state.animation) return undefined
@@ -686,7 +686,7 @@ function contentAttributeMotionPolicy(element: Element, context: DomRenderContex
 
 function intrinsicAttributeMotionPolicy(element: Element, resolved: ResolvedMotionState): DomAttributeMotionPolicy | undefined {
   const animation = resolved.intrinsicAnimation
-  if (!animation || element.getAttribute("data-vune") !== "Path") return undefined
+  if (!animation || element.getAttribute("data-mun") !== "Path") return undefined
   return {
     animationForAttribute(attribute, from, to) {
       return attribute === "d" && from !== undefined && from !== null && to !== undefined && to !== null && !Object.is(from, to)
@@ -973,7 +973,7 @@ function commitStagedSubtree(node: Node, context: DomRenderContext): void {
 function activateDomPresentation(node: Node): void {
   if (node.nodeType !== 1) return
   const element = node as HTMLElement
-  if (!element.hasAttribute("data-vune-presentation")) return
+  if (!element.hasAttribute("data-mun-presentation")) return
   queueMicrotask(() => {
     if (!element.isConnected) return
     activateWebPresentation(element)
@@ -999,7 +999,7 @@ function ensureTransitionLayer(context: DomRenderContext): HTMLElement | undefin
   const body = context.document.body
   if (!body) return undefined
   const layer = context.document.createElement("div")
-  layer.setAttribute("data-vune-transition-layer", "")
+  layer.setAttribute("data-mun-transition-layer", "")
   layer.setAttribute("aria-hidden", "true")
   layer.style.cssText = "position:fixed;inset:0;pointer-events:none;overflow:visible;z-index:2147483646;contain:layout style;"
   body.appendChild(layer)
@@ -1032,7 +1032,7 @@ function beginExitTransition(parent: Node, node: Node, context: DomRenderContext
 	// presentation exits and release the live node immediately instead. Normal
 	// elements keep using the live node so local DOM state is preserved during
 	// their exit animation.
-	const isPresentation = element.hasAttribute("data-vune-presentation")
+	const isPresentation = element.hasAttribute("data-mun-presentation")
 	const transitionElement = isPresentation ? element.cloneNode(true) as HTMLElement : element
 	if (isPresentation) {
 		releaseDomSubtree(node, context)
@@ -1157,7 +1157,7 @@ function copyCandidateMetadata(source: Node, target: Node, context: DomRenderCon
 function reusableBoundaryCandidate(current: Node, context: DomRenderContext): Node {
   // Unchanged View boundaries only need an identity carrier while their parent
   // is staged. A comment avoids cloning real DOM nodes and their attributes.
-  const candidate = context.document.createComment("vune-reuse")
+  const candidate = context.document.createComment("mun-reuse")
   copyCandidateMetadata(current, candidate, context)
   return candidate
 }
@@ -1513,7 +1513,7 @@ function releaseDomSubtree(node: Node, context: DomRenderContext): void {
     const element = node as Element
     if (element.localName === "canvas") disposeParticleFieldGPUIslandCanvas(element as HTMLCanvasElement)
     context.refElements.delete(element)
-    if (element.hasAttribute("data-vune-presentation")) disposeWebPresentation(element as HTMLElement)
+    if (element.hasAttribute("data-mun-presentation")) disposeWebPresentation(element as HTMLElement)
     cancelWebContentTransition(element)
     cancelDomAnimations(element)
     disposeContinuousCorners(element)
@@ -1760,13 +1760,13 @@ function safeBoundingRect(element: Element): DOMRect | undefined {
 }
 
 function lazyEstimate(node: LazyViewNode): number {
-  const value = node.props["data-vune-lazy-estimate"]
+  const value = node.props["data-mun-lazy-estimate"]
   const parsed = typeof value === "number" ? value : typeof value === "string" ? Number.parseFloat(value) : Number.NaN
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 44
 }
 
 function lazyOverscan(node: LazyViewNode): number {
-  const value = node.props["data-vune-lazy-overscan"]
+  const value = node.props["data-mun-lazy-overscan"]
   const parsed = typeof value === "number" ? value : typeof value === "string" ? Number.parseFloat(value) : Number.NaN
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 2
 }
@@ -1852,7 +1852,7 @@ function sameLazyRange(left: LazyViewRange | undefined, right: LazyViewRange): b
 function lazySpacer(context: DomRenderContext, node: LazyViewNode, size: number, position: "before" | "after"): HTMLElement {
   const spacer = context.document.createElement("div")
   applyDomProps(spacer, {
-    "data-vune-lazy-spacer": position,
+    "data-mun-lazy-spacer": position,
     "aria-hidden": true,
     style: node.axis === "horizontal"
       ? { width: `${Math.max(0, size)}px`, flex: "0 0 auto" }
@@ -1950,7 +1950,7 @@ function directKeyedPatchPropsSafe(props: Record<string, unknown> | null, allowE
         return false
       }
       if (key === "__proto__" || directKeyedPatchUnsafeProps.has(key)) return false
-      if (key.startsWith("data-vune-")) return false
+      if (key.startsWith("data-mun-")) return false
       if (key === "style") {
         if (!value || typeof value !== "object") {
           if (typeof value !== "string" && value !== undefined && value !== null) return false
@@ -2300,7 +2300,7 @@ function dataArrayItem(source: readonly unknown[], index: number): unknown | typ
   } catch { return missingCollectionItem }
 }
 
-const missingCollectionItem = Symbol("vune.collection.missing-item")
+const missingCollectionItem = Symbol("mun.collection.missing-item")
 
 function collectionArrayIndex(property: PropertyKey | undefined): number | undefined {
   if (typeof property === "number") return Number.isSafeInteger(property) && property >= 0 ? property : undefined
@@ -3227,7 +3227,7 @@ function appendElementChildren(element: Element, tag: string, children: readonly
   }
 }
 
-function createDomRenderer(context: DomRenderContext): VuneRenderer<Node> {
+function createDomRenderer(context: DomRenderContext): MunRenderer<Node> {
   const runtime = runtimeFor(context)
   const renderFragment = (children: readonly Node[]): Node => {
     const fragment = context.document.createDocumentFragment()
@@ -3381,7 +3381,7 @@ function createDomRenderer(context: DomRenderContext): VuneRenderer<Node> {
     const text = value === null || value === undefined || value === false || value === true ? "" : String(value)
     return () => renderValue(text)
   }
-  let renderer!: VuneRenderer<Node>
+  let renderer!: MunRenderer<Node>
 
   const recordDirectModifiers = (content: Node, modifier: ViewModifierNode): void => {
     if (!runtime || runtime.replayingModifiers || modifier.name === "frame") return
@@ -3694,11 +3694,11 @@ function createDomRenderer(context: DomRenderContext): VuneRenderer<Node> {
         ...(node.options.class === undefined ? {} : { class: node.options.class }),
         ...(node.options.style === undefined ? {} : { style: node.options.style }),
         ...(node.options.ariaLabel === undefined ? {} : { "aria-label": node.options.ariaLabel }),
-        "data-vune-gpu-island": node.ir.id,
-        "data-vune-gpu-kind": node.ir.kind,
-        "data-vune-gpu-owner": "direct-web",
-        "data-vune-gpu-readback": "forbidden",
-        "data-vune-gpu-fallback": node.ir.fallback,
+        "data-mun-gpu-island": node.ir.id,
+        "data-mun-gpu-kind": node.ir.kind,
+        "data-mun-gpu-owner": "direct-web",
+        "data-mun-gpu-readback": "forbidden",
+        "data-mun-gpu-fallback": node.ir.fallback,
       }, [])
       if (canvas.nodeType === 1 && (canvas as Element).localName === "canvas") {
         mountParticleFieldGPUIslandCanvas(canvas as HTMLCanvasElement, node, {
@@ -3852,8 +3852,8 @@ function createDomRenderer(context: DomRenderContext): VuneRenderer<Node> {
       if (renderItem) {
         for (let index = range.start; index < range.end; index += 1) {
           const wrapper = context.document.createElement("div")
-          wrapper.setAttribute("data-vune-lazy-item", "")
-          wrapper.setAttribute("data-vune-lazy-index", String(index))
+          wrapper.setAttribute("data-mun-lazy-item", "")
+          wrapper.setAttribute("data-mun-lazy-index", String(index))
           wrapper.style.boxSizing = "border-box"
           wrapper.style.flex = "0 0 auto"
           if (node.axis !== "horizontal") wrapper.style.width = "100%"
@@ -3877,8 +3877,8 @@ function createDomRenderer(context: DomRenderContext): VuneRenderer<Node> {
       markUnsafeViewAncestors(context)
       const index = context.geometryIndex++
       const wrapper = context.document.createElement("div")
-      wrapper.dataset.vune = "GeometryReader"
-      wrapper.dataset.vuneGeometry = String(index)
+      wrapper.dataset.mun = "GeometryReader"
+      wrapper.dataset.munGeometry = String(index)
       wrapper.style.boxSizing = "border-box"
       wrapper.style.width = "100%"
       appendDomChild(wrapper, render(context.geometries.get(index) ?? zeroGeometry), context)
@@ -4080,7 +4080,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       boundary.scheduled = false
       boundary.currentNodes = []
       viewRuntime.boundaries.delete(key)
-      recordVuneBoundaryDisposed(key)
+      recordMunBoundaryDisposed(key)
       if (!preserveState) context.states.delete(key)
     }
     const beginViewPass = (boundaryRootKey?: string): void => {
@@ -4097,7 +4097,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       if (stopped || scheduledBoundaryUpdates.size === 0) return
       const batch = [...scheduledBoundaryUpdates]
       scheduledBoundaryUpdates.clear()
-      recordVuneRuntimeEvent("boundaryFlushes")
+      recordMunRuntimeEvent("boundaryFlushes")
       // Parent-first processing lets one ancestor reconciliation absorb all of
       // its dirty descendants instead of running N independent microtasks.
       // Cached depth preserves the parent-first order without allocating a
@@ -4124,7 +4124,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       if (forceAll) viewRuntime.forceAll = true
       if (scheduled || stopped) return
       scheduled = true
-      recordVuneRuntimeEvent("rootRequests")
+      recordMunRuntimeEvent("rootRequests")
       queueMicrotask(() => update())
     }
     const syncBoundarySubscriptions = (boundary: DomViewBoundary): void => {
@@ -4136,14 +4136,14 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       for (const dependency of boundary.dependencies) {
         if (boundary.subscriptions.has(dependency)) continue
         boundary.subscriptions.set(dependency, subscribeState(dependency, (transaction, batch) => {
-          recordVuneRuntimeEvent("boundaryInvalidations")
+          recordMunRuntimeEvent("boundaryInvalidations")
           boundary.pendingTransaction = hostTransaction(transaction)
           boundary.pendingMutations.push(...batch.mutations)
           boundary.pendingDependencies.add(dependency)
           if (boundary.scheduled || stopped) return
           boundary.scheduled = true
           if (!boundary.mounted || boundary.currentNodes.length === 0) {
-            recordVuneRuntimeEvent("rootEscalations")
+            recordMunRuntimeEvent("rootEscalations")
             // A View that currently renders no DOM has no stable local range
             // to patch. Schedule the root pass immediately so a single state
             // microtask can materialize the newly-visible branch. Force the
@@ -4153,7 +4153,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
             return
           }
           if (!boundary.localSafe) {
-            recordVuneRuntimeEvent("rootEscalations")
+            recordMunRuntimeEvent("rootEscalations")
             // The owning boundary itself must be re-evaluated at the root so
             // geometry/lazy indexes stay globally coherent, but unaffected
             // child View boundaries can still be reused.
@@ -4250,8 +4250,8 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       }
       let changed = false
       const seen = new Set<number>()
-      container.querySelectorAll<HTMLElement>('[data-vune="GeometryReader"][data-vune-geometry]').forEach(element => {
-        const index = Number(element.dataset.vuneGeometry)
+      container.querySelectorAll<HTMLElement>('[data-mun="GeometryReader"][data-mun-geometry]').forEach(element => {
+        const index = Number(element.dataset.munGeometry)
         if (!Number.isInteger(index)) return
         seen.add(index)
         const next = geometryFromElement(element, geometryProbe)
@@ -4278,7 +4278,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
     const refreshLazyRanges = (): boolean => {
       if (context.lazyNodes.size === 0) return false
       let changed = false
-      const elements = [...container.querySelectorAll<HTMLElement>("[data-vune-lazy]")]
+      const elements = [...container.querySelectorAll<HTMLElement>("[data-mun-lazy]")]
       for (const element of elements) {
         const key = context.lazyKeys.get(element)
         if (!key) continue
@@ -4363,7 +4363,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       }
       if (typeof ResizeObserver === "undefined") {
         let changed = false
-        container.querySelectorAll<HTMLElement>("[data-vune-lazy-item]").forEach(element => {
+        container.querySelectorAll<HTMLElement>("[data-mun-lazy-item]").forEach(element => {
           if (measureLazyItem(element)) changed = true
         })
         if (changed) scheduleLazyMeasure()
@@ -4377,7 +4377,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
         if (changed) scheduleLazyMeasure()
       })
       lazyItemObserver.disconnect()
-      container.querySelectorAll<HTMLElement>("[data-vune-lazy-item]").forEach(element => lazyItemObserver!.observe(element))
+      container.querySelectorAll<HTMLElement>("[data-mun-lazy-item]").forEach(element => lazyItemObserver!.observe(element))
     }
 
     const observeLazyViewport = () => {
@@ -4394,7 +4394,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       const window = document.defaultView
       if (window) targets.add(window)
       targets.add(container)
-      container.querySelectorAll<HTMLElement>("[data-vune-lazy]").forEach(element => {
+      container.querySelectorAll<HTMLElement>("[data-mun-lazy]").forEach(element => {
         const key = context.lazyKeys.get(element)
         const node = key ? context.lazyNodes.get(key) : undefined
         const parent = node ? lazyScrollParent(element, node.axis) : null
@@ -4430,7 +4430,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
     const captureLazyScrollPositions = () => {
       const positions = new Map<HTMLElement, { readonly top: number; readonly left: number }>()
       if (context.lazyNodes.size === 0) return positions
-      container.querySelectorAll<HTMLElement>("[data-vune-lazy]").forEach(element => {
+      container.querySelectorAll<HTMLElement>("[data-mun-lazy]").forEach(element => {
         const key = context.lazyKeys.get(element)
         const node = key ? context.lazyNodes.get(key) : undefined
         const parent = node ? lazyScrollParent(element, node.axis) : null
@@ -4603,8 +4603,8 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
 
     updateBoundary = (boundary: DomViewBoundary): void => {
       if (stopped || viewRuntime.boundaries.get(boundary.key) !== boundary || !boundary.scheduled) return
-      recordVuneRuntimeEvent("boundaryUpdates")
-      const profile = vuneDevtoolsEnabled()
+      recordMunRuntimeEvent("boundaryUpdates")
+      const profile = munDevtoolsEnabled()
       const startedAt = profile ? performance.now() : 0
       let parentKey = boundary.parentKey
       while (parentKey) {
@@ -4616,14 +4616,14 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       const parent = currentNodes[0]?.parentNode
       if (!parent || currentNodes.some(node => node.parentNode !== parent)) {
         boundary.scheduled = false
-        recordVuneRuntimeEvent("rootEscalations")
+        recordMunRuntimeEvent("rootEscalations")
         requestRootUpdate(boundary.pendingTransaction, true)
         return
       }
       const renderTransaction = boundary.pendingTransaction
       if (patchCompiledBoundary(boundary, renderTransaction)) {
-        recordVuneRuntimeEvent("compiledPatches")
-        if (profile) recordVuneBoundaryRender({
+        recordMunRuntimeEvent("compiledPatches")
+        if (profile) recordMunBoundaryRender({
           key: boundary.key,
           name: boundary.node.name,
           parentKey: boundary.parentKey,
@@ -4641,7 +4641,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       const materialize = viewRuntime.materializeView
       if (!materialize) {
         boundary.scheduled = false
-        recordVuneRuntimeEvent("rootEscalations")
+        recordMunRuntimeEvent("rootEscalations")
         requestRootUpdate(renderTransaction, true)
         return
       }
@@ -4654,17 +4654,17 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
         // pass. The root pass will take a fresh coherent snapshot.
         clearLayoutCaptures(viewRuntime)
         context.activeTransaction = undefined
-        recordVuneRuntimeEvent("rootEscalations")
+        recordMunRuntimeEvent("rootEscalations")
         requestRootUpdate(renderTransaction, false)
         return
       }
       reconcileDomRange(parent, currentNodes, outputNodes(output), context)
-      recordVuneRuntimeEvent("reconcilePasses")
+      recordMunRuntimeEvent("reconcilePasses")
       flushLayoutMotion(context)
       commitViewPass(false)
       commitRefs()
       context.activeTransaction = undefined
-      if (profile) recordVuneBoundaryRender({
+      if (profile) recordMunBoundaryRender({
         key: boundary.key,
         name: boundary.node.name,
         parentKey: boundary.parentKey,
@@ -4679,10 +4679,10 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
 
     viewRuntime.invalidateBoundary = (key, transaction, mutations) => {
       const boundary = viewRuntime.boundaries.get(key)
-      recordVuneRuntimeEvent("collectionFallbacks")
-      recordVuneRuntimeEvent("boundaryInvalidations")
+      recordMunRuntimeEvent("collectionFallbacks")
+      recordMunRuntimeEvent("boundaryInvalidations")
       if (!boundary) {
-        recordVuneRuntimeEvent("rootEscalations")
+        recordMunRuntimeEvent("rootEscalations")
         requestRootUpdate(transaction, true)
         return
       }
@@ -4702,7 +4702,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
 
     update = () => {
       if (stopped) return
-      recordVuneRuntimeEvent("rootPasses")
+      recordMunRuntimeEvent("rootPasses")
       scheduled = false
       // A root pass owns its before/after geometry snapshot as one atomic
       // unit. Never let a capture from an aborted local pass leak into it.

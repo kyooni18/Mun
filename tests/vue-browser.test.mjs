@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-const baseURL = process.env.VUNE_VUE_BROWSER_URL
+const baseURL = process.env.MUN_VUE_BROWSER_URL
 
-test("Vune Vue SFC is interactive in a real browser", { skip: !baseURL }, async () => {
+test("Mun Vue SFC is interactive in a real browser", { skip: !baseURL }, async () => {
   const { chromium } = await import("@playwright/test")
-  const browser = await chromium.launch({ headless: true, ...(process.env.VUNE_CHROMIUM_EXECUTABLE ? { executablePath: process.env.VUNE_CHROMIUM_EXECUTABLE } : {}) })
+  const browser = await chromium.launch({ headless: true, ...(process.env.MUN_CHROMIUM_EXECUTABLE ? { executablePath: process.env.MUN_CHROMIUM_EXECUTABLE } : {}) })
   try {
     const page = await browser.newPage()
     const errors = []

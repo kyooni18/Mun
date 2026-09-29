@@ -7,16 +7,16 @@ import type {
   KernelMapOutput,
   KernelScalarIR,
   KernelUnaryOperator,
-} from "@vune-ui/core/internal/execution"
+} from "@mun/core/internal/execution"
 import { compilerFunctionResultExpression, unwrapCompilerExpression } from "./effect-analysis.js"
 
-export type VuneKernelUnaryOperator = KernelUnaryOperator
-export type VuneKernelBinaryOperator = KernelBinaryOperator
-export type VuneKernelExpression = KernelExpression
-export type VuneKernelMapOutput = KernelMapOutput
-export type VuneKernelMapIR = KernelMapIR
-export type VuneKernelScalarIR = KernelScalarIR
-export type VuneKernelIR = KernelIR
+export type MunKernelUnaryOperator = KernelUnaryOperator
+export type MunKernelBinaryOperator = KernelBinaryOperator
+export type MunKernelExpression = KernelExpression
+export type MunKernelMapOutput = KernelMapOutput
+export type MunKernelMapIR = KernelMapIR
+export type MunKernelScalarIR = KernelScalarIR
+export type MunKernelIR = KernelIR
 
 function propertyName(name: ts.PropertyName): string | undefined {
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined
@@ -39,7 +39,7 @@ function propertyPath(expression: ts.Expression, itemName: string): readonly (st
   return undefined
 }
 
-function unaryOperator(kind: ts.PrefixUnaryOperator): VuneKernelUnaryOperator | undefined {
+function unaryOperator(kind: ts.PrefixUnaryOperator): MunKernelUnaryOperator | undefined {
   if (kind === ts.SyntaxKind.PlusToken) return "+"
   if (kind === ts.SyntaxKind.MinusToken) return "-"
   if (kind === ts.SyntaxKind.ExclamationToken) return "!"
@@ -47,7 +47,7 @@ function unaryOperator(kind: ts.PrefixUnaryOperator): VuneKernelUnaryOperator | 
   return undefined
 }
 
-function binaryOperator(kind: ts.SyntaxKind): VuneKernelBinaryOperator | undefined {
+function binaryOperator(kind: ts.SyntaxKind): MunKernelBinaryOperator | undefined {
   switch (kind) {
     case ts.SyntaxKind.PlusToken: return "+"
     case ts.SyntaxKind.MinusToken: return "-"
@@ -76,11 +76,11 @@ function binaryOperator(kind: ts.SyntaxKind): VuneKernelBinaryOperator | undefin
   }
 }
 
-export function lowerVuneKernelExpression(
+export function lowerMunKernelExpression(
   expression: ts.Expression,
   itemName: string,
   indexName?: string,
-): VuneKernelExpression | undefined {
+): MunKernelExpression | undefined {
   const value = unwrapCompilerExpression(expression)
   if (ts.isNumericLiteral(value)) return Object.freeze({ op: "const", value: Number(value.text) })
   if (value.kind === ts.SyntaxKind.TrueKeyword) return Object.freeze({ op: "const", value: true })
@@ -96,19 +96,19 @@ export function lowerVuneKernelExpression(
   }
   if (ts.isPrefixUnaryExpression(value)) {
     const operator = unaryOperator(value.operator)
-    const operand = lowerVuneKernelExpression(value.operand, itemName, indexName)
+    const operand = lowerMunKernelExpression(value.operand, itemName, indexName)
     return operator && operand ? Object.freeze({ op: "unary", operator, value: operand }) : undefined
   }
   if (ts.isBinaryExpression(value)) {
     const operator = binaryOperator(value.operatorToken.kind)
-    const left = lowerVuneKernelExpression(value.left, itemName, indexName)
-    const right = lowerVuneKernelExpression(value.right, itemName, indexName)
+    const left = lowerMunKernelExpression(value.left, itemName, indexName)
+    const right = lowerMunKernelExpression(value.right, itemName, indexName)
     return operator && left && right ? Object.freeze({ op: "binary", operator, left, right }) : undefined
   }
   if (ts.isConditionalExpression(value)) {
-    const condition = lowerVuneKernelExpression(value.condition, itemName, indexName)
-    const whenTrue = lowerVuneKernelExpression(value.whenTrue, itemName, indexName)
-    const whenFalse = lowerVuneKernelExpression(value.whenFalse, itemName, indexName)
+    const condition = lowerMunKernelExpression(value.condition, itemName, indexName)
+    const whenTrue = lowerMunKernelExpression(value.whenTrue, itemName, indexName)
+    const whenFalse = lowerMunKernelExpression(value.whenFalse, itemName, indexName)
     return condition && whenTrue && whenFalse
       ? Object.freeze({ op: "select", condition, whenTrue, whenFalse })
       : undefined
@@ -116,7 +116,7 @@ export function lowerVuneKernelExpression(
   return undefined
 }
 
-export function lowerVuneMapKernel(expression: ts.Expression): VuneKernelMapIR | undefined {
+export function lowerMunMapKernel(expression: ts.Expression): MunKernelMapIR | undefined {
   const value = unwrapCompilerExpression(expression)
   if (!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) return undefined
   if (value.asteriskToken || value.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return undefined
@@ -130,7 +130,7 @@ export function lowerVuneMapKernel(expression: ts.Expression): VuneKernelMapIR |
   const itemName = item.name.text
   const indexName = index && ts.isIdentifier(index.name) ? index.name.text : undefined
   let preserveInput = false
-  const outputs: VuneKernelMapOutput[] = []
+  const outputs: MunKernelMapOutput[] = []
   const captures = new Set<string>()
   for (const property of result.properties) {
     if (ts.isSpreadAssignment(property)) {
@@ -142,9 +142,9 @@ export function lowerVuneMapKernel(expression: ts.Expression): VuneKernelMapIR |
     if (!ts.isPropertyAssignment(property)) return undefined
     const name = propertyName(property.name)
     if (name === undefined || name === "__proto__") return undefined
-    const lowered = lowerVuneKernelExpression(property.initializer, itemName, indexName)
+    const lowered = lowerMunKernelExpression(property.initializer, itemName, indexName)
     if (!lowered) return undefined
-    const collect = (node: VuneKernelExpression): void => {
+    const collect = (node: MunKernelExpression): void => {
       if (node.op === "capture") captures.add(node.name)
       else if (node.op === "unary") collect(node.value)
       else if (node.op === "binary") {
@@ -171,7 +171,7 @@ export function lowerVuneMapKernel(expression: ts.Expression): VuneKernelMapIR |
   })
 }
 
-export function lowerVuneScalarKernel(expression: ts.Expression): VuneKernelScalarIR | undefined {
+export function lowerMunScalarKernel(expression: ts.Expression): MunKernelScalarIR | undefined {
   const value = unwrapCompilerExpression(expression)
   if (!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) return undefined
   if (value.asteriskToken || value.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return undefined
@@ -184,10 +184,10 @@ export function lowerVuneScalarKernel(expression: ts.Expression): VuneKernelScal
   if (!result) return undefined
   const itemName = item.name.text
   const indexName = index && ts.isIdentifier(index.name) ? index.name.text : undefined
-  const lowered = lowerVuneKernelExpression(result, itemName, indexName)
+  const lowered = lowerMunKernelExpression(result, itemName, indexName)
   if (!lowered) return undefined
   const captures = new Set<string>()
-  const collect = (node: VuneKernelExpression): void => {
+  const collect = (node: MunKernelExpression): void => {
     if (node.op === "capture") captures.add(node.name)
     else if (node.op === "unary") collect(node.value)
     else if (node.op === "binary") {

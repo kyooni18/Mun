@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 
-import type { ResidentRegionIR } from "@vune-ui/core/internal/execution"
-import { resolveResidentComputeExperimental, type ResidentComputeExperimentalOptions, type ResidentComputeExperimentalState } from "@vune-ui/execution"
+import type { ResidentRegionIR } from "@mun/core/internal/execution"
+import { resolveResidentComputeExperimental, type ResidentComputeExperimentalOptions, type ResidentComputeExperimentalState } from "@mun/execution"
 import type { GPUIslandIR } from "./gpu-island-ir.js"
 import {
   planResidentRegionFusion,

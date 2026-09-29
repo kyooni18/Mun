@@ -2,10 +2,10 @@ import { useRef } from 'react'
 import {
   createViewIdentityStore as createCoreViewIdentityStore,
   ViewIdentityStore as CoreViewIdentityStore,
-} from '@vune-ui/core'
+} from '@mun/core/compat'
 
 /**
- * Per-mounted-View storage. The storage is owned by Vune's View runtime; the
+ * Per-mounted-View storage. The storage is owned by Mun's View runtime; the
  * React hook is only the host-specific lifetime primitive used underneath.
  */
 export interface ViewIdentityStorage<T> {

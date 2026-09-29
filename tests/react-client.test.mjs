@@ -16,8 +16,8 @@ import {
   VStack,
   view,
 } from '../dist/legacy.js'
-import { GeometryReader, Text as CanonicalText, mount as canonicalMount, render as canonicalRender, useVuneState, view as canonicalView } from '../packages/react/dist/index.js'
-import { ForEach, State as CanonicalState, defineView, initializer, viewElement } from '../packages/core/dist/index.js'
+import { GeometryReader, Text as CanonicalText, mount as canonicalMount, render as canonicalRender, useMunState, view as canonicalView } from '../packages/react/dist/index.js'
+import { ForEach, State as CanonicalState, defineView, initializer, viewElement } from '../packages/core/dist/compat.js'
 import { compiledCollectionContent } from '../packages/core/dist/internal-runtime.js'
 
 function installDOM() {
@@ -65,11 +65,11 @@ test('State-driven views rerender and controlled inputs update in JSDOM', async 
     assert.match(document.body.textContent, /Count: 1/)
 
     const input = document.querySelector('input')
-    input.value = 'Vune'
+    input.value = 'Mun'
     await act(async () => {
       input.dispatchEvent(new window.Event('input', { bubbles: true }))
     })
-    assert.equal(input.value, 'Vune')
+    assert.equal(input.value, 'Mun')
 
     await act(async () => { root.unmount() })
     assert.equal(document.getElementById('root').textContent, '')
@@ -300,7 +300,7 @@ test('GeometryReader falls back to zero geometry when layout measurement throws'
   }
 })
 
-test('canonical @vune-ui/react graph output hydrates through the standard React boundary', async () => {
+test('canonical @mun/react graph output hydrates through the standard React boundary', async () => {
   const restore = installDOM()
   try {
     const container = document.getElementById('root')
@@ -333,7 +333,7 @@ test('canonical @vune-ui/react graph output hydrates through the standard React 
   }
 })
 
-test('@vune-ui/react mount owns a root and hydrates its graph boundary', async () => {
+test('@mun/react mount owns a root and hydrates its graph boundary', async () => {
   const restore = installDOM()
   try {
     const container = document.getElementById('root')
@@ -349,11 +349,11 @@ test('@vune-ui/react mount owns a root and hydrates its graph boundary', async (
   }
 })
 
-test('useVuneState is an explicit live bridge from core State into React', async () => {
+test('useMunState is an explicit live bridge from core State into React', async () => {
   const restore = installDOM()
   try {
     const state = State('before')
-    function Bridge() { return createElement('span', null, useVuneState(state)) }
+    function Bridge() { return createElement('span', null, useMunState(state)) }
     const root = createRoot(document.getElementById('root'))
     await act(async () => { root.render(createElement(Bridge)) })
     assert.equal(document.body.textContent, 'before')
@@ -386,8 +386,8 @@ test('SSR markup hydrates without layout, State, or useId mismatches', async () 
     await act(async () => {})
     assert.equal(recoverableErrors.length, 0)
     assert.match(container.textContent, /Count: 1/)
-    assert.ok(container.querySelector('[data-vune-menu]'))
-    assert.ok(container.querySelector('[data-vune-layout-host]'))
+    assert.ok(container.querySelector('[data-mun-menu]'))
+    assert.ok(container.querySelector('[data-mun-layout-host]'))
     assert.equal(document.querySelectorAll('[role="alertdialog"]').length, 1)
     await act(async () => { root.unmount() })
   } finally {
@@ -419,7 +419,7 @@ test('Sheet closes on Escape, traps focus, and restores the opener', async () =>
     await act(async () => {
       opener.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
     })
-    const panel = document.querySelector('[data-vune-sheet]')
+    const panel = document.querySelector('[data-mun-sheet]')
     assert.ok(panel)
     assert.equal(panel.getAttribute('role'), 'dialog')
     assert.equal(document.activeElement?.textContent, 'First')
@@ -433,7 +433,7 @@ test('Sheet closes on Escape, traps focus, and restores the opener', async () =>
     await act(async () => {
       panel.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
-    assert.equal(document.querySelector('[data-vune-sheet]'), null)
+    assert.equal(document.querySelector('[data-mun-sheet]'), null)
     assert.equal(document.activeElement, opener)
 
     await act(async () => { root.unmount() })
@@ -461,22 +461,22 @@ test('stacked presentations keep the newest portal on top and close it first', a
     })
     const root = createRoot(document.getElementById('root'))
     await act(async () => { root.render(createElement(App)) })
-    const outerPanel = document.querySelector('[data-vune-sheet]')
+    const outerPanel = document.querySelector('[data-mun-sheet]')
     assert.ok(outerPanel)
     const openNested = [...outerPanel.querySelectorAll('button')].find(button => button.textContent === 'Open nested')
     await act(async () => {
       openNested.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
     })
-    const panels = document.querySelectorAll('[data-vune-sheet]')
+    const panels = document.querySelectorAll('[data-mun-sheet]')
     assert.equal(panels.length, 2)
-    const backdrops = document.querySelectorAll('[data-vune-sheet-backdrop]')
+    const backdrops = document.querySelectorAll('[data-mun-sheet-backdrop]')
     assert.equal(backdrops[0].style.zIndex, '1000')
     assert.equal(backdrops[1].style.zIndex, '1001')
 
     await act(async () => {
       panels[1].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
-    assert.equal(document.querySelectorAll('[data-vune-sheet]').length, 1)
+    assert.equal(document.querySelectorAll('[data-mun-sheet]').length, 1)
     assert.equal(stateRefs.outer.value, true)
 
     await act(async () => { stateRefs.alert.value = true })
@@ -485,7 +485,7 @@ test('stacked presentations keep the newest portal on top and close it first', a
       document.querySelector('[role="alertdialog"] button').dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
     })
     assert.equal(stateRefs.alert.value, false)
-    assert.equal(document.querySelectorAll('[data-vune-sheet]').length, 1)
+    assert.equal(document.querySelectorAll('[data-mun-sheet]').length, 1)
 
     await act(async () => { root.unmount() })
   } finally {

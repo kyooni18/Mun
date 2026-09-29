@@ -43,7 +43,7 @@ import {
   lazyView,
   modifier,
   modifierGraphOf,
-  markVuneClosure,
+  markMunClosure,
   modifiedContent,
   modifiedContentCompiled,
   namedArguments,
@@ -57,13 +57,13 @@ import {
   subscribeState,
   stateVersion,
   viewElement,
-  vuneClosureKind,
-  vuneClosureVariants,
-  vuneInitializers,
-  vuneView,
+  munClosureKind,
+  munClosureVariants,
+  munInitializers,
+  munView,
   viewFragment,
   viewHost,
-} from "../packages/core/dist/index.js"
+} from "../packages/core/dist/compat.js"
 import { mapStateArrayData } from "../packages/core/dist/internal-runtime.js"
 
 function inspectGraph(value) {
@@ -81,7 +81,7 @@ const Text = defineBuiltinView(
   ({ value }) => viewElement("span", null, [value]),
 )
 
-test("@vune-ui/core builds a renderer-independent graph with immutable modifiers", () => {
+test("@mun/core/compat builds a renderer-independent graph with immutable modifiers", () => {
   const original = Text("Hello")
   const modified = original.font("title").padding(12)
   assert.notEqual(original, modified)
@@ -105,7 +105,7 @@ test("@vune-ui/core builds a renderer-independent graph with immutable modifiers
   assert.deepEqual(modifierGraphOf(batched).map(item => item.name), ["font", "padding"])
 })
 
-test("@vune-ui/core Switch keeps fractional geometry and isolates animatable channels", () => {
+test("@mun/core/compat Switch keeps fractional geometry and isolates animatable channels", () => {
   const enabled = State(true)
   const graph = inspectGraph(CoreSwitch(Binding(enabled), {
     size: 22,
@@ -131,18 +131,18 @@ test("@vune-ui/core Switch keeps fractional geometry and isolates animatable cha
   assert.equal(displayOnly.content.props.onClick, undefined)
 })
 
-test("@vune-ui/core Switch uses theme hooks with dark-safe defaults", () => {
+test("@mun/core/compat Switch uses theme hooks with dark-safe defaults", () => {
   const enabled = State(true)
   const graph = inspectGraph(CoreSwitch(Binding(enabled), { size: 22 }))
   const [trackAnimation, thumbAnimation] = graph.content.children
 
-  assert.equal(trackAnimation.content.arguments[0].background, "var(--vune-switch-on-bg, light-dark(#34c759, #0a84ff))")
+  assert.equal(trackAnimation.content.arguments[0].background, "var(--mun-switch-on-bg, light-dark(#34c759, #0a84ff))")
   assert.equal(trackAnimation.content.arguments[0].cornerShape, "squircle")
-  assert.equal(thumbAnimation.content.arguments[0].background, "var(--vune-switch-on-fg, light-dark(#ffffff, #ffffff))")
-  assert.equal(graph.arguments[0].background, "var(--vune-switch-off-bg, light-dark(#e9e9ea, #3a3a3c))")
+  assert.equal(thumbAnimation.content.arguments[0].background, "var(--mun-switch-on-fg, light-dark(#ffffff, #ffffff))")
+  assert.equal(graph.arguments[0].background, "var(--mun-switch-off-bg, light-dark(#e9e9ea, #3a3a3c))")
 })
 
-test("@vune-ui/core preserves automatic and explicit animation modifier call shapes", () => {
+test("@mun/core/compat preserves automatic and explicit animation modifier call shapes", () => {
   const automatic = modifierGraphOf(CoreText("Auto").opacity(0.5).animation())
   assert.deepEqual(automatic.map(item => [item.name, item.arguments]), [["opacity", [0.5]], ["animation", []]])
 
@@ -154,7 +154,7 @@ test("@vune-ui/core preserves automatic and explicit animation modifier call sha
   assert.deepEqual(triggered.at(-1).arguments, [explicit, true])
 })
 
-test("@vune-ui/core trusted compiled paths skip redundant initializer and modifier shape work", () => {
+test("@mun/core/compat trusted compiled paths skip redundant initializer and modifier shape work", () => {
   const CompiledProbe = defineBuiltinView(
     "CompiledProbe",
     [initializer("CompiledProbe(value)", args => args.length === 1 && typeof args[0] === "string", args => ({ value: args[0] }), [initializerKinds.value(true, undefined, undefined, "string")])],
@@ -176,7 +176,7 @@ test("@vune-ui/core trusted compiled paths skip redundant initializer and modifi
   assert.deepEqual(modifierGraphOf(modified)[0].arguments[0], { opacity: 0.5 })
 })
 
-test("@vune-ui/core compiled templates preserve generic rendering, native fast paths, immutability, and View identity", () => {
+test("@mun/core/compat compiled templates preserve generic rendering, native fast paths, immutability, and View identity", () => {
   const root = {
     kind: "element",
     type: "div",
@@ -377,7 +377,7 @@ test("native element props omit coercible objects while custom elements preserve
     ref: reference,
     style: { display: "block" },
   })
-  const custom = CoreElement("vune-card", { payload: value })
+  const custom = CoreElement("mun-card", { payload: value })
 
   assert.deepEqual(native.props, {
     "data-safe": true,
@@ -514,7 +514,7 @@ test("class values omit array accessors without executing them", () => {
   assert.equal(getterCalls, 0)
 })
 
-test("@vune-ui/core state and Binding stay independent from a renderer", () => {
+test("@mun/core/compat state and Binding stay independent from a renderer", () => {
   const state = State(1)
   const binding = Binding(state)
   let notifications = 0
@@ -944,7 +944,7 @@ test("State and Binding preserve derived, nested, and writable-lens semantics", 
   assert.equal(base.value, 5)
 })
 
-test("@vune-ui/core keeps View identity storage renderer-independent", () => {
+test("@mun/core/compat keeps View identity storage renderer-independent", () => {
   const store = createViewIdentityStore()
   const identity = {}
   let creations = 0
@@ -954,7 +954,7 @@ test("@vune-ui/core keeps View identity storage renderer-independent", () => {
   assert.equal(store.getOrCreate(identity, () => ++creations), 2)
 })
 
-test("@vune-ui/core makes View type changes explicit remount boundaries", () => {
+test("@mun/core/compat makes View type changes explicit remount boundaries", () => {
   const First = defineView("FirstBranch", { initializers: [initializer("FirstBranch()", args => args.length === 0)], body: () => CoreText("first") })
   const Second = defineView("SecondBranch", { initializers: [initializer("SecondBranch()", args => args.length === 0)], body: () => CoreText("second") })
   const identities = []
@@ -981,7 +981,7 @@ test("@vune-ui/core makes View type changes explicit remount boundaries", () => 
   assert.notDeepEqual(identities.at(-2), identities.at(-1))
 })
 
-test("@vune-ui/core owns built-in and custom View graphs without a renderer", () => {
+test("@mun/core/compat owns built-in and custom View graphs without a renderer", () => {
   const card = defineView("Card", {
     initializers: [initializer(
       "Card(@ViewBuilder content)",
@@ -1008,11 +1008,11 @@ test("@vune-ui/core owns built-in and custom View graphs without a renderer", ()
   assert.equal(graph.children[0].props.class, "card")
 })
 
-test("@vune-ui/core represents foreign components as explicit graph descriptors", () => {
+test("@mun/core/compat represents foreign components as explicit graph descriptors", () => {
   const reference = { current: null }
   const component = function ProfileCard() { return null }
   const value = ForeignComponent(component, {
-    props: { label: "Vune" },
+    props: { label: "Mun" },
     events: { onSave: () => undefined },
     slots: { header: () => CoreText("Header") },
     ref: reference,
@@ -1023,7 +1023,7 @@ test("@vune-ui/core represents foreign components as explicit graph descriptors"
   assert.equal(value.kind, "element")
   assert.equal(isForeignComponent(value.type), true)
   assert.equal(value.type.component, component)
-  assert.deepEqual(value.type.props, { label: "Vune" })
+  assert.deepEqual(value.type.props, { label: "Mun" })
   assert.deepEqual(Object.keys(value.type.events), ["onSave"])
   assert.equal(value.type.key, "profile")
   assert.equal(value.type.adapter, "vue")
@@ -1038,7 +1038,7 @@ test("ForeignComponent snapshots option records without executing getters", () =
     enumerable: true,
     get() {
       getterCalls += 1
-      return "Vune"
+      return "Mun"
     },
   })
 
@@ -1159,7 +1159,7 @@ test("ForeignComponent snapshots nested schema records", () => {
   assert.equal(Object.isFrozen(value.type.schema.slots), true)
 })
 
-test("@vune-ui/core normalizes boolean leaves and rejects unsupported leaves before renderers", () => {
+test("@mun/core/compat normalizes boolean leaves and rejects unsupported leaves before renderers", () => {
   const values = []
   const renderer = {
     element(type, props, ...children) { return { type, props, children } },
@@ -1178,7 +1178,7 @@ test("@vune-ui/core normalizes boolean leaves and rejects unsupported leaves bef
   }
 })
 
-test("@vune-ui/core gives ForEach children stable identity keys", () => {
+test("@mun/core/compat gives ForEach children stable identity keys", () => {
   const value = ForEach([{ id: "a", label: "A" }, { id: "b", label: "B" }], item => CoreText(item.label))
   assert.deepEqual(modifierGraphOf(value.children[0]).map(item => item.arguments), [["string:1:a|occurrence:0|child:0"]])
   assert.deepEqual(modifierGraphOf(value.children[1]).map(item => item.arguments), [["string:1:b|occurrence:0|child:0"]])
@@ -1428,14 +1428,14 @@ test("closure role inspection snapshots data metadata without executing accessor
   let getterCalls = 0
   const hostile = () => undefined
   Object.defineProperties(hostile, {
-    [vuneClosureKind]: {
+    [munClosureKind]: {
       configurable: false,
       get() {
         getterCalls += 1
         throw new Error("closure kind getter must not run")
       },
     },
-    [vuneClosureVariants]: {
+    [munClosureVariants]: {
       configurable: false,
       get() {
         getterCalls += 1
@@ -1446,7 +1446,7 @@ test("closure role inspection snapshots data metadata without executing accessor
   assert.equal(closureKindOf(hostile), undefined)
   assert.equal(closureVariantsOf(hostile), undefined)
   assert.equal(closureForKind(hostile, "action"), hostile)
-  const marked = markVuneClosure(hostile, "action")
+  const marked = markMunClosure(hostile, "action")
   assert.notEqual(marked, hostile)
   assert.equal(closureKindOf(marked), "action")
   assert.equal(getterCalls, 0)
@@ -1455,8 +1455,8 @@ test("closure role inspection snapshots data metadata without executing accessor
 test("initializer target inspection does not execute metadata or display-name accessors", () => {
   let getterCalls = 0
   const hostile = () => undefined
-  const viewNodeFactory = Symbol.for("vune.view.node.factory")
-  for (const key of [vuneInitializers, vuneView, viewNodeFactory, "viewType", "displayName", "name"]) {
+  const viewNodeFactory = Symbol.for("mun.view.node.factory")
+  for (const key of [munInitializers, munView, viewNodeFactory, "viewType", "displayName", "name"]) {
     Object.defineProperty(hostile, key, {
       configurable: false,
       get() {
@@ -1468,7 +1468,7 @@ test("initializer target inspection does not execute metadata or display-name ac
   assert.deepEqual(initializersOf(hostile), [])
   assert.doesNotThrow(() => assertInitializerCall(hostile, []))
   assert.throws(() => resolveInitializer(hostile, []), /No matching initializer for View/)
-  assert.throws(() => createViewNode(hostile), /Target View is not a Vune View constructor/)
+  assert.throws(() => createViewNode(hostile), /Target View is not a Mün View constructor/)
 
   const RequiresView = defineBuiltinView(
     "RequiresView",
@@ -1478,7 +1478,7 @@ test("initializer target inspection does not execute metadata or display-name ac
   assert.throws(() => RequiresView(hostile), /No matching initializer for RequiresView/)
 
   const registrable = () => undefined
-  Object.defineProperty(registrable, vuneView, {
+  Object.defineProperty(registrable, munView, {
     configurable: true,
     get() {
       getterCalls += 1
@@ -1534,22 +1534,22 @@ test("lazy containers are distinct graph constructors with browser lazy metadata
     modifier(content) { return content },
   }
   const rendered = renderViewNode(LazyVStack({ estimatedItemSize: 56, overscan: 3 }, CoreText("A")), renderer)
-  assert.equal(rendered.props["data-vune-lazy"], "vertical")
-  assert.equal(rendered.props["data-vune-lazy-overscan"], 3)
+  assert.equal(rendered.props["data-mun-lazy"], "vertical")
+  assert.equal(rendered.props["data-mun-lazy-overscan"], 3)
 
   for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5]) {
     const stack = renderViewNode(LazyVStack({ overscan: value }, CoreText("A")), renderer)
     const grid = renderViewNode(LazyGrid({ overscan: value }, CoreText("A")), renderer)
-    assert.equal(stack.props["data-vune-lazy-overscan"], undefined)
-    assert.equal(grid.props["data-vune-lazy-overscan"], undefined)
+    assert.equal(stack.props["data-mun-lazy-overscan"], undefined)
+    assert.equal(grid.props["data-mun-lazy-overscan"], undefined)
   }
 })
 
-test("@vune-ui/core exposes renderer-independent scroll and safe-area semantics", () => {
+test("@mun/core/compat exposes renderer-independent scroll and safe-area semantics", () => {
   const scroll = ScrollView("both", () => [CoreText("Scrollable")])
   const safe = SafeArea(["top", "bottom"], () => [scroll])
   assert.equal(safe.kind, "element")
-  assert.equal(safe.props["data-vune"], "SafeArea")
+  assert.equal(safe.props["data-mun"], "SafeArea")
   assert.deepEqual(safe.props.style, {
     paddingTop: "env(safe-area-inset-top)",
     paddingRight: undefined,
@@ -1557,10 +1557,10 @@ test("@vune-ui/core exposes renderer-independent scroll and safe-area semantics"
     paddingLeft: undefined,
     boxSizing: "border-box",
   })
-  assert.equal(safe.children[0].props["data-vune"], "ScrollView")
+  assert.equal(safe.children[0].props["data-mun"], "ScrollView")
 })
 
-test("@vune-ui/core falls back to a deterministic zero GeometryProxy without a renderer", () => {
+test("@mun/core/compat falls back to a deterministic zero GeometryProxy without a renderer", () => {
   const value = GeometryReader(geometry => CoreText(`${geometry.size.width}x${geometry.size.height}`))
   const rendered = renderViewNode(value, {
     element(type, props, ...children) { return { type, props, children } },
@@ -1572,7 +1572,7 @@ test("@vune-ui/core falls back to a deterministic zero GeometryProxy without a r
   assert.equal(rendered.children[0], "0x0")
 })
 
-test("@vune-ui/core normalizes measured CSS safe-area values", () => {
+test("@mun/core/compat normalizes measured CSS safe-area values", () => {
   assert.deepEqual(edgeInsetsFromCss({ top: "12px", right: "8.5px", bottom: "env(safe-area-inset-bottom)", left: 4 }), {
     top: 12,
     right: 8.5,
@@ -1611,7 +1611,7 @@ test("layout normalization utilities do not execute option accessors", () => {
   assert.equal(getterCalls, 0)
 })
 
-test("@vune-ui/core applies declared generic View constraints during initializer resolution", () => {
+test("@mun/core/compat applies declared generic View constraints during initializer resolution", () => {
   const GenericCard = defineView("GenericCard", {
     genericParameters: "Content: View",
     initializers: [initializer(
@@ -1626,12 +1626,12 @@ test("@vune-ui/core applies declared generic View constraints during initializer
   assert.throws(() => GenericCard("not a View"), /No matching initializer for GenericCard/)
 })
 
-test("@vune-ui/core resolves declared union value types without overload-order bias", () => {
+test("@mun/core/compat resolves declared union value types without overload-order bias", () => {
   assert.doesNotThrow(() => CoreText(42))
   assert.doesNotThrow(() => CoreButton(42, () => undefined))
 })
 
-test("@vune-ui/core routes a trailing closure past omitted optional parameters", () => {
+test("@mun/core/compat routes a trailing closure past omitted optional parameters", () => {
   const result = resolveSemanticInitializer([
     {
       kind: "initializer",
@@ -1647,7 +1647,7 @@ test("@vune-ui/core routes a trailing closure past omitted optional parameters",
   assert.equal(result.ok && result.resolution.arguments[1]?.trailing, true)
 })
 
-test("@vune-ui/core recovers runtime trailing closures after omitted optional parameters", () => {
+test("@mun/core/compat recovers runtime trailing closures after omitted optional parameters", () => {
   let captured
   const RuntimeLink = defineView("RuntimeLink", {
     initializers: [initializer(
@@ -1684,7 +1684,7 @@ test("@vune-ui/core recovers runtime trailing closures after omitted optional pa
   assert.equal(closureKindOf(captured[4]), "viewBuilder")
 })
 
-test("@vune-ui/core resolves MkA-shaped labeled optionals with a runtime trailing builder", () => {
+test("@mun/core/compat resolves MkA-shaped labeled optionals with a runtime trailing builder", () => {
   let captured
   const RuntimeMkA = defineView("RuntimeMkA", {
     initializers: [initializer(
@@ -1718,16 +1718,41 @@ test("@vune-ui/core resolves MkA-shaped labeled optionals with a runtime trailin
   assert.equal(closureKindOf(captured[6]), "viewBuilder")
 })
 
-test("@vune-ui/core applies Content: View constraints to built-in stack builders", () => {
+test("@mun/core/compat applies Content: View constraints to built-in stack builders", () => {
   assert.doesNotThrow(() => CoreVStack(() => [CoreText("valid")]))
   assert.throws(() => CoreVStack(() => ["not a View"]), /No matching initializer for VStack/)
 })
 
-test("@vune-ui/core exposes the same View symbol consumed by compiler adapters", () => {
+test("@mun/core/compat exposes the same View symbol consumed by compiler adapters", () => {
   assert.equal(CoreText.viewType.semanticSymbol.kind, "view")
   assert.equal(CoreText.viewType.semanticSymbol.name, "Text")
   assert.equal(CoreText.viewType.semanticSymbol.initializers[0].parameters[0].type, "string | number")
   assert.deepEqual(ViewBuilder.semanticSymbol.operations, ["buildBlock", "buildOptional", "buildEither", "buildArray"])
+})
+
+test("the shared semantic resolver distinguishes source arguments from explicit undefined placeholders", () => {
+  const initializer = {
+    kind: "initializer",
+    index: 0,
+    signature: "Probe(tone: string = undefined)",
+    parameters: [{
+      kind: "value",
+      name: "tone",
+      label: "tone",
+      labelRequired: true,
+      required: false,
+      type: "string",
+    }],
+  }
+
+  const unlabeledSourceArgument = resolveSemanticInitializer([initializer], [{ type: "string" }])
+  assert.equal(unlabeledSourceArgument.ok, false)
+
+  const labeledSourceArgument = resolveSemanticInitializer([initializer], [{ label: "tone", type: "string" }])
+  assert.equal(labeledSourceArgument.ok, true)
+
+  const explicitOmission = resolveSemanticInitializer([initializer], [{ value: undefined, type: "undefined" }])
+  assert.equal(explicitOmission.ok, true)
 })
 
 test("the shared semantic resolver applies labels, roles, types, and ambiguity as one contract", () => {
@@ -1757,7 +1782,7 @@ test("re-marking an overloaded closure preserves its dispatch variants", () => {
   // Initializer resolution re-marks closures when a candidate parameter kind
   // differs from the closure's current role; the wrapper must keep the
   // variant table so overloadClosure dispatch and scoring keep working.
-  const reMarked = markVuneClosure(overloaded, "viewBuilder")
+  const reMarked = markMunClosure(overloaded, "viewBuilder")
   const variants = closureVariantsOf(reMarked)
   assert.ok(variants)
   assert.equal(variants.viewBuilder, builder)

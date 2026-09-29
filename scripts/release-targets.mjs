@@ -76,7 +76,7 @@ export function discoverReleaseTargets(root) {
       .filter(target => !ordered.includes(target))
       .map(target => `${target.manifest.name} -> ${[...dependencies.get(target.manifest.name)].join(', ')}`)
       .join('; ')
-    throw new Error(`Publishable Vune packages contain an internal dependency cycle: ${blocked}`)
+    throw new Error(`Publishable Mün packages contain an internal dependency cycle: ${blocked}`)
   }
 
   return ordered

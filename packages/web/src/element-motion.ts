@@ -1,4 +1,4 @@
-import { Animation } from "@vune-ui/core"
+import { Animation } from "@mun/core/compat"
 import {
   MotionEngine,
   createInterpolator,
@@ -6,7 +6,7 @@ import {
   motionValue,
   type AnimationControls,
   type InterpolatorOptions,
-} from "@vune-ui/animation"
+} from "@mun/animation"
 import { motionSpecForAnimation } from "./motion.js"
 
 export type MotionStatus = "finished" | "cancelled"
@@ -218,7 +218,7 @@ function sampleSegments(segments: readonly Segment[], progress: number): unknown
   return segment.interpolate(local)
 }
 
-export class VuneMotionEngine {
+export class MunMotionEngine {
   readonly #cancels = new Set<() => void>()
 
   #track(handle: MotionHandle): MotionHandle {
@@ -457,15 +457,15 @@ export class VuneMotionEngine {
   }
 }
 
-export const vuneMotion = new VuneMotionEngine()
+export const munMotion = new MunMotionEngine()
 
-export function animateVuneTransition(
+export function animateMunTransition(
   element: Element,
   keyframes: Keyframe[],
   animation: Animation,
   done: () => void,
 ): MotionHandle {
-  const handle = vuneMotion.animateElement(element, keyframes, { animation, fill: "forwards" })
+  const handle = munMotion.animateElement(element, keyframes, { animation, fill: "forwards" })
   void handle.finished.then(done, done)
   return handle
 }

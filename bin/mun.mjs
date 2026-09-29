@@ -6,6 +6,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { updatePnpmWorkspaceOverrides } from './pnpm-workspace.mjs'
 import { installEditors } from '../editors/install.mjs'
+import { runNativeSource } from './native.mjs'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageManifest = JSON.parse(readFileSync(resolve(packageRoot, 'package.json'), 'utf8'))
@@ -73,7 +74,7 @@ try {
     }
   }
 } catch (error) {
-  console.error(`Vune ${command ?? 'command'} failed: ${error instanceof Error ? error.message : String(error)}`)
+  console.error(`Mün ${command ?? 'command'} failed: ${error instanceof Error ? error.message : String(error)}`)
   printHelp()
   process.exitCode = 1
   process.exit(process.exitCode)
@@ -85,28 +86,28 @@ const projectFiles = [
   ['templates/project/package.json', 'package.json'],
   ['templates/project/tsconfig.json', 'tsconfig.json'],
   ['templates/project/vite.config.ts', 'vite.config.ts'],
-  ['templates/project/src/App.vune.ts', 'src/App.vune.ts'],
-  ['templates/project/src/App.css', 'src/App.css'],
+  ['templates/project/src/App.mun', 'src/App.mun'],
   ['templates/project/src/index.css', 'src/index.css'],
   ['templates/project/src/main.ts', 'src/main.ts'],
 ]
 
 const localPackagePaths = {
-  'vune-ui': '.',
-  '@vune-ui/animation': 'packages/animation',
-  '@vune-ui/core': 'packages/core',
-  '@vune-ui/compiler': 'packages/compiler',
-  '@vune-ui/execution': 'packages/execution',
-  '@vune-ui/legacy-react': 'packages/legacy-react',
-  '@vune-ui/react': 'packages/react',
-  '@vune-ui/vue': 'packages/vue',
-  '@vune-ui/web': 'packages/web',
-  '@vune-ui/vite': 'packages/vite',
+  '@mun/ui': '.',
+  '@mun/astro': 'packages/astro',
+  '@mun/animation': 'packages/animation',
+  '@mun/core': 'packages/core',
+  '@mun/compiler': 'packages/compiler',
+  '@mun/execution': 'packages/execution',
+  '@mun/legacy-react': 'packages/legacy-react',
+  '@mun/react': 'packages/react',
+  '@mun/vue': 'packages/vue',
+  '@mun/web': 'packages/web',
+  '@mun/vite': 'packages/vite',
 }
 
 function template(source) {
   return readFileSync(resolve(packageRoot, source), 'utf8')
-    .replaceAll('__VUNE_VERSION__', packageManifest.version)
+    .replaceAll('__MUN_VERSION__', packageManifest.version)
 }
 
 function writeTemplates(projectRoot, files) {
@@ -114,8 +115,8 @@ function writeTemplates(projectRoot, files) {
     const target = resolve(projectRoot, destination)
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, template(source)
-      .replaceAll('__VUNE_PROJECT_NAME__', projectName(projectRoot))
-      .replaceAll('__VUNE_PROJECT_APP_NAME__', projectAppName(projectRoot)))
+      .replaceAll('__MUN_PROJECT_NAME__', projectName(projectRoot))
+      .replaceAll('__MUN_PROJECT_APP_NAME__', projectAppName(projectRoot)))
   }
 }
 
@@ -124,13 +125,13 @@ function projectName(projectRoot) {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/gu, '-')
     .replace(/^[._-]+|[._-]+$/gu, '')
-  return name || 'vune-ui-app'
+  return name || 'mun-app'
 }
 
 function projectAppName(projectRoot) {
   const words = projectName(projectRoot).split(/[-._]+/u).filter(Boolean)
   const name = words.map(word => `${word[0].toUpperCase()}${word.slice(1)}`).join('')
-  return /^[A-Za-z_$]/u.test(name) ? `${name}App` : `Vune${name}App`
+  return /^[A-Za-z_$]/u.test(name) ? `${name}App` : `Mun${name}App`
 }
 
 function detectPackageManager(projectRoot) {
@@ -169,7 +170,7 @@ function normalizeLocalRoot(value = packageRoot) {
 
 function assertLocalPackageManager() {
   if (options.packageManager && options.packageManager !== 'pnpm') {
-    throw new Error('Local Vune source linking currently requires pnpm. Remove --pm or use --pm pnpm.')
+    throw new Error('Local Mün source linking currently requires pnpm. Remove --pm or use --pm pnpm.')
   }
 }
 
@@ -208,13 +209,13 @@ function printInstallRecovery(projectRoot, packageManager) {
 
 function assertSourceCheckout(localRoot) {
   const manifestPath = resolve(localRoot, 'package.json')
-  if (!existsSync(manifestPath)) throw new Error(`Local Vune checkout has no package.json: ${localRoot}`)
+  if (!existsSync(manifestPath)) throw new Error(`Local Mün checkout has no package.json: ${localRoot}`)
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  if (manifest.name !== 'vune-ui') throw new Error(`Local checkout is not vune-ui: ${localRoot}`)
+  if (manifest.name !== '@mun/ui') throw new Error(`Local checkout is not @mun/ui: ${localRoot}`)
   for (const relativePath of Object.values(localPackagePaths)) {
     if (relativePath === '.') continue
     if (!existsSync(resolve(localRoot, relativePath, 'package.json'))) {
-      throw new Error(`Local Vune checkout is incomplete; missing ${relativePath}/package.json in ${localRoot}`)
+      throw new Error(`Local Mün checkout is incomplete; missing ${relativePath}/package.json in ${localRoot}`)
     }
   }
   return localRoot
@@ -225,10 +226,12 @@ function detectRenderer(projectRoot) {
   if (!existsSync(manifestPath)) throw new Error(`Target project has no package.json: ${projectRoot}`)
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   const dependencies = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies }
+  const hasAstro = Boolean(dependencies.astro)
   const hasReact = Boolean(dependencies.react || dependencies['react-dom'])
   const hasVue = Boolean(dependencies.vue)
+  if (hasAstro) return 'astro'
   if (hasReact && hasVue) {
-    throw new Error('Both React and Vue are present in the target project. Pass --renderer react, --renderer vue, or --renderer web explicitly.')
+    throw new Error('Both React and Vue are present in the target project. Pass --renderer astro, react, vue, or web explicitly.')
   }
   if (hasVue) return 'vue'
   if (hasReact) return 'react'
@@ -240,8 +243,8 @@ function linkSpecifier(path) {
 }
 
 function configureLocalDependencies(projectRoot, localRoot, renderer = 'react', { includeRootPackage = true } = {}) {
-  if (!['react', 'vue', 'web'].includes(renderer)) {
-    throw new Error(`Unsupported Vune renderer: ${renderer}. Use react, vue, or web.`)
+  if (!['astro', 'react', 'vue', 'web'].includes(renderer)) {
+    throw new Error(`Unsupported Mün renderer: ${renderer}. Use astro, react, vue, or web.`)
   }
   localRoot = assertSourceCheckout(localRoot)
   const manifestPath = resolve(projectRoot, 'package.json')
@@ -250,27 +253,36 @@ function configureLocalDependencies(projectRoot, localRoot, renderer = 'react', 
   manifest.dependencies ??= {}
   manifest.devDependencies ??= {}
 
-  if (includeRootPackage) manifest.dependencies['vune-ui'] = linkSpecifier(localRoot)
-  manifest.dependencies[`@vune-ui/${renderer}`] = linkSpecifier(resolve(localRoot, `packages/${renderer}`))
-  manifest.devDependencies['@vune-ui/vite'] = linkSpecifier(resolve(localRoot, 'packages/vite'))
+  if (includeRootPackage) manifest.dependencies['@mun/ui'] = linkSpecifier(localRoot)
+  manifest.dependencies[`@mun/${renderer}`] = linkSpecifier(resolve(localRoot, `packages/${renderer}`))
+  manifest.devDependencies['@mun/vite'] = linkSpecifier(resolve(localRoot, 'packages/vite'))
 
   // link: packages deliberately do not install their own dependency graph.
   // Add the internal runtime/compiler plumbing directly so bundlers that
   // resolve through the consumer's node_modules (Vite/Rolldown included)
-  // see the same graph as the Vune workspace.
-  for (const name of ['@vune-ui/animation', '@vune-ui/core', '@vune-ui/compiler', '@vune-ui/execution']) {
+  // see the same graph as the Mün workspace.
+  for (const name of ['@mun/animation', '@mun/core', '@mun/compiler', '@mun/execution', '@mun/web']) {
     manifest.devDependencies[name] = linkSpecifier(resolve(localRoot, localPackagePaths[name]))
   }
   // pnpm 11 moved overrides out of package.json and into pnpm-workspace.yaml.
   // Keep every internal package pinned to this checkout so unpublished
-  // transitive @vune-ui/* dependencies never fall through to the registry.
+  // transitive @mun/* dependencies never fall through to the registry.
   if (manifest.pnpm?.overrides) {
     delete manifest.pnpm.overrides
     if (Object.keys(manifest.pnpm).length === 0) delete manifest.pnpm
   }
+  const selectedOverrideNames = [
+    '@mun/animation',
+    '@mun/core',
+    '@mun/compiler',
+    '@mun/execution',
+    '@mun/web',
+    '@mun/vite',
+    `@mun/${renderer}`,
+  ]
   const overridePaths = includeRootPackage
     ? localPackagePaths
-    : Object.fromEntries(['@vune-ui/animation', '@vune-ui/core', '@vune-ui/compiler', '@vune-ui/execution', '@vune-ui/web', '@vune-ui/vite'].map(name => [name, localPackagePaths[name]]))
+    : Object.fromEntries([...new Set(selectedOverrideNames)].map(name => [name, localPackagePaths[name]]))
   const overrides = Object.fromEntries(
     Object.entries(overridePaths).map(([name, relativePath]) => [
       name,
@@ -280,40 +292,63 @@ function configureLocalDependencies(projectRoot, localRoot, renderer = 'react', 
 
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
   updatePnpmWorkspaceOverrides(projectRoot, overrides)
-  console.log(`Linked Vune ${packageManifest.version} (${renderer}) from ${localRoot}`)
+  console.log(`Linked Mün ${packageManifest.version} (${renderer}) from ${localRoot}`)
   return manifest
 }
 
 function printHelp() {
-  console.log(`Vune UI CLI
+  console.log(`Mün UI CLI
 
 Usage:
-  vune-ui create <directory> [--pm <manager>] [--no-install] [--force] [--local] [--local-root <path>]
-  vune-ui init [--pm <manager>] [--force] [--no-install] [--local] [--local-root <path>]
-  vune-ui link <project> [--renderer react|vue|web] [--pm <manager>] [--no-install] [--local-root <path>]
-  vune-ui lsp [--stdio]
-  vune-ui lsp install [--editor ...] [--project <path>] [--global]
-  vune-ui editor install [--editor vim|nvim|vscode|zed|helix|generic|all] [--project <path>] [--global]
-  vune-ui editor export vscode [output.vsix]
+  mun create <directory> [--pm <manager>] [--no-install] [--force] [--local] [--local-root <path>]
+  mun init [--pm <manager>] [--force] [--no-install] [--local] [--local-root <path>]
+  mun compile <input.mun> [output.json]
+  mun run <input.mun>
+  mun link <project> [--renderer astro|react|vue|web] [--pm <manager>] [--no-install] [--local-root <path>]
+  mun lsp [--stdio]
+  mun lsp install [--editor ...] [--project <path>] [--global]
+  mun editor install [--editor vim|nvim|vscode|zed|helix|generic|all] [--project <path>] [--global]
+  mun editor export vscode [output.vsix]
 
 Local checkout workflow:
-  # from the Vune repository
+  # from the Mün repository
   pnpm build
   pnpm dev:link ../my-app
 
   # or scaffold a separate app using this checkout without npm publication
-  node bin/vune-ui.mjs create ../my-app --local
+  node bin/mun.mjs create ../my-app --local
 
 Initializer aliases after publishing:
-  npm create vune-ui <directory>
-  pnpm create vune-ui <directory>
+  npm create mun <directory>
+  pnpm create mun <directory>
 
-create scaffolds a renderer-independent Web + Vite + TypeScript Vune app.
---local rewrites Vune dependencies to link: paths pointing at the source checkout.
+create scaffolds a renderer-independent Web + Vite + TypeScript Mün app.
+--local rewrites Mün dependencies to link: paths pointing at the source checkout.
 Local source mode always uses pnpm because it relies on pnpm workspace overrides.
 --no-install leaves dependency installation to you and prints the exact commands to continue.
-link auto-detects React or Vue from the target package.json and otherwise uses Web.
+link auto-detects Astro, React, or Vue from the target package.json and otherwise uses Web.
 Use --renderer to override detection. link adds the same local links and pnpm-workspace.yaml overrides to an existing project.`)
+}
+
+function compileCommand() {
+  if (positionals.length < 1 || positionals.length > 2) {
+    console.error('Usage: mun compile <input.mun> [output.json]')
+    return 1
+  }
+  const script = resolve(packageRoot, 'bin/compile.mjs')
+  const result = spawnSync(process.execPath, [script, ...positionals], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+  })
+  return result.status ?? 1
+}
+
+function runCommand() {
+  if (positionals.length !== 1) {
+    console.error('Usage: mun run <input.mun>')
+    return 1
+  }
+  return runNativeSource(positionals[0])
 }
 
 function editorCommand() {
@@ -327,8 +362,8 @@ function editorCommand() {
     const result = spawnSync(process.execPath, [script, ...positionals.slice(2)], { cwd: packageRoot, stdio: 'inherit' })
     return result.status ?? 1
   }
-  console.error('Usage: vune-ui editor install [--editor vim|nvim|vscode|zed|helix|generic|all] [--project <path>] [--global]')
-  console.error('       vune-ui editor export vscode [output.vsix]')
+  console.error('Usage: mun editor install [--editor vim|nvim|vscode|zed|helix|generic|all] [--project <path>] [--global]')
+  console.error('       mun editor export vscode [output.vsix]')
   return 1
 }
 
@@ -336,16 +371,16 @@ function scaffold(projectRoot, commandName) {
   const targetExists = existsSync(projectRoot)
   const targetIsNonEmpty = targetExists && readdirSync(projectRoot).length > 0
   if (targetIsNonEmpty && !options.force) {
-    console.error(`Vune ${commandName} cannot use a non-empty directory: ${projectRoot}`)
+    console.error(`Mün ${commandName} cannot use a non-empty directory: ${projectRoot}`)
     console.error('Choose a new directory, use an empty directory, or re-run with --force.')
     return 1
   }
   if (targetIsNonEmpty && options.force) {
-    console.warn('Using --force: Vune template files will be replaced; unrelated files will be kept.')
+    console.warn('Using --force: Mün template files will be replaced; unrelated files will be kept.')
   }
 
   if (options.renderer && options.renderer !== 'web') {
-    throw new Error('The built-in project template uses the renderer-independent Web adapter. Use `vune-ui link` to connect an existing React or Vue project.')
+    throw new Error('The built-in project template uses the renderer-independent Web adapter. Use `mun link` to connect an existing React or Vue project.')
   }
 
   const packageManager = packageManagerFor(projectRoot, { local: options.local })
@@ -354,7 +389,7 @@ function scaffold(projectRoot, commandName) {
   mkdirSync(projectRoot, { recursive: true })
   writeTemplates(projectRoot, projectFiles)
   if (localRoot) configureLocalDependencies(projectRoot, localRoot, 'web', { includeRootPackage: false })
-  console.log(`Created Vune app in ${projectRoot}`)
+  console.log(`Created Mün app in ${projectRoot}`)
   if (!options.noInstall) {
     try {
       installDependencies(projectRoot, packageManager)
@@ -389,10 +424,12 @@ function main() {
     printHelp()
     return 0
   }
+  if (command === 'compile') return compileCommand()
+  if (command === 'run') return runCommand()
   if (command === 'create' || command === 'new') {
     const target = positionals[0]
     if (!target || positionals.length > 1) {
-      console.error('Usage: vune-ui create <directory> [--pm <manager>] [--no-install] [--force] [--local]')
+      console.error('Usage: mun create <directory> [--pm <manager>] [--no-install] [--force] [--local]')
       return 1
     }
     const projectRoot = resolve(process.cwd(), target)
@@ -400,26 +437,26 @@ function main() {
   }
   if (command === 'init') {
     if (positionals.length > 0) {
-      console.error('Usage: vune-ui init [--force] [--no-install] [--local]')
+      console.error('Usage: mun init [--force] [--no-install] [--local]')
       return 1
     }
     return scaffold(process.cwd(), 'init')
   }
   if (command === 'link') {
     if (positionals.length !== 1) {
-      console.error('Usage: vune-ui link <project> [--renderer react|vue|web] [--no-install] [--local-root <path>]')
+      console.error('Usage: mun link <project> [--renderer react|vue|web] [--no-install] [--local-root <path>]')
       return 1
     }
     return linkProject(positionals[0])
   }
   if (command === 'lsp') {
     if (positionals[0] === 'install') return installEditors({ editor: options.editor, projectRoot: options.projectRoot ?? process.cwd(), global: options.global }) && 0
-    const script = resolve(packageRoot, 'editors/lsp/vune-lsp.mjs')
+    const script = resolve(packageRoot, 'editors/lsp/mun-lsp.mjs')
     const result = spawnSync(process.execPath, [script, ...argv.slice(1)], { cwd: packageRoot, stdio: 'inherit' })
     return result.status ?? 1
   }
   if (command === 'editor') return editorCommand()
-  console.error(`Unknown Vune command: ${command}`)
+  console.error(`Unknown Mün command: ${command}`)
   printHelp()
   return 1
 }
@@ -427,6 +464,6 @@ function main() {
 try {
   process.exitCode = main()
 } catch (error) {
-  console.error(`Vune ${command ?? 'command'} failed: ${error instanceof Error ? error.message : String(error)}`)
+  console.error(`Mün ${command ?? 'command'} failed: ${error instanceof Error ? error.message : String(error)}`)
   process.exitCode = 1
 }

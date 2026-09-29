@@ -73,7 +73,7 @@ export function activateWebPresentation(element: HTMLElement): void {
   if (presentationEntries.has(element)) return
   const document = element.ownerDocument
   const state = stateFor(document)
-  const kind = element.getAttribute("data-vune-presentation") === "popover" ? "popover" : "modal"
+  const kind = element.getAttribute("data-mun-presentation") === "popover" ? "popover" : "modal"
   const restoreFocus = document.activeElement && document.activeElement !== document.body ? document.activeElement : null
   const onPointer = (event: Event) => {
     if (event.target !== element) return

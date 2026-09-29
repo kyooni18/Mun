@@ -1,7 +1,7 @@
 {
-  "name": "@vune-ui/legacy-react",
+  "name": "@mun/legacy-react",
   "version": "0.1.20",
-  "description": "Legacy React and compiler compatibility layer for Vune.",
+  "description": "Legacy React and compiler compatibility layer for Mün.",
   "type": "module",
   "files": [
     "dist"
@@ -52,7 +52,7 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@vune-ui/core": "workspace:*",
+    "@mun/core": "workspace:*",
     "typescript": "^5.8.3"
   },
   "peerDependencies": {

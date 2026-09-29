@@ -108,7 +108,7 @@ function parseArgs() {
 }
 
 function printHelp() {
-  console.log(`Vune npm release helper
+  console.log(`Mün npm release helper
 
 Usage:
   pnpm release
@@ -288,9 +288,10 @@ function command(commandName, args, { cwd = root, stdio = 'inherit', env = proce
 }
 
 async function pnpm(args, settings = {}) {
-  const cli = process.env.VUNE_PNPM_CLI || (process.env.npm_execpath?.includes('pnpm') ? process.env.npm_execpath : null)
-  if (cli) return command(process.execPath, [cli, ...args], settings)
-  return command('pnpm', args, settings)
+  const cli = process.env.MUN_PNPM_CLI || (process.env.npm_execpath?.includes('pnpm') ? process.env.npm_execpath : null)
+  if (!cli) return command('pnpm', args, settings)
+  const cliIsJavaScript = /\.(?:cjs|mjs|js)$/u.test(cli)
+  return cliIsJavaScript ? command(process.execPath, [cli, ...args], settings) : command(cli, args, settings)
 }
 
 async function assertGitClean() {
@@ -358,11 +359,11 @@ async function authPreflight() {
   const username = result.stdout.trim()
   console.log(`Authenticated as ${username}`)
 
-  if (username !== 'vune-ui') {
-    const scopeProbe = await npm(['team', 'ls', 'vune-ui:developers', '--json'], { stdio: 'pipe' })
+  if (username !== 'mun') {
+    const scopeProbe = await npm(['team', 'ls', 'mun:developers', '--json'], { stdio: 'pipe' })
     if (scopeProbe.status !== 0) {
-      console.warn('Warning: could not verify membership in the npm @vune-ui organization.')
-      console.warn('First-time scoped publishing requires access to the @vune-ui scope; npm publish will be authoritative.')
+      console.warn('Warning: could not verify membership in the npm @mun organization.')
+      console.warn('First-time scoped publishing requires access to the @mun scope; npm publish will be authoritative.')
     }
   }
   return username
@@ -392,7 +393,7 @@ async function ensureDistTag(name, version, tag) {
 }
 
 function printPlan(version, tag) {
-  console.log(`\nVune npm release plan`)
+  console.log(`\nMün npm release plan`)
   console.log(`  Version : ${version}`)
   console.log(`  Tag     : ${tag}`)
   console.log(`  Registry: ${options.registry}`)
@@ -416,7 +417,7 @@ async function confirmPublish(version, tag) {
   process.once('SIGTERM', onSigterm)
   try {
     const answer = await Promise.race([
-      rl.question(`\nPublish Vune ${version} to npm with dist-tag "${tag}"? [y/N] `),
+      rl.question(`\nPublish Mün ${version} to npm with dist-tag "${tag}"? [y/N] `),
       interrupted,
     ])
     if (!/^(y|yes)$/iu.test(answer.trim())) {
@@ -500,7 +501,7 @@ async function main() {
     published.push(name)
   }
 
-  console.log('\nVune release complete.')
+  console.log('\nMun release complete.')
   console.log(`  Version  : ${version}`)
   console.log(`  Dist-tag : ${tag}`)
   console.log(`  Published: ${published.length}`)
@@ -511,7 +512,7 @@ async function main() {
 
 main().catch(error => {
   if (error instanceof ReleaseInterrupted) {
-    console.error('\nVune release interrupted.')
+    console.error('\nMun release interrupted.')
     process.exitCode = error.exitCode
     return
   }
@@ -520,6 +521,6 @@ main().catch(error => {
     : error instanceof Error
       ? error.stack ?? error.message
       : String(error)
-  console.error(`\nVune release failed: ${message}`)
+  console.error(`\nMun release failed: ${message}`)
   process.exitCode = 1
 })

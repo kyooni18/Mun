@@ -5,7 +5,7 @@ import * as ts from "typescript"
  * lowered into a JS/WASM/WGSL compute kernel. This analysis intentionally
  * proves only syntax-level purity. Type/layout proof is a later compiler stage.
  */
-export interface VuneScalarEffectFacts {
+export interface MunScalarEffectFacts {
   /** No call, allocation, mutation, closure, or unknown expression was seen. */
   readonly pure: boolean
   /** The expression reads the collection item parameter. */
@@ -21,30 +21,30 @@ export interface VuneScalarEffectFacts {
   /** The expression contains the bare item value, not only one of its fields. */
   readonly bareItem: boolean
   /** Stable diagnostic category for the first intrinsic purity failure. */
-  readonly blocker?: VuneScalarEffectBlocker
+  readonly blocker?: MunScalarEffectBlocker
 }
 
-export type VuneScalarEffectBlocker =
+export type MunScalarEffectBlocker =
   | "ambient-member-read"
   | "assignment"
   | "comma"
   | "unsupported-expression"
 
-export interface VuneScalarEffectPolicy {
+export interface MunScalarEffectPolicy {
   readonly allowCapturedIdentifiers?: boolean
   readonly allowBareItem?: boolean
   readonly allowDynamicItemElementAccess?: boolean
   readonly maxItemAccessDepth?: number
 }
 
-export interface VuneMapperEffectFacts extends VuneScalarEffectFacts {
+export interface MunMapperEffectFacts extends MunScalarEffectFacts {
   readonly itemName: string
   readonly indexName?: string
   readonly allocatesObject: boolean
   readonly spreadsItem: boolean
 }
 
-export interface VuneScalarFunctionEffectFacts extends VuneScalarEffectFacts {
+export interface MunScalarFunctionEffectFacts extends MunScalarEffectFacts {
   readonly itemName: string
   readonly indexName?: string
 }
@@ -57,7 +57,7 @@ interface MutableFacts {
   maxItemAccessDepth: number
   dynamicItemElementAccess: boolean
   bareItem: boolean
-  blocker?: VuneScalarEffectBlocker
+  blocker?: MunScalarEffectBlocker
 }
 
 function emptyFacts(): MutableFacts {
@@ -82,7 +82,7 @@ export function unwrapCompilerExpression(expression: ts.Expression): ts.Expressi
   return current
 }
 
-function fail(facts: MutableFacts, blocker: VuneScalarEffectBlocker): MutableFacts {
+function fail(facts: MutableFacts, blocker: MunScalarEffectBlocker): MutableFacts {
   facts.pure = false
   facts.blocker ??= blocker
   return facts
@@ -201,11 +201,11 @@ function analyzeMutable(expression: ts.Expression, itemName: string, indexName: 
   return fail(facts, "unsupported-expression")
 }
 
-export function analyzeVuneScalarExpression(
+export function analyzeMunScalarExpression(
   expression: ts.Expression,
   itemName: string,
   indexName?: string,
-): VuneScalarEffectFacts {
+): MunScalarEffectFacts {
   const facts = analyzeMutable(expression, itemName, indexName)
   return Object.freeze({
     pure: facts.pure,
@@ -221,8 +221,8 @@ export function analyzeVuneScalarExpression(
 
 /** Apply a consumer-specific proof policy without redefining expression purity. */
 export function scalarExpressionMatchesPolicy(
-  facts: VuneScalarEffectFacts,
-  policy: VuneScalarEffectPolicy,
+  facts: MunScalarEffectFacts,
+  policy: MunScalarEffectPolicy,
 ): boolean {
   if (!facts.pure) return false
   if (!policy.allowCapturedIdentifiers && facts.captures.length > 0) return false
@@ -243,7 +243,7 @@ export function compilerFunctionResultExpression(
     : undefined
 }
 
-function mergedPublicFacts(values: readonly VuneScalarEffectFacts[]): VuneScalarEffectFacts {
+function mergedPublicFacts(values: readonly MunScalarEffectFacts[]): MunScalarEffectFacts {
   const captures = new Set<string>()
   for (const value of values) for (const capture of value.captures) captures.add(capture)
   const blocker = values.find(value => value.blocker)?.blocker
@@ -263,13 +263,13 @@ function analyzeMappedResult(
   expression: ts.Expression,
   itemName: string,
   indexName: string | undefined,
-): { readonly facts: VuneScalarEffectFacts; readonly allocatesObject: boolean; readonly spreadsItem: boolean } {
+): { readonly facts: MunScalarEffectFacts; readonly allocatesObject: boolean; readonly spreadsItem: boolean } {
   const value = unwrapCompilerExpression(expression)
   if (ts.isIdentifier(value) && value.text === itemName) {
-    return { facts: analyzeVuneScalarExpression(value, itemName, indexName), allocatesObject: false, spreadsItem: false }
+    return { facts: analyzeMunScalarExpression(value, itemName, indexName), allocatesObject: false, spreadsItem: false }
   }
   if (ts.isObjectLiteralExpression(value)) {
-    const facts: VuneScalarEffectFacts[] = []
+    const facts: MunScalarEffectFacts[] = []
     let spreadsItem = false
     for (const property of value.properties) {
       if (ts.isSpreadAssignment(property)) {
@@ -291,7 +291,7 @@ function analyzeMappedResult(
           }
         }
         spreadsItem = true
-        facts.push(analyzeVuneScalarExpression(spread, itemName, indexName))
+        facts.push(analyzeMunScalarExpression(spread, itemName, indexName))
         continue
       }
       if (!ts.isPropertyAssignment(property)
@@ -311,12 +311,12 @@ function analyzeMappedResult(
           spreadsItem,
         }
       }
-      facts.push(analyzeVuneScalarExpression(property.initializer, itemName, indexName))
+      facts.push(analyzeMunScalarExpression(property.initializer, itemName, indexName))
     }
     return { facts: mergedPublicFacts(facts), allocatesObject: true, spreadsItem }
   }
   if (ts.isConditionalExpression(value)) {
-    const condition = analyzeVuneScalarExpression(value.condition, itemName, indexName)
+    const condition = analyzeMunScalarExpression(value.condition, itemName, indexName)
     const whenTrue = analyzeMappedResult(value.whenTrue, itemName, indexName)
     const whenFalse = analyzeMappedResult(value.whenFalse, itemName, indexName)
     return {
@@ -325,7 +325,7 @@ function analyzeMappedResult(
       spreadsItem: whenTrue.spreadsItem || whenFalse.spreadsItem,
     }
   }
-  const unsupported = analyzeVuneScalarExpression(value, itemName, indexName)
+  const unsupported = analyzeMunScalarExpression(value, itemName, indexName)
   return {
     facts: unsupported.pure
       ? Object.freeze({ ...unsupported, pure: false, blocker: "unsupported-expression" as const })
@@ -339,7 +339,7 @@ function analyzeMappedResult(
  * Analyze the restricted map closure shape used by compiler-owned State data
  * transforms. The returned facts are also the seed for future Kernel IR.
  */
-export function analyzeVuneMapperFunction(expression: ts.Expression): VuneMapperEffectFacts | undefined {
+export function analyzeMunMapperFunction(expression: ts.Expression): MunMapperEffectFacts | undefined {
   const value = unwrapCompilerExpression(expression)
   if (!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) return undefined
   if (value.asteriskToken || value.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return undefined
@@ -363,7 +363,7 @@ export function analyzeVuneMapperFunction(expression: ts.Expression): VuneMapper
 }
 
 /** Analyze a single-expression scalar row/key evaluator. */
-export function analyzeVuneScalarFunction(expression: ts.Expression): VuneScalarFunctionEffectFacts | undefined {
+export function analyzeMunScalarFunction(expression: ts.Expression): MunScalarFunctionEffectFacts | undefined {
   const value = unwrapCompilerExpression(expression)
   if (!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) return undefined
   if (value.asteriskToken || value.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return undefined
@@ -377,7 +377,7 @@ export function analyzeVuneScalarFunction(expression: ts.Expression): VuneScalar
   const itemName = item.name.text
   const indexName = index && ts.isIdentifier(index.name) ? index.name.text : undefined
   return Object.freeze({
-    ...analyzeVuneScalarExpression(result, itemName, indexName),
+    ...analyzeMunScalarExpression(result, itemName, indexName),
     itemName,
     ...(indexName ? { indexName } : {}),
   })

@@ -20,13 +20,13 @@ test("migrated collection primitives compose graph children", () => {
     Section("Header", () => Text("Body")),
     List(() => [Text("One"), Text("Two")]),
   )))
-  assert.match(html, /data-vune="Section"/)
+  assert.match(html, /data-mun="Section"/)
   assert.match(html, /Header.*Body/)
-  assert.match(html, /<ul data-vune="List"/)
+  assert.match(html, /<ul data-mun="List"/)
 })
 
 test("React interop enters the same graph before materialization", () => {
-  const value = VStack(Component(Badge, { label: "Vune" }))
+  const value = VStack(Component(Badge, { label: "Mun" }))
   assert.equal(value.kind, "element")
-  assert.match(renderToStaticMarkup(render(value)), /<strong>Vune<\/strong>/)
+  assert.match(renderToStaticMarkup(render(value)), /<strong>Mun<\/strong>/)
 })

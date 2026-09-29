@@ -1,6 +1,6 @@
 /**
  * Compiler/renderer ABI. This subpath is intentionally not part of the
- * user-facing Vune authoring surface; adapters may evolve it in lockstep with
+ * user-facing Mun authoring surface; adapters may evolve it in lockstep with
  * core without widening the candidate 1.0 root API.
  */
 export {

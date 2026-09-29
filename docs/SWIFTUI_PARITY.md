@@ -1,15 +1,15 @@
 # SwiftUI API parity
 
-Vune's canonical authoring surface is moving from hand-maintained TypeScript
-signatures to an SDK-derived SwiftUI contract. The goal is that a Vune call uses
+Mün's canonical authoring surface is moving from hand-maintained TypeScript
+signatures to an SDK-derived SwiftUI contract. The goal is that a Mün call uses
 the same public name, argument labels, argument order, defaultability, overload
-shape, and closure role as SwiftUI whenever that API exists in Vune.
+shape, and closure role as SwiftUI whenever that API exists in Mün.
 
 This work deliberately separates three concerns that used to be conflated:
 
 - **Canonical SwiftUI surface** — APIs that participate in parity checks and are
   accepted by the compiler as SwiftUI-style source.
-- **Compatibility surface** — historical Vune-only helpers such as `margin`,
+- **Compatibility surface** — historical Mün-only helpers such as `margin`,
   `gap`, `className`, and `withProps`. They remain callable while migration is in
   progress, but they are not counted as SwiftUI API parity.
 - **Fidelity** — every canonical View/modifier says whether it is `source`, a
@@ -18,13 +18,13 @@ This work deliberately separates three concerns that used to be conflated:
 
 Plain positional JavaScript/TypeScript calls remain a compatibility escape
 hatch. Swift-style labels and trailing closures are resolved against the
-canonical manifest. This keeps existing Vune code working without letting
+canonical manifest. This keeps existing Mün code working without letting
 runtime-only overloads silently become SwiftUI source syntax.
 
 ## Source of truth
 
 `packages/core/src/api-manifest.ts` is the source-contract and compiler truth for
-the SwiftUI slice Vune currently claims. Runtime View types keep compatibility
+the SwiftUI slice Mün currently claims. Runtime View types keep compatibility
 overloads where needed, but every canonical initializer maps explicitly to its
 runtime implementation and the manifest checker validates that mapping. This is
 intentional: the runtime can stay efficient and backward-compatible without
@@ -39,7 +39,7 @@ pnpm snapshot:swiftui
 
 This runs `swift-symbolgraph-extract` against the selected Xcode SDK and writes
 `api/swiftui-symbols.snapshot.json`. Modern Xcode splits foundational SwiftUI
-symbols between `SwiftUI` and `SwiftUICore`, so Vune snapshots both modules by
+symbols between `SwiftUI` and `SwiftUICore`, so Mün snapshots both modules by
 default. The snapshot records each symbol's originating module, public
 declarations, function signatures, availability, relationships, the Xcode/SDK
 version, and a stable symbol digest. A different SDK, target, or module set can
@@ -86,7 +86,7 @@ covers 108 SDK-backed modifier names spanning layout and safe areas, grids,
 2D/3D transforms, typography, visual effects, structural composition,
 interaction and focus, scrolling and list rows, control-style hints, symbol
 rendering, drag/drop, color-scheme behavior, and accessibility metadata. Each entry intentionally
-exposes only the overloads Vune can support and audit today.
+exposes only the overloads Mün can support and audit today.
 
 The graph/renderer modifier contract can render modifier-owned View arguments.
 View-backed `background` and `overlay` therefore remain real graph structure
@@ -96,12 +96,12 @@ action-closure lowering for tap, long-press, and hover modifiers.
 
 Same-name APIs outside that slice are not implicitly canonical. In particular,
 web primitives or simplified controls such as `Grid`, `Canvas`, `Path`, `Image`,
-`NavigationLink`, and `Picker` should be treated as Vune APIs until their actual
+`NavigationLink`, and `Picker` should be treated as Mün APIs until their actual
 SwiftUI contract is represented in the manifest. A familiar name is not enough.
 
 ## Labeled arguments
 
-Vune source preserves SwiftUI-style labels even though the JavaScript runtime
+Mün source preserves SwiftUI-style labels even though the JavaScript runtime
 ultimately receives positional values or an options object. The lowering is
 manifest-driven. For example:
 
@@ -119,7 +119,7 @@ exist in JavaScript.
 
 The manifest can map a canonical source initializer to a different runtime
 initializer index. For example, SwiftUI's `VStack(alignment:spacing:content:)`
-is lowered into Vune's compact options-object runtime initializer. That mapping
+is lowered into Mün's compact options-object runtime initializer. That mapping
 is explicit and checked instead of relying on declaration order accidentally
 matching across independent tables.
 
@@ -127,7 +127,7 @@ matching across independent tables.
 
 `source` means the implemented slice preserves the SwiftUI source contract and
 its direct semantics closely enough that no web-specific caveat is material to
-that slice. `source-subset` means the spelling/overload is SDK-backed but Vune
+that slice. `source-subset` means the spelling/overload is SDK-backed but Mün
 accepts a narrower value family or implements only part of SwiftUI's generic
 contract. `web-approximation` means the source contract is recognizable but the
 native layout/control behavior is deliberately mapped to browser semantics.
@@ -158,14 +158,14 @@ canonical control-style modifiers currently map supported built-in style values
 to renderer-visible web behavior; they are not a claim that arbitrary SwiftUI
 `ButtonStyle`/`ToggleStyle` implementations execute unchanged on the web.
 
-Vune's parameterless `.animation()` is deliberately a Vune extension. It stays
+Mün's parameterless `.animation()` is deliberately a Mün extension. It stays
 callable and compiler-specialized, but the SDK parity checker excludes that
 signature while continuing to check SwiftUI's `.animation(_:)` and
 `.animation(_:value:)` forms.
 
 ## Animation architecture
 
-Animation is split at the graph/renderer boundary so Vune source does not depend
+Animation is split at the graph/renderer boundary so Mün source does not depend
 on the initial browser implementation:
 
 ```text
@@ -180,9 +180,9 @@ View invalidation / graph evaluation
     v
 renderer transaction
     |
-    +--> @vune-ui/web -> @vune-ui/animation numeric/color/transform interpolation
+    +--> @mun/web -> @mun/animation numeric/color/transform interpolation
     |
-    `--> @vune-ui/react / @vune-ui/vue -> renderer-native style transition fallback
+    `--> @mun/react / @mun/vue -> renderer-native style transition fallback
 ```
 
 `Animation`, `Transaction`, `withAnimation`, and `withTransaction` live in core.
@@ -190,7 +190,7 @@ State writes snapshot the active mutation transaction, so asynchronous renderer
 updates do not lose the animation selected at mutation time. React, Vue, and DOM
 renderers consume the same render transaction.
 
-The DOM renderer uses the in-workspace `@vune-ui/animation` package for numeric, color, and transform values.
+The DOM renderer uses the in-workspace `@mun/animation` package for numeric, color, and transform values.
 Spring updates keep the current value and velocity when a state update retargets
 an element, and a per-element/property control cancels the previous motion.
 The first render remains synchronous for SSR and hydration safety. React and Vue

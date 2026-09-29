@@ -16,13 +16,13 @@ import {
 } from "../packages/execution/dist/resident-wasm.js"
 
 const defaultRows = [256, 1024, 4096, 16_384, 65_536, 262_144]
-const rows = (process.env.VUNE_RESIDENT_NATIVE_ROWS ?? "")
+const rows = (process.env.MUN_RESIDENT_NATIVE_ROWS ?? "")
   .split(",").filter(Boolean).map(Number)
 const rowCounts = rows.length > 0 ? rows : defaultRows
-const dirtyRatios = (process.env.VUNE_RESIDENT_NATIVE_DIRTY ?? "0.01,0.1,1").split(",").map(Number)
-const rounds = Math.max(3, Number.parseInt(process.env.VUNE_RESIDENT_NATIVE_ROUNDS ?? "15", 10))
-const ci = process.env.VUNE_RESIDENT_NATIVE_CI === "1"
-const ciMaximumRatio = Number(process.env.VUNE_RESIDENT_NATIVE_MAX_RATIO ?? "1.5")
+const dirtyRatios = (process.env.MUN_RESIDENT_NATIVE_DIRTY ?? "0.01,0.1,1").split(",").map(Number)
+const rounds = Math.max(3, Number.parseInt(process.env.MUN_RESIDENT_NATIVE_ROUNDS ?? "15", 10))
+const ci = process.env.MUN_RESIDENT_NATIVE_CI === "1"
+const ciMaximumRatio = Number(process.env.MUN_RESIDENT_NATIVE_MAX_RATIO ?? "1.5")
 
 const load = name => ({ op: "load", path: [name] })
 const capture = name => ({ op: "capture", name })
@@ -117,7 +117,7 @@ async function benchmarkCase(profileName, kernels, count, dirtyRatio) {
   seed(wasmBuffers, count)
   seed(jsBuffers, count)
   const jsStorage = definePackedStorage(packedLayout, jsBuffers)
-  const executorName = `__vuneNative${profileName}${count}`
+  const executorName = `__munNative${profileName}${count}`
   const jsExecutor = Function(`"use strict"; ${emitResidentRegionJS(region, executorName)}; return ${executorName}`)()
   const end = Math.max(1, Math.ceil(count * dirtyRatio))
   const ranges = [{ start: 0, end }]

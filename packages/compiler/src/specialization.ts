@@ -1,7 +1,7 @@
 import * as ts from "typescript"
-import * as Core from "@vune-ui/core"
-import { initializersOf, swiftUIStaticModifierNames, type InitializerParameter } from "@vune-ui/core"
-import { motionPropertyBit, motionPropertyMask } from "@vune-ui/core/internal/motion-abi"
+import * as Core from "@mun/core/compat"
+import { initializersOf, swiftUIStaticModifierNames, type InitializerParameter } from "@mun/core/compat"
+import { motionPropertyBit, motionPropertyMask } from "@mun/core/internal/motion-abi"
 import { lowerImplicitMemberShorthand, lowerShorthand } from "./shorthand.js"
 
 function compilerRootFileName(fileName: string): string {
@@ -11,7 +11,7 @@ function compilerRootFileName(fileName: string): string {
     ? fileName
     : `${ts.sys.getCurrentDirectory().replace(/[\\/]$/, "")}/${fileName}`
 }
-interface VuneTypeScriptProgram {
+interface MunTypeScriptProgram {
   readonly sourceFile: ts.SourceFile
   readonly checker: ts.TypeChecker
 }
@@ -36,7 +36,7 @@ function staticSyntaxSourceFile(source: string): ts.SourceFile {
     staticSyntaxSourceFiles.set(source, cached)
     return cached
   }
-  const file = ts.createSourceFile("vune-static-plan.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const file = ts.createSourceFile("mun-static-plan.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   staticSyntaxSourceFiles.set(source, file)
   while (staticSyntaxSourceFiles.size > maximumStaticSyntaxSourceFileCacheSize) {
     const oldest = staticSyntaxSourceFiles.keys().next().value as string | undefined
@@ -70,13 +70,13 @@ function rememberExternalSourceFile(key: string, cached: CachedSourceFile): void
   }
 }
 
-function createVuneTypeScriptProgram(source: string, fileName: string): VuneTypeScriptProgram | undefined {
+function createMunTypeScriptProgram(source: string, fileName: string): MunTypeScriptProgram | undefined {
   const rootFileName = compilerRootFileName(fileName)
   const currentDirectory = ts.sys.getCurrentDirectory()
   let workspaceSelfReference = false
   try {
     const packageSource = ts.sys.readFile(`${currentDirectory.replace(/[\\/]$/, "")}/package.json`)
-    workspaceSelfReference = packageSource ? JSON.parse(packageSource).name === "vune-ui" : false
+    workspaceSelfReference = packageSource ? JSON.parse(packageSource).name === "@mun/ui" : false
   } catch {
     workspaceSelfReference = false
   }
@@ -89,7 +89,7 @@ function createVuneTypeScriptProgram(source: string, fileName: string): VuneType
     target: ts.ScriptTarget.ES2022,
     ...(workspaceSelfReference ? {
       baseUrl: currentDirectory,
-      paths: { "vune-ui": ["./src/index.ts"] },
+      paths: { "@mun/ui": ["./src/index.ts"] },
     } : {}),
   }
   const host = ts.createCompilerHost(options, true)
@@ -165,7 +165,7 @@ const compilerMotionProperties = new Map<string, readonly string[]>([
   ["saturation", ["filter"]],
   ["grayscale", ["filter"]],
   ["hueRotation", ["filter"]],
-  ["contentTransition", ["--vune-content"]],
+  ["contentTransition", ["--mun-content"]],
 ])
 
 function cssPropertyFromCompilerKey(value: string): string {
@@ -259,11 +259,11 @@ export function lowerContentTransitionArgument(source: string): string {
   return lowerImplicitMemberShorthand(lowerShorthand(value))
 }
 
-function isVuneViewType(checker: ts.TypeChecker, type: ts.Type): boolean {
+function isMunViewType(checker: ts.TypeChecker, type: ts.Type): boolean {
   if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) return false
   const alias = type.aliasSymbol?.escapedName
   if (alias === "View" || alias === "ModifiableViewNode") return true
-  if (type.isUnion()) return type.types.length > 0 && type.types.every(item => isVuneViewType(checker, item))
+  if (type.isUnion()) return type.types.length > 0 && type.types.every(item => isMunViewType(checker, item))
   const rendered = checker.typeToString(type)
   return rendered === "View" || rendered === "ModifiableViewNode"
 }
@@ -292,7 +292,7 @@ export function lowerStaticModifierChains(source: string, fileName: string): str
   // module up to eight times only repeated TypeScript program construction.
   // One semantic pass is sufficient: every disjoint maximal chain is collected
   // before any source edit is applied.
-  const program = createVuneTypeScriptProgram(source, fileName)
+  const program = createMunTypeScriptProgram(source, fileName)
   if (!program) return source
   const candidates: Array<{ node: ts.CallExpression; chain: { readonly base: ts.Expression; readonly calls: readonly StaticModifierCall[] } }> = []
   const visit = (node: ts.Node): void => {
@@ -303,7 +303,7 @@ export function lowerStaticModifierChains(source: string, fileName: string): str
         && ts.isPropertyAccessExpression(parent.expression)
         && parent.expression.expression === node
         && staticModifierNames.has(parent.expression.name.text)
-      if (chain && !isNestedChain && isVuneViewType(program.checker, program.checker.getTypeAtLocation(chain.base))) {
+      if (chain && !isNestedChain && isMunViewType(program.checker, program.checker.getTypeAtLocation(chain.base))) {
         candidates.push({ node, chain })
         return
       }
@@ -315,7 +315,7 @@ export function lowerStaticModifierChains(source: string, fileName: string): str
 
   const edits = candidates.map(({ node, chain }) => {
     const base = source.slice(chain.base.getStart(program.sourceFile), chain.base.end)
-    // Argument expressions keep Vune authoring syntax (`$binding`, `.member`),
+    // Argument expressions keep Mun authoring syntax (`$binding`, `.member`),
     // so they must pass through the same lowering as labeled modifier
     // arguments before being emitted into generated code.
     const pendingMotionProperties = new Set<string>()
@@ -431,7 +431,7 @@ interface ImportedCallCandidate {
   readonly runtimeParameters?: readonly InitializerParameter[]
 }
 
-const canonicalRuntimeModules = new Set(["vune-ui", "@vune-ui/core", "@vune-ui/react"])
+const canonicalRuntimeModules = new Set(["@mun/core/compat", "@mun/react"])
 
 function runtimeViewImports(sourceFile: ts.SourceFile): ReadonlyMap<string, string> {
   const result = new Map<string, string>()
@@ -514,7 +514,7 @@ function canNormalizeCompiledArguments(
 }
 
 /**
- * Resolve imported Vune constructor overloads with the TypeChecker. Calls with
+ * Resolve imported Mun constructor overloads with the TypeChecker. Calls with
  * fully-known positional types use the trusted AOT initializer path; calls
  * involving named carriers, any/unknown values, or variadics keep the guarded
  * specialization path. Simple zero-argument ViewBuilder closures are lowered
@@ -522,7 +522,7 @@ function canNormalizeCompiledArguments(
  * avoided entirely.
  */
 export function lowerStaticImportedCalls(source: string, fileName: string): string {
-  const syntax = ts.createSourceFile("vune-imports.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const syntax = ts.createSourceFile("mun-imports.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const importedNames = new Set<string>()
   const runtimeImports = runtimeViewImports(syntax)
   for (const statement of syntax.statements) {
@@ -535,7 +535,7 @@ export function lowerStaticImportedCalls(source: string, fileName: string): stri
   }
   if (!Array.from(importedNames).some(name => new RegExp(`\\b${name}\\s*\\(`).test(source))) return source
 
-  const program = createVuneTypeScriptProgram(source, fileName)
+  const program = createMunTypeScriptProgram(source, fileName)
   if (!program) return source
   const { sourceFile, checker } = program
   const hasRestParameter = (signature: ts.Signature): boolean => signature.parameters.some(parameter => (
@@ -711,7 +711,7 @@ type StaticSemanticCandidate =
   | { readonly kind: "imported"; readonly node: ts.CallExpression; readonly plan: ImportedCallCandidate }
 
 function createSemanticSpecializationSnapshot(source: string, fileName: string): SemanticSpecializationSnapshot | undefined {
-  const program = createVuneTypeScriptProgram(source, fileName)
+  const program = createMunTypeScriptProgram(source, fileName)
   if (!program) return undefined
   return {
     sourceFile: program.sourceFile,
@@ -787,7 +787,7 @@ function collectSemanticModifierCandidates(snapshot: SemanticSpecializationSnaps
         && ts.isPropertyAccessExpression(parent.expression)
         && parent.expression.expression === node
         && staticModifierNames.has(parent.expression.name.text)
-      if (chain && !isNestedChain && isVuneViewType(checker, checker.getTypeAtLocation(chain.base))) {
+      if (chain && !isNestedChain && isMunViewType(checker, checker.getTypeAtLocation(chain.base))) {
         result.push({ kind: "modifier", node, chain })
         // Only maximal chains are semantic candidates. Imported constructor
         // candidates are collected by the independent traversal above, so
@@ -821,7 +821,7 @@ export function lowerStaticSemanticSpecializations(source: string, fileName: str
   // modules below. Avoid constructing a TypeScript Program for ordinary helper
   // modules merely because they contain function calls; modifier chains remain
   // eligible because their View type can arrive through a local/transitive import.
-  const hintFile = ts.createSourceFile("vune-semantic-hint.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const hintFile = ts.createSourceFile("mun-semantic-hint.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const runtimeImports = runtimeViewImports(hintFile)
   const hasNamedRuntimeCall = [...runtimeImports.keys()].some(name => new RegExp(`\\b${name}\\s*\\(`).test(source))
   const namespaceImports = hintFile.statements.flatMap(statement => {
@@ -1000,7 +1000,7 @@ function animationBindingsOf(sourceFile: ts.SourceFile): AnimationBindings {
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause || !ts.isStringLiteral(statement.moduleSpecifier)) continue
     const moduleName = statement.moduleSpecifier.text
-    if (moduleName !== "vune-ui" && !moduleName.startsWith("@vune-ui/")) continue
+    if (!moduleName.startsWith("@mun/")) continue
     const bindings = statement.importClause.namedBindings
     if (bindings && ts.isNamedImports(bindings)) {
       for (const element of bindings.elements) {
@@ -1613,7 +1613,7 @@ export function lowerCompiledViewTemplates(source: string): string {
       const markers = new Map<object, Marker>()
       const runtimeArgs: unknown[] = []
       const slotMarker = (slot: CompilerTemplateSlotPlan): object => {
-        const token = Object.freeze({ __vuneCompilerTemplateSlot: markers.size })
+        const token = Object.freeze({ __munCompilerTemplateSlot: markers.size })
         markers.set(token, { token, slot })
         return token
       }
@@ -1733,8 +1733,8 @@ export function lowerCompiledViewTemplates(source: string): string {
   collectNames(sourceFile)
   let counter = 0
   const nextName = (): string => {
-    let name = `__vuneTemplate${counter++}`
-    while (names.has(name)) name = `__vuneTemplate${counter++}`
+    let name = `__munTemplate${counter++}`
+    while (names.has(name)) name = `__munTemplate${counter++}`
     names.add(name)
     return name
   }
@@ -1899,7 +1899,7 @@ export function hoistStaticViewSubtrees(source: string): string {
   let staticSuffix = 0
   let motionSuffix = 0
   const nextName = (kind: HoistCandidate["kind"]): string => {
-    const prefix = kind === "motion" ? "__vuneMotion" : "__vuneStatic"
+    const prefix = kind === "motion" ? "__munMotion" : "__munStatic"
     let name: string
     do name = `${prefix}${kind === "motion" ? motionSuffix++ : staticSuffix++}`
     while (names.has(name))

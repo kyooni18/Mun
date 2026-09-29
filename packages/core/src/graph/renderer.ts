@@ -2,9 +2,9 @@ import { keyedViewIdentity, viewTypeIdentity, type ViewIdentity } from "../ident
 import { arrayCheck, snapshotArrayValues } from "./arrays.js"
 import { isForeignComponent, isViewNode, keyedCollectionEntries } from "./nodes.js"
 import { zeroGeometry } from "./environment.js"
-import type { CompiledTemplateValue, GeometryProxy, LazyViewRange, VuneRenderer, ViewGraphValue, ViewHostNode } from "./types.js"
+import type { CompiledTemplateValue, GeometryProxy, LazyViewRange, MunRenderer, ViewGraphValue, ViewHostNode } from "./types.js"
 
-export type { VuneRenderer }
+export type { MunRenderer }
 
 /** Collect View host identities already present in a graph without evaluating View bodies. */
 export function collectLogicalViewIdentities(value: ViewGraphValue, identity: ViewIdentity = ["root"]): ViewIdentity[] {
@@ -45,13 +45,13 @@ export function collectLogicalViewIdentities(value: ViewGraphValue, identity: Vi
   }
 }
 
-export function renderViewNode<Output>(value: ViewGraphValue, renderer: VuneRenderer<Output>): Output {
+export function renderViewNode<Output>(value: ViewGraphValue, renderer: MunRenderer<Output>): Output {
   return renderViewNodeStack(value, renderer, ["root"])
 }
 
 function renderCompiledTemplateValue<Output>(
   value: CompiledTemplateValue,
-  renderer: VuneRenderer<Output>,
+  renderer: MunRenderer<Output>,
   renderSlot: (index: number) => Output,
 ): Output {
   if (value !== null && typeof value === "object") {
@@ -63,7 +63,7 @@ function renderCompiledTemplateValue<Output>(
   return renderer.value ? renderer.value(value) : value as Output
 }
 
-export function renderViewNodeAt<Output>(value: ViewGraphValue, renderer: VuneRenderer<Output>, identity: ViewIdentity): Output {
+export function renderViewNodeAt<Output>(value: ViewGraphValue, renderer: MunRenderer<Output>, identity: ViewIdentity): Output {
   // Public callers may retain the identity they pass us. Copy it once at the
   // entry point, then let the internal depth-first traversal reuse one mutable
   // stack instead of allocating/copying an identity array for every ordinary
@@ -71,7 +71,7 @@ export function renderViewNodeAt<Output>(value: ViewGraphValue, renderer: VuneRe
   return renderViewNodeStack(value, renderer, [...identity])
 }
 
-function renderViewNodeStack<Output>(value: ViewGraphValue, renderer: VuneRenderer<Output>, identity: Array<string | number>): Output {
+function renderViewNodeStack<Output>(value: ViewGraphValue, renderer: MunRenderer<Output>, identity: Array<string | number>): Output {
   if (!isViewNode(value)) {
     if (arrayCheck(value) === true) {
       const values = snapshotArrayValues(value as readonly unknown[])
@@ -88,7 +88,7 @@ function renderViewNodeStack<Output>(value: ViewGraphValue, renderer: VuneRender
       return renderer.value ? renderer.value(null) : null as Output
     }
     if (typeof value !== "string" && typeof value !== "number" && typeof value !== "bigint") {
-      throw new TypeError("Vune View graph leaves must be renderable primitives or View nodes; wrap renderer-specific values in an explicit adapter.")
+      throw new TypeError("Mün View graph leaves must be renderable primitives or View nodes; wrap renderer-specific values in an explicit adapter.")
     }
     return renderer.value ? renderer.value(value) : value as Output
   }
@@ -200,8 +200,8 @@ function renderViewNodeStack<Output>(value: ViewGraphValue, renderer: VuneRender
       return renderer.element("canvas", {
         ...(value.options.width === undefined ? {} : { width: value.options.width }),
         ...(value.options.height === undefined ? {} : { height: value.options.height }),
-        "data-vune-gpu-island": value.ir.id,
-        "data-vune-gpu-fallback": value.ir.fallback,
+        "data-mun-gpu-island": value.ir.id,
+        "data-mun-gpu-fallback": value.ir.fallback,
       })
     }
   }

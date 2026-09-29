@@ -48,7 +48,7 @@ function freezeDescriptor(value: AnimationDescriptor): AnimationDescriptor {
  *
  * The public surface deliberately follows SwiftUI naming. The current web
  * backends translate this value to CSS/WAAPI-compatible timing; the value is
- * renderer independent so that translation can later be replaced by Vune's
+ * renderer independent so that translation can later be replaced by Mun's
  * own clock/interpolator without changing authoring code.
  */
 export class Animation {
@@ -59,7 +59,7 @@ export class Animation {
     Object.freeze(this)
   }
 
-  /** The standard Vune motion preset used when no animation is specified. */
+  /** The standard Mun motion preset used when no animation is specified. */
   static readonly default = Animation.spring()
 
   static linear(duration = 0.35): Animation {
@@ -221,7 +221,7 @@ export interface AnimationCSSStyle {
  *
  * Known limitation: CSS transitions cannot express iteration, so descriptor
  * `repeatCount`/`autoreverses` (including `repeatForever`) have no effect in
- * this translation and repeating animations render once until Vune ships its
+ * this translation and repeating animations render once until Mun ships its
  * own clock/interpolator backend.
  */
 export function animationCSSStyle(animation: Animation | null | undefined): AnimationCSSStyle | undefined {

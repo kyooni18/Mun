@@ -6,10 +6,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 
 async function loadCompiler() {
-  for (const request of ['@vune-ui/compiler', resolve(root, 'packages/compiler/dist/index.js')]) {
+  for (const request of ['@mun/compiler', resolve(root, 'packages/compiler/dist/index.js')]) {
     try {
       const compiler = await import(request.startsWith('.') || request.startsWith('/') ? pathToFileURL(request).href : request)
-      if (typeof compiler.diagnoseVuneSource === 'function') return compiler
+      if (typeof compiler.diagnoseMunSource === 'function') return compiler
     } catch { /* A published standalone server may run without the optional compiler. */ }
   }
   return undefined
@@ -48,14 +48,14 @@ function fallbackDiagnostics(source) {
     if (!')}]'.includes(character)) continue
     const expected = { ')': '(', ']': '[', '}': '{' }[character]
     const opening = stack.pop()
-    if (!opening || opening.character !== expected) result.push({ severity: 1, code: 'VUNE_SYNTAX', message: `Unexpected '${character}' in Vune source.`, index })
+    if (!opening || opening.character !== expected) result.push({ severity: 1, code: 'MUN_SYNTAX', message: `Unexpected '${character}' in Mün source.`, index })
   }
-  for (const opening of stack) result.push({ severity: 1, code: 'VUNE_SYNTAX', message: `Unclosed '${opening.character}' in Vune source.`, index: opening.index })
+  for (const opening of stack) result.push({ severity: 1, code: 'MUN_SYNTAX', message: `Unclosed '${opening.character}' in Mün source.`, index: opening.index })
   return result
 }
 
 function diagnosticsFor(source) {
-  const diagnostics = compiler ? compiler.diagnoseVuneSource(source) : fallbackDiagnostics(source)
+  const diagnostics = compiler ? compiler.diagnoseMunSource(source) : fallbackDiagnostics(source)
   return diagnostics.map(diagnostic => {
     const index = diagnostic.line && diagnostic.column
       ? offsetAt(source, { line: diagnostic.line - 1, character: diagnostic.column - 1 })
@@ -65,7 +65,7 @@ function diagnosticsFor(source) {
       range: { start, end: { line: start.line, character: start.character + 1 } },
       severity: diagnostic.severity === 'warning' ? 2 : 1,
       code: diagnostic.code,
-      source: 'vune',
+      source: 'mun',
       message: diagnostic.message,
     }
   })
@@ -76,10 +76,9 @@ function publish(uri, source) {
 }
 
 function completionItems(source) {
-  const names = new Set(['Text', 'VStack', 'HStack', 'ZStack', 'ScrollView', 'SafeArea', 'GeometryReader', 'Spacer', 'Button', 'ForEach', 'Element'])
+  const names = new Set(['Text', 'VStack', 'HStack', 'ZStack', 'ScrollView', 'SafeArea', 'GeometryReader', 'Spacer', 'Button', 'ForEach'])
   for (const match of source.matchAll(/\bstruct\s+([A-Za-z_$][A-Za-z0-9_$]*)/g)) names.add(match[1])
-  const tags = compiler?.semanticHtmlTagNames ?? ['div', 'span', 'button', 'main', 'section', 'header', 'footer', 'input', 'label', 'ul', 'li']
-  return [...names].map(label => ({ label, kind: 3, detail: 'Vune View' })).concat(tags.map(label => ({ label, kind: 10, detail: 'Raw HTML element' })))
+  return [...names].map(label => ({ label, kind: 3, detail: 'Mün View' }))
 }
 
 function formatSource(source) {
@@ -100,11 +99,11 @@ function handle(message) {
     response(id, {
       capabilities: {
         textDocumentSync: { openClose: true, change: 1, save: { includeText: true } },
-        completionProvider: { triggerCharacters: ['<', ':', '.', '@'] },
+        completionProvider: { triggerCharacters: [':', '.', '@'] },
         hoverProvider: true,
         documentFormattingProvider: true,
       },
-      serverInfo: { name: 'vune-lsp', version: '0.1.0' },
+      serverInfo: { name: 'mun-lsp', version: '0.1.0' },
     })
     return
   }
@@ -150,8 +149,8 @@ function handle(message) {
     const token = /[A-Za-z_$][A-Za-z0-9_$]*$/.exec(prefix)?.[0]
     if (!token) { response(id, null); return }
     let view
-    try { view = compiler?.createVuneSemanticModel(source, params.textDocument.uri).view(token) } catch { view = undefined }
-    response(id, view ? { contents: { kind: 'markdown', value: `\`\`\`vune-ui\n${view.name}\n\`\`\`` } } : { contents: { kind: 'markdown', value: `Vune symbol \`${token}\`` } })
+    try { view = compiler?.createMunSemanticModel(source, params.textDocument.uri).view(token) } catch { view = undefined }
+    response(id, view ? { contents: { kind: 'markdown', value: `\`\`\`mun\n${view.name}\n\`\`\`` } } : { contents: { kind: 'markdown', value: `Mün symbol \`${token}\`` } })
     return
   }
   if (method === 'textDocument/formatting') {

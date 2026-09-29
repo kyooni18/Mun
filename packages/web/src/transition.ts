@@ -1,4 +1,4 @@
-import { Animation, animationCSSStyle, type Transition, type TransitionEffect } from "@vune-ui/core"
+import { Animation, animationCSSStyle, type Transition, type TransitionEffect } from "@mun/core/compat"
 
 export interface WebTransitionPlayback {
   readonly durationMs: number

@@ -7,11 +7,11 @@ const intrinsic = (
     frame={{ maxWidth: 'infinity', alignment: 'center' }}
     background="Canvas"
   >
-    Vune
+    Mun
   </div>
 )
 
-// @ts-expect-error modifier values use Vune's Length type, not arbitrary objects
+// @ts-expect-error modifier values use Mun's Length type, not arbitrary objects
 const invalid = <div padding={{ value: 12 }} />
 
 export { intrinsic, invalid }

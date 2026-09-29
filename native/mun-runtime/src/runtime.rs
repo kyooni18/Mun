@@ -31,9 +31,7 @@ pub const SEMANTIC_UI_IR_VERSION: u32 = 1;
 pub enum RuntimeLoadError {
     #[error("invalid Mün Semantic UI IR: {0}")]
     Parse(#[from] serde_json::Error),
-    #[error(
-        "unsupported Mün Semantic UI IR version {found}; runtime supports version {supported}"
-    )]
+    #[error("unsupported Mün Semantic UI IR version {found}; runtime supports version {supported}")]
     UnsupportedVersion { found: u32, supported: u32 },
     #[error("unsupported Mün Semantic UI IR source language '{found}'; expected 'mun'")]
     UnsupportedSourceLanguage { found: String },
@@ -316,19 +314,23 @@ impl Runtime {
                 button: PointerButton::Primary,
                 state: ButtonState::Pressed,
             } => {
-                let Some(position) = self.input.pointer_position(pointer) else {
-                    return Ok(outcome);
-                };
-                let scene = self.build_scene(width, height)?;
-                let target = scene.action_at(position.x, position.y).map(str::to_owned);
-                if let Some(id) = target {
-                    if self.focus_action(&id) {
-                        outcome.handled = true;
-                        outcome.pressed_changed = self.input.capture_primary(pointer, id);
-                    }
+                if self.input.primary_capture(pointer).is_some() {
+                    // Pointer capture is established by the first primary press and
+                    // remains stable until release/cancel. Duplicate platform press
+                    // events must not retarget focus or pressed identity.
+                    outcome.handled = true;
                 } else {
-                    outcome.pressed_changed = self.input.clear_primary_capture(pointer);
-                    if self.focused_action.is_some() {
+                    let Some(position) = self.input.pointer_position(pointer) else {
+                        return Ok(outcome);
+                    };
+                    let scene = self.build_scene(width, height)?;
+                    let target = scene.action_at(position.x, position.y).map(str::to_owned);
+                    if let Some(id) = target {
+                        if self.focus_action(&id) {
+                            outcome.handled = true;
+                            outcome.pressed_changed = self.input.capture_primary(pointer, id);
+                        }
+                    } else if self.focused_action.is_some() {
                         self.clear_focus();
                         outcome.handled = true;
                     }
@@ -405,7 +407,8 @@ impl Runtime {
                 };
                 outcome.handled = true;
                 outcome.pressed_changed = true;
-                if self.focused_action() == Some(captured.as_str()) && self.focus_action(&captured) {
+                if self.focused_action() == Some(captured.as_str()) && self.focus_action(&captured)
+                {
                     outcome.activated = self.activate_action(&captured).is_some();
                 }
             }
@@ -581,11 +584,7 @@ impl Runtime {
         let action = action.clone();
         let action_transaction = action.transaction().cloned().unwrap_or_default();
         let mut focus_order_before = Vec::new();
-        collect_focusable_actions(
-            &self.program.root.child,
-            self,
-            &mut focus_order_before,
-        );
+        collect_focusable_actions(&self.program.root.child, self, &mut focus_order_before);
         let before_presence = self.active_transition_roots();
         let before_layout_neighborhoods = self.layout_neighborhoods();
         let before_layout_geometry = self.last_live_accessibility.borrow().clone();
@@ -965,9 +964,8 @@ impl Runtime {
         expression: Option<&UiExpression>,
     ) -> Option<RetainedIdentityKey> {
         expression.map(|expression| {
-            RetainedIdentityKey::from_value(&self.eval(expression)).expect(
-                "Mün semantic identity key must evaluate to a string or finite number",
-            )
+            RetainedIdentityKey::from_value(&self.eval(expression))
+                .expect("Mün semantic identity key must evaluate to a string or finite number")
         })
     }
 
@@ -2290,7 +2288,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn semantic_identity_replacement_clears_transient_runtime_state() {
         let mut runtime =
@@ -2375,6 +2372,7 @@ mod tests {
                 delta_y: 0.0,
             },
         );
+
 
         runtime
             .activate_action("change")
@@ -3125,6 +3123,95 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_primary_press_does_not_retarget_pointer_capture_or_focus() {
+        let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
+        let scene = runtime.build_scene(320.0, 200.0).expect("input scene");
+        let first = scene
+            .actions
+            .iter()
+            .find(|action| action.id == "first")
+            .expect("first action");
+        let second = scene
+            .actions
+            .iter()
+            .find(|action| action.id == "second")
+            .expect("second action");
+        let pointer = crate::input::PointerId(31);
+        let center = |action: &crate::scene::ActionHit| {
+            crate::input::InputPoint::new(
+                action.rect.x + action.rect.width * 0.5,
+                action.rect.y + action.rect.height * 0.5,
+            )
+        };
+
+        runtime
+            .handle_input(
+                InputEvent::PointerMoved {
+                    pointer,
+                    position: center(first),
+                },
+                320.0,
+                200.0,
+            )
+            .expect("move to first");
+        runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Pressed,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("first press");
+        assert_eq!(runtime.primary_pressed_action(pointer), Some("first"));
+        assert_eq!(runtime.focused_action(), Some("first"));
+
+        runtime
+            .handle_input(
+                InputEvent::PointerMoved {
+                    pointer,
+                    position: center(second),
+                },
+                320.0,
+                200.0,
+            )
+            .expect("move to second");
+        let duplicate = runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Pressed,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("duplicate press");
+
+        assert!(duplicate.handled);
+        assert!(!duplicate.pressed_changed);
+        assert_eq!(runtime.primary_pressed_action(pointer), Some("first"));
+        assert_eq!(runtime.focused_action(), Some("first"));
+
+        let release = runtime
+            .handle_input(
+                InputEvent::PointerButton {
+                    pointer,
+                    button: PointerButton::Primary,
+                    state: ButtonState::Released,
+                },
+                320.0,
+                200.0,
+            )
+            .expect("release over second");
+        assert!(release.handled);
+        assert!(!release.activated);
+        assert_eq!(runtime.primary_pressed_action(pointer), None);
+    }
+
+    #[test]
     fn pointer_capture_activates_only_when_released_over_the_pressed_action() {
         let mut runtime = Runtime::from_json(TWO_ACTIONS).expect("valid input UI program");
         let scene = runtime.build_scene(320.0, 200.0).expect("input scene");
@@ -3228,7 +3315,13 @@ mod tests {
             .expect("pointer press");
 
         let outcome = runtime
-            .handle_input(InputEvent::Cancel { pointer: Some(pointer) }, 320.0, 200.0)
+            .handle_input(
+                InputEvent::Cancel {
+                    pointer: Some(pointer),
+                },
+                320.0,
+                200.0,
+            )
             .expect("pointer cancel");
         assert!(outcome.handled);
         assert!(outcome.pressed_changed);
@@ -3307,11 +3400,13 @@ mod tests {
             .node("branch")
             .expect("retained conditional")
             .instance_id;
-        assert!(!runtime
-            .retained_tree()
-            .node("branch")
-            .expect("retained conditional")
-            .has_layout_box());
+        assert!(
+            !runtime
+                .retained_tree()
+                .node("branch")
+                .expect("retained conditional")
+                .has_layout_box()
+        );
         assert_eq!(
             runtime
                 .retained_tree()
@@ -3367,7 +3462,10 @@ mod tests {
         );
 
         let expanded = runtime.build_frame(320.0, 200.0).expect("expanded frame");
-        assert_eq!(expanded.accessibility.focus_id.as_deref(), Some("expanded-action"));
+        assert_eq!(
+            expanded.accessibility.focus_id.as_deref(),
+            Some("expanded-action")
+        );
         assert_eq!(
             expanded.accessibility.node("root").unwrap().children,
             vec!["expanded-action"]
@@ -3643,11 +3741,13 @@ mod tests {
             .build_frame(320.0, 200.0)
             .expect("exit overlay frame");
         assert!(removed.accessibility.node("transient").is_none());
-        assert!(removed
-            .scene
-            .actions
-            .iter()
-            .all(|action| action.id != "transient"));
+        assert!(
+            removed
+                .scene
+                .actions
+                .iter()
+                .all(|action| action.id != "transient")
+        );
         let outgoing = removed
             .scene
             .rects
@@ -3677,11 +3777,12 @@ mod tests {
 
         runtime.step(0.2);
         let gone = runtime.build_frame(320.0, 200.0).expect("exit complete");
-        assert!(gone
-            .scene
-            .rects
-            .iter()
-            .all(|item| item.id != "transient:background"));
+        assert!(
+            gone.scene
+                .rects
+                .iter()
+                .all(|item| item.id != "transient:background")
+        );
 
         runtime
             .activate_action("show")
@@ -3802,11 +3903,12 @@ mod tests {
         let gone = runtime
             .build_frame(320.0, 200.0)
             .expect("default transition settled");
-        assert!(gone
-            .scene
-            .rects
-            .iter()
-            .all(|item| item.id != "default-hide:background"));
+        assert!(
+            gone.scene
+                .rects
+                .iter()
+                .all(|item| item.id != "default-hide:background")
+        );
     }
 
     const CONDITIONAL_MOTION_REENTRY: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"MotionBranch","states":[{"name":"visible","initial":true},{"name":"wide","initial":false}],"root":{"kind":"window","id":"root","title":"Motion Branch","child":{"kind":"column","id":"content","children":[{"kind":"action","id":"toggle-wide","label":"Wide","action":{"kind":"toggle-state","state":"wide"}},{"kind":"action","id":"toggle-visible","label":"Visible","action":{"kind":"toggle-state","state":"visible"}},{"kind":"conditional","id":"branch","condition":{"kind":"state","state":"visible"},"then":[{"kind":"panel","id":"panel","layout":{"width":{"kind":"conditional","condition":{"kind":"state","state":"wide"},"then":{"kind":"literal","value":200},"otherwise":{"kind":"literal","value":100}},"height":{"kind":"literal","value":40}},"motion":[{"property":"width","propertyMask":512,"value":{"kind":"conditional","condition":{"kind":"state","state":"wide"},"then":{"kind":"literal","value":200},"otherwise":{"kind":"literal","value":100}},"plan":{"kind":"timing","duration":1.0,"curve":[0.0,0.0,1.0,1.0],"delayMs":0.0,"repeatCount":1,"autoreverses":false}}]}],"otherwise":[]}]}}}"#;
@@ -3833,12 +3935,14 @@ mod tests {
         runtime
             .activate_action("toggle-visible")
             .expect("hide branch");
-        assert!(runtime
-            .build_frame(480.0, 320.0)
-            .expect("hidden frame")
-            .accessibility
-            .node("panel")
-            .is_none());
+        assert!(
+            runtime
+                .build_frame(480.0, 320.0)
+                .expect("hidden frame")
+                .accessibility
+                .node("panel")
+                .is_none()
+        );
 
         runtime
             .activate_action("toggle-visible")

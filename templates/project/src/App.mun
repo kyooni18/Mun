@@ -1,0 +1,15 @@
+import { Button, State, Text, VStack } from "@mun/core"
+
+const count = State(0)
+
+struct __MUN_PROJECT_APP_NAME__: View {
+  var body: some View {
+    VStack(spacing: 12) {
+      Text('Hello, Mün')
+      Text(`Count: ${count.value}`)
+      Button('Increase') { count.value += 1 }
+    }
+  }
+}
+
+export default __MUN_PROJECT_APP_NAME__()

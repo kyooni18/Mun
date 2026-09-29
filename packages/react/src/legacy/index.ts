@@ -57,18 +57,18 @@ export {
   closureForKind,
   closureKindOf,
   closureVariantsOf,
-  markVuneClosure,
-  vuneClosureKind,
-  vuneClosureVariants,
+  markMunClosure,
+  munClosureKind,
+  munClosureVariants,
   overloadClosure,
   valueClosure,
   viewBuilderClosure,
 } from './closures.js'
-export type { VuneClosure, VuneClosureKind, VuneClosureVariants } from './closures.js'
+export type { MunClosure, MunClosureKind, MunClosureVariants } from './closures.js'
 export { modifierGraphOf, styled } from './modifiers.js'
 export type { ModifierRecord } from './modifiers.js'
 export { materializeViewNode, reactRenderer, renderViewNode } from './runtime/renderer.js'
-export type { VuneRenderer, RendererChild } from './runtime/renderer.js'
+export type { MunRenderer, RendererChild } from './runtime/renderer.js'
 export { createViewIdentityStore } from './runtime/view-storage.js'
 export type { ViewIdentityStore } from './runtime/view-storage.js'
 export {
@@ -81,7 +81,7 @@ export {
   viewHost,
   viewNodeOf,
 } from './runtime/view-graph.js'
-export type { VuneBuilder } from './builder.js'
+export type { MunBuilder } from './builder.js'
 export { view } from './view.js'
 export {
   ViewBuilder,
@@ -92,10 +92,10 @@ export {
   initializersOf,
   initializer,
   initializerKinds,
-  VuneInitializerError,
-  vuneNamedArguments,
-  vuneInitializers,
-  vuneView,
+  MunInitializerError,
+  munNamedArguments,
+  munInitializers,
+  munView,
   namedArguments,
   registerInitializers,
   renderViewTree,

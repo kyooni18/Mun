@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom"
 import { renderToStaticMarkup } from "react-dom/server"
 import { createSSRApp } from "vue"
 import { renderToString } from "@vue/server-renderer"
-import { Capsule, Divider, Element, Grid, Group, HStack, LazyGrid, LazyVStack, RoundedRectangle, SafeArea, ScrollView, Spacer, Text, VStack, ZStack, defineView, initializer } from "../packages/core/dist/index.js"
+import { Capsule, Divider, Element, Grid, Group, HStack, LazyGrid, LazyVStack, RoundedRectangle, SafeArea, ScrollView, Spacer, Text, VStack, ZStack, defineView, initializer } from "../packages/core/dist/compat.js"
 import { continuousCornerPath } from "../packages/core/dist/corners.js"
 import { render as renderReact } from "../packages/react/dist/index.js"
 import { render as renderVue } from "../packages/vue/dist/index.js"
@@ -14,7 +14,7 @@ test("migrated layout primitives keep the graph-first contract", () => {
   const value = HStack(Text("Left"), Spacer(24), Text("Right")).padding(8)
   assert.equal(value.kind, "modified")
   const html = renderToStaticMarkup(renderReact(value))
-  assert.match(html, /data-vune="HStack"/)
+  assert.match(html, /data-mun="HStack"/)
   assert.match(html, /justify-content:center/)
   assert.match(html, /flex-grow:1/)
   assert.match(html, /padding:8px/)
@@ -41,8 +41,8 @@ test("Capsule and RoundedRectangle opt into measured continuous corners in every
       renderToHTML(value),
     ]
     for (const html of outputs) {
-      assert.match(html, /--vune-corner-style:\s*continuous/)
-      assert.match(html, /--vune-corner-smoothing:\s*0\.65/)
+      assert.match(html, /--mun-corner-style:\s*continuous/)
+      assert.match(html, /--mun-corner-smoothing:\s*0\.65/)
       assert.match(html, /corner-shape:\s*squircle/)
     }
   }
@@ -71,11 +71,11 @@ test("the Web renderer materializes a measured continuous clip path for Capsule"
   const dom = new JSDOM("<div id=app></div>", { pretendToBeVisual: true })
   Object.defineProperty(dom.window.HTMLElement.prototype, "offsetWidth", {
     configurable: true,
-    get() { return this.getAttribute("data-vune") === "Capsule" ? 180 : 0 },
+    get() { return this.getAttribute("data-mun") === "Capsule" ? 180 : 0 },
   })
   Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() { return this.getAttribute("data-vune") === "Capsule" ? 64 : 0 },
+    get() { return this.getAttribute("data-mun") === "Capsule" ? 64 : 0 },
   })
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -96,8 +96,8 @@ test("Group, ZStack, Element, and Divider compose without React elements in core
     Element("section", { id: "native" }, Divider()),
   )))
   assert.match(html, /A.*B/)
-  assert.match(html, /data-vune="ZStack"/)
-  assert.match(html, /<section id="native"><hr data-vune="Divider"\/?><\/section>/)
+  assert.match(html, /data-mun="ZStack"/)
+  assert.match(html, /<section id="native"><hr data-mun="Divider"\/?><\/section>/)
 })
 
 test("layout semantics stay aligned across React, Vue, and Web renderers", async () => {

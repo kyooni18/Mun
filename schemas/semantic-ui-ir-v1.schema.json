@@ -1,0 +1,750 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mun:semantic-ui-ir:v1",
+  "title": "Mün Semantic UI IR v1",
+  "description": "Canonical backend-neutral wire format emitted by the Mün compiler and consumed by native/web backends. A program has exactly one root Window; descendant UI nodes are content nodes.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "sourceLanguage": {
+      "const": "mun"
+    },
+    "entry": {
+      "type": "string",
+      "minLength": 1
+    },
+    "states": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/state"
+      }
+    },
+    "root": {
+      "$ref": "#/$defs/window"
+    }
+  },
+  "required": [
+    "version",
+    "sourceLanguage",
+    "entry",
+    "states",
+    "root"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "scalar": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "expression": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "literal"
+            },
+            "value": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "state"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "not"
+            },
+            "value": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "conditional"
+            },
+            "condition": {
+              "$ref": "#/$defs/expression"
+            },
+            "then": {
+              "$ref": "#/$defs/expression"
+            },
+            "otherwise": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "condition",
+            "then",
+            "otherwise"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "initial": {
+          "$ref": "#/$defs/scalar"
+        }
+      },
+      "required": [
+        "name",
+        "initial"
+      ],
+      "additionalProperties": false
+    },
+    "accessibility": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "enum": [
+            "window",
+            "group",
+            "text",
+            "button"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "enabled": {
+          "$ref": "#/$defs/expression"
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "additionalProperties": false
+    },
+    "layout": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "$ref": "#/$defs/expression"
+        },
+        "height": {
+          "$ref": "#/$defs/expression"
+        },
+        "padding": {
+          "type": "number"
+        },
+        "spacing": {
+          "type": "number"
+        },
+        "alignment": {
+          "enum": [
+            "leading",
+            "center",
+            "trailing",
+            "stretch"
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "visual": {
+      "type": "object",
+      "properties": {
+        "background": {
+          "type": "string"
+        },
+        "foreground": {
+          "type": "string"
+        },
+        "cornerRadius": {
+          "type": "number",
+          "minimum": 0
+        },
+        "opacity": {
+          "$ref": "#/$defs/expression"
+        },
+        "translationX": {
+          "$ref": "#/$defs/expression"
+        },
+        "translationY": {
+          "$ref": "#/$defs/expression"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "motionProperty": {
+      "enum": [
+        "opacity",
+        "translationX",
+        "translationY",
+        "scaleX",
+        "scaleY",
+        "rotation",
+        "foregroundColor",
+        "backgroundColor",
+        "borderColor",
+        "width",
+        "height",
+        "minWidth",
+        "minHeight",
+        "maxWidth",
+        "maxHeight",
+        "paddingTop",
+        "paddingRight",
+        "paddingBottom",
+        "paddingLeft",
+        "marginTop",
+        "marginRight",
+        "marginBottom",
+        "marginLeft",
+        "rowGap",
+        "columnGap",
+        "fontSize",
+        "lineHeight",
+        "letterSpacing"
+      ]
+    },
+    "repeatCount": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "const": "infinite"
+        }
+      ]
+    },
+    "springPlan": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "spring"
+        },
+        "omega": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dampingRatio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "blendDuration": {
+          "type": "number",
+          "minimum": 0
+        },
+        "delayMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "repeatCount": {
+          "$ref": "#/$defs/repeatCount"
+        },
+        "autoreverses": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "omega",
+        "dampingRatio",
+        "blendDuration",
+        "delayMs",
+        "repeatCount",
+        "autoreverses"
+      ],
+      "additionalProperties": false
+    },
+    "timingPlan": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "timing"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0
+        },
+        "curve": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "delayMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "repeatCount": {
+          "$ref": "#/$defs/repeatCount"
+        },
+        "autoreverses": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "duration",
+        "curve",
+        "delayMs",
+        "repeatCount",
+        "autoreverses"
+      ],
+      "additionalProperties": false
+    },
+    "motionPlan": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/springPlan"
+        },
+        {
+          "$ref": "#/$defs/timingPlan"
+        }
+      ]
+    },
+    "motionBinding": {
+      "type": "object",
+      "properties": {
+        "property": {
+          "$ref": "#/$defs/motionProperty"
+        },
+        "propertyMask": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "value": {
+          "$ref": "#/$defs/expression"
+        },
+        "trigger": {
+          "$ref": "#/$defs/expression"
+        },
+        "plan": {
+          "$ref": "#/$defs/motionPlan"
+        }
+      },
+      "required": [
+        "property",
+        "propertyMask",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "transaction": {
+      "type": "object",
+      "properties": {
+        "animation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/motionPlan"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disablesAnimations": {
+          "type": "boolean"
+        },
+        "isContinuous": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "disablesAnimations",
+        "isContinuous"
+      ],
+      "additionalProperties": false
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "toggle-state"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "transaction": {
+              "$ref": "#/$defs/transaction"
+            }
+          },
+          "required": [
+            "kind",
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "set-state"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "value": {
+              "$ref": "#/$defs/expression"
+            },
+            "transaction": {
+              "$ref": "#/$defs/transaction"
+            }
+          },
+          "required": [
+            "kind",
+            "state",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "column": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "column"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "children"
+      ],
+      "additionalProperties": false
+    },
+    "row": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "row"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "children"
+      ],
+      "additionalProperties": false
+    },
+    "conditionalNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "conditional"
+        },
+        "condition": {
+          "$ref": "#/$defs/expression"
+        },
+        "then": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "otherwise": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "condition",
+        "then",
+        "otherwise"
+      ],
+      "additionalProperties": false
+    },
+    "textNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "text"
+        },
+        "value": {
+          "$ref": "#/$defs/expression"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "panel": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "panel"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "actionNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "action"
+        },
+        "label": {
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/action"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "label",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "node": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/column"
+        },
+        {
+          "$ref": "#/$defs/row"
+        },
+        {
+          "$ref": "#/$defs/conditionalNode"
+        },
+        {
+          "$ref": "#/$defs/textNode"
+        },
+        {
+          "$ref": "#/$defs/panel"
+        },
+        {
+          "$ref": "#/$defs/actionNode"
+        }
+      ]
+    },
+    "window": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "window"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "child": {
+          "$ref": "#/$defs/node"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "title",
+        "child"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

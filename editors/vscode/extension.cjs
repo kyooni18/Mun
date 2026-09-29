@@ -2,10 +2,10 @@ const vscode = require('vscode')
 const path = require('path')
 
 function loadSemanticCompiler() {
-  for (const request of ['@vune-ui/compiler', path.resolve(__dirname, '../../packages/compiler/dist/index.js')]) {
+  for (const request of ['@mun/compiler', path.resolve(__dirname, '../../packages/compiler/dist/index.js')]) {
     try {
       const compiler = require(request)
-      if (typeof compiler.diagnoseVuneSource === 'function') return compiler
+      if (typeof compiler.diagnoseMunSource === 'function') return compiler
     } catch { /* The standalone extension can still use its lexical fallback. */ }
   }
   return undefined
@@ -24,11 +24,8 @@ const VIEW_SIGNATURES = Object.freeze({
   Spacer: ['Spacer(minLength?)'],
   Button: ['Button(_ title: string | number, @Action action)', 'Button(@Action action, @ViewBuilder label)'],
   ForEach: ['ForEach(items, content)'],
-  Element: ['Element(tag, props?, ...children)'],
 })
 
-const FALLBACK_HTML_TAGS = Object.freeze(['a', 'article', 'button', 'div', 'form', 'h1', 'h2', 'h3', 'header', 'img', 'input', 'label', 'main', 'nav', 'p', 'section', 'select', 'span', 'textarea', 'ul', 'li'])
-const FALLBACK_HTML_ATTRIBUTES = Object.freeze(['class', 'for', 'id', 'style', 'title', 'role', 'onclick', 'onchange', 'oninput', 'onkeydown', 'disabled', 'name', 'placeholder', 'aria-label', 'aria-hidden', 'data-testid'])
 const SEMANTIC_TOKEN_TYPES = Object.freeze(['class', 'function', 'parameter', 'property', 'keyword', 'decorator'])
 const SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(SEMANTIC_TOKEN_TYPES)
 
@@ -47,10 +44,10 @@ function completionItem(label, detail, kind) {
   return item
 }
 
-function openVuneDocuments(document) {
+function openMunDocuments(document) {
   const documents = [document, ...(vscode.workspace.textDocuments ?? [])]
   return [...new Map(documents
-    .filter(candidate => candidate && (candidate.languageId === 'vune-ui' || candidate.languageId === 'vue'))
+    .filter(candidate => candidate && (candidate.languageId === 'mun' || candidate.languageId === 'vue'))
     .map(candidate => [String(candidate.uri), candidate])).values()]
 }
 
@@ -63,34 +60,12 @@ function semanticSource(document) {
 }
 
 function semanticModel(document) {
-  if (typeof semanticCompiler?.createVuneSemanticModel !== 'function') return undefined
+  if (typeof semanticCompiler?.createMunSemanticModel !== 'function') return undefined
   const region = semanticSource(document)
   if (!region) return undefined
   try {
-    return { ...region, model: semanticCompiler.createVuneSemanticModel(region.source, String(document.uri)) }
+    return { ...region, model: semanticCompiler.createMunSemanticModel(region.source, String(document.uri)) }
   } catch { return undefined }
-}
-
-function htmlTagNames() {
-  return semanticCompiler?.semanticHtmlTagNames ?? FALLBACK_HTML_TAGS
-}
-
-function htmlAttributeNames(tag) {
-  return typeof semanticCompiler?.semanticHtmlAttributeNames === 'function'
-    ? semanticCompiler.semanticHtmlAttributeNames(tag)
-    : FALLBACK_HTML_ATTRIBUTES
-}
-
-function htmlAttributeSpec(tag, name) {
-  return typeof semanticCompiler?.semanticHtmlAttributeSpec === 'function'
-    ? semanticCompiler.semanticHtmlAttributeSpec(tag, name)
-    : undefined
-}
-
-function htmlTagAtPosition(document, position) {
-  const line = document.lineAt(position.line).text.slice(0, position.character)
-  const match = /<([A-Za-z][A-Za-z0-9:._-]*)[^>]*$/.exec(line)
-  return match?.[1]
 }
 
 function semanticInitializerLabel(viewName, initializer) {
@@ -118,7 +93,7 @@ function semanticInitializerLabel(viewName, initializer) {
 function signatureMap(document) {
   const signatures = {}
   let usedSemanticModel = false
-  for (const candidate of openVuneDocuments(document)) {
+  for (const candidate of openMunDocuments(document)) {
     const source = candidate.getText()
     const semantic = semanticModel(candidate)
     if (semantic) {
@@ -147,14 +122,6 @@ function signatureMap(document) {
 
 function completions(document, position) {
   const line = document.lineAt(position.line).text.slice(0, position.character)
-  if (/<[A-Za-z0-9-]*$/.test(line)) return htmlTagNames().map(tag => completionItem(tag, 'Raw HTML element', vscode.CompletionItemKind.Property))
-  const attributeContext = /<([A-Za-z0-9-]+)\s+[A-Za-z0-9:-]*$/.exec(line)
-  if (attributeContext) {
-    return htmlAttributeNames(attributeContext[1]).map(attribute => {
-      const spec = htmlAttributeSpec(attributeContext[1], attribute)
-      return completionItem(attribute, `HTML attribute${spec ? ` (${spec.type})` : ''}`, vscode.CompletionItemKind.Value)
-    })
-  }
   const items = []
   for (const [name, signatures] of Object.entries(signatureMap(document))) {
     items.push(completionItem(name, signatures.join(' | '), vscode.CompletionItemKind.Function))
@@ -169,16 +136,9 @@ function hover(document, position) {
   const signatures = signatureMap(document)[token.name]
   if (signatures) {
     const markdown = new vscode.MarkdownString()
-    markdown.appendCodeblock(signatures.join('\n'), 'vune-ui')
+    markdown.appendCodeblock(signatures.join('\n'), 'mun')
     markdown.isTrusted = false
     return new vscode.Hover(markdown, token.range)
-  }
-  if (htmlTagNames().includes(token.name)) return new vscode.Hover(new vscode.MarkdownString(`Raw HTML element \`<${token.name}>\``), token.range)
-  const htmlTag = htmlTagAtPosition(document, position)
-  const attribute = htmlTag ? htmlAttributeSpec(htmlTag, token.name) : undefined
-  if (attribute || /^aria-|^data-/.test(token.name)) {
-    const detail = attribute ? ` — ${attribute.type}` : ''
-    return new vscode.Hover(new vscode.MarkdownString(`HTML attribute \`${token.name}\`${detail}`), token.range)
   }
   return undefined
 }
@@ -224,10 +184,10 @@ function declarations(document) {
   return result
 }
 
-async function workspaceVuneDocuments(document) {
-  const documents = openVuneDocuments(document)
+async function workspaceMunDocuments(document) {
+  const documents = openMunDocuments(document)
   if (typeof vscode.workspace.findFiles !== 'function' || typeof vscode.workspace.openTextDocument !== 'function') return documents
-  const uris = await vscode.workspace.findFiles('**/*.{vune,vune.ts,vue}', '**/{node_modules,dist,.git}/**', 200)
+  const uris = await vscode.workspace.findFiles('**/*.{mun,mun.ts,vue}', '**/{node_modules,dist,.git}/**', 200)
   for (const uri of uris) {
     if (documents.some(candidate => String(candidate.uri) === String(uri))) continue
     try { documents.push(await vscode.workspace.openTextDocument(uri)) } catch { /* Ignore unreadable workspace files. */ }
@@ -237,7 +197,7 @@ async function workspaceVuneDocuments(document) {
 
 async function definition(document, position) {
   const token = tokenAt(document, position)
-  for (const candidate of await workspaceVuneDocuments(document)) {
+  for (const candidate of await workspaceMunDocuments(document)) {
     const location = declarations(candidate).get(token.name)
     if (location) return location
   }
@@ -287,7 +247,7 @@ async function renameEdits(document, position, newName) {
   const token = tokenAt(document, position)
   if (!token.name || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(newName)) return undefined
   const edit = new vscode.WorkspaceEdit()
-  const documents = await workspaceVuneDocuments(document)
+  const documents = await workspaceMunDocuments(document)
   if (!documents.some(candidate => declarations(candidate).has(token.name))) return undefined
   const semanticTarget = documents.some(candidate => semanticModel(candidate)?.model.views?.some(view => view.name === token.name))
   if (semanticTarget) {
@@ -338,10 +298,6 @@ function semanticTokens(document) {
       }
       for (const view of model.views ?? []) pushName(view.name, view.range.start, 'class')
       for (const call of model.calls ?? []) pushName(call.callee, call.range.start, 'function')
-      for (const element of model.htmlElements ?? []) {
-        pushName(element.tag, element.range.start + 1, 'class')
-        for (const attribute of element.attributes ?? []) pushName(attribute, element.range.start, 'property')
-      }
       for (const field of (model.views ?? []).flatMap(view => view.fields ?? [])) {
         if (field.kind === 'state' || field.kind === 'binding') pushName(field.name, field.range.start, 'property')
       }
@@ -446,16 +402,16 @@ function diagnosticsInSource(document, source, offset) {
       const expected = { ')': '(', ']': '[', '}': '{' }[character]
       const opening = stack.pop()
       if (!opening || opening.character !== expected) {
-        report(index, `Unexpected '${character}' in Vune source.`)
+        report(index, `Unexpected '${character}' in Mün source.`)
       } else if (opening.template) mode = 'template'
     }
   }
-  if (mode === 'single' || mode === 'double') report(modeStart, `Unclosed ${mode === 'single' ? "'" : '"'} string in Vune source.`)
-  else if (mode === 'template' || templates.length > 0) report(templates.at(-1) ?? modeStart, 'Unclosed template literal in Vune source.')
-  else if (mode === 'blockComment') report(modeStart, 'Unclosed block comment in Vune source.')
-  else if (mode === 'regex') report(modeStart, 'Unclosed regular expression in Vune source.')
+  if (mode === 'single' || mode === 'double') report(modeStart, `Unclosed ${mode === 'single' ? "'" : '"'} string in Mün source.`)
+  else if (mode === 'template' || templates.length > 0) report(templates.at(-1) ?? modeStart, 'Unclosed template literal in Mün source.')
+  else if (mode === 'blockComment') report(modeStart, 'Unclosed block comment in Mün source.')
+  else if (mode === 'regex') report(modeStart, 'Unclosed regular expression in Mün source.')
   for (const opening of stack) {
-    report(opening.index, `Unclosed '${opening.character}' in Vune source.`)
+    report(opening.index, `Unclosed '${opening.character}' in Mün source.`)
   }
   return diagnostics
 }
@@ -471,7 +427,7 @@ function offsetsForLines(source) {
 function semanticDiagnostics(document, source, offset) {
   if (!semanticCompiler) return undefined
   const offsets = offsetsForLines(source)
-  return semanticCompiler.diagnoseVuneSource(source).map(diagnostic => {
+  return semanticCompiler.diagnoseMunSource(source).map(diagnostic => {
     const line = Math.max(1, diagnostic.line)
     const column = Math.max(1, diagnostic.column)
     const sourceOffset = (offsets[line - 1] ?? source.length) + column - 1
@@ -528,10 +484,10 @@ function formatVue(document) {
 }
 
 function activate(context) {
-  const collection = vscode.languages.createDiagnosticCollection('vune-ui')
-  const refresh = document => { if (document.languageId === 'vune-ui' || document.languageId === 'vue') collection.set(document.uri, diagnostics(document)) }
-  const languages = ['vune-ui']
-  if (vscode.workspace.getConfiguration('vune.languageTools').get('enableVue', true)) languages.push('vue')
+  const collection = vscode.languages.createDiagnosticCollection('mun')
+  const refresh = document => { if (document.languageId === 'mun' || document.languageId === 'vue') collection.set(document.uri, diagnostics(document)) }
+  const languages = ['mun']
+  if (vscode.workspace.getConfiguration('mun.languageTools').get('enableVue', true)) languages.push('vue')
   context.subscriptions.push(collection)
   context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(refresh))
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => refresh(event.document)))
@@ -550,7 +506,7 @@ function activate(context) {
     provideRenameEdits: renameEdits,
   }))
   context.subscriptions.push(vscode.languages.registerDocumentSemanticTokensProvider(languages, { provideDocumentSemanticTokens: semanticTokens }, SEMANTIC_LEGEND))
-  context.subscriptions.push(vscode.commands.registerCommand('vune.formatDocument', () => vscode.commands.executeCommand('editor.action.formatDocument')))
+  context.subscriptions.push(vscode.commands.registerCommand('mun.formatDocument', () => vscode.commands.executeCommand('editor.action.formatDocument')))
   vscode.workspace.textDocuments.forEach(refresh)
 }
 

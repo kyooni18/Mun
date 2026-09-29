@@ -1,20 +1,20 @@
 {
-  "name": "create-vune-ui",
+  "name": "create-mun",
   "version": "0.1.20",
-  "description": "Create a ready-to-run renderer-independent Vune UI project with Vite and TypeScript.",
+  "description": "Create a ready-to-run renderer-independent Mün UI project with Vite and TypeScript.",
   "type": "module",
   "files": [
     "bin"
   ],
   "bin": {
-    "create-vune-ui": "bin/create-vune-ui.mjs"
+    "create-mun": "bin/create-mun.mjs"
   },
   "scripts": {
-    "build": "node --check bin/create-vune-ui.mjs",
-    "check": "node --check bin/create-vune-ui.mjs"
+    "build": "node --check bin/create-mun.mjs",
+    "check": "node --check bin/create-mun.mjs"
   },
   "dependencies": {
-    "vune-ui": "workspace:*"
+    "@mun/ui": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

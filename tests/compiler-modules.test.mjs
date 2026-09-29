@@ -19,8 +19,8 @@ test("compiler specialization is an internal, renderer-neutral pass", () => {
 test("compiler scanner and lowering pipeline stay focused and renderer-neutral", () => {
   assert.equal(typeof scanner.findBuilder, "function")
   assert.equal(typeof scanner.findRawHtml, "function")
-  assert.equal(typeof pipeline.transformVuneSource, "function")
-  assert.equal(typeof pipeline.hasVuneSyntax, "function")
+  assert.equal(typeof pipeline.transformMunSource, "function")
+  assert.equal(typeof pipeline.hasMunSyntax, "function")
   const sources = [
     readFileSync(new URL("../packages/compiler/dist/scanner.js", import.meta.url), "utf8"),
     readFileSync(new URL("../packages/compiler/dist/pipeline.js", import.meta.url), "utf8"),
@@ -29,8 +29,8 @@ test("compiler scanner and lowering pipeline stay focused and renderer-neutral",
 })
 
 test("compiler diagnostics and Vite adapter stay isolated from the public barrel", () => {
-  assert.equal(typeof diagnostics.diagnoseVuneSource, "function")
-  assert.equal(typeof vite.createVuneVitePlugin, "function")
+  assert.equal(typeof diagnostics.diagnoseMunSource, "function")
+  assert.equal(typeof vite.createMunVitePlugin, "function")
   const sources = [
     readFileSync(new URL("../packages/compiler/dist/diagnostics.js", import.meta.url), "utf8"),
     readFileSync(new URL("../packages/compiler/dist/vite.js", import.meta.url), "utf8"),

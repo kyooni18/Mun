@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Compact compiler/runtime ABI for the common CSS properties Vune animates.
+ * Compact compiler/runtime ABI for the common CSS properties Mun animates.
  *
  * Bare `.animation()` lowering stores these properties as one unsigned 32-bit
  * mask instead of carrying string arrays through every render. Unknown/custom

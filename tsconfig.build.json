@@ -14,8 +14,8 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@vune-ui/react": ["packages/react/dist/index.d.ts"],
-      "@vune-ui/react/*": ["packages/react/dist/*"]
+      "@mun/react": ["packages/react/dist/index.d.ts"],
+      "@mun/react/*": ["packages/react/dist/*"]
     }
   },
   "files": [
@@ -24,11 +24,12 @@
     "src/compiler/index.ts",
     "src/core.ts",
     "src/experimental.ts",
-    "src/vune.ts",
+    "src/mun.ts",
     "src/closures.ts",
     "src/state.ts",
     "src/types.ts",
     "src/react-types.ts",
+    "src/astro.ts",
     "src/vite.ts",
     "src/jsx-runtime.ts",
     "src/jsx-dev-runtime.ts"

@@ -12,22 +12,22 @@ function vlq(value: number): string {
   return output
 }
 
-export interface VuneSourceMapAnchor {
+export interface MunSourceMapAnchor {
   readonly line: number
   readonly column: number
   readonly generatedColumn: number
 }
 
-export interface VuneSourceMap {
+export interface MunSourceMap {
   readonly version: 3
   readonly file?: string
   readonly sources: readonly string[]
   readonly sourcesContent: readonly string[]
   readonly names: readonly string[]
   readonly mappings: string
-  readonly x_vune: {
-    readonly lineMappings: readonly VuneSourceMapAnchor[]
-    readonly segments: readonly (readonly VuneSourceMapAnchor[])[]
+  readonly x_mun: {
+    readonly lineMappings: readonly MunSourceMapAnchor[]
+    readonly segments: readonly (readonly MunSourceMapAnchor[])[]
   }
 }
 
@@ -98,7 +98,7 @@ function tokensByValue(values: readonly Token[]): Map<string, Token[]> {
 }
 
 /**
- * Score an original occurrence by its lexical neighbourhood. Vune lowering can
+ * Score an original occurrence by its lexical neighbourhood. Mun lowering can
  * move code (notably top-level State declarations), so monotonic token matching
  * is not sufficient: `count` in a generated State factory must map back to the
  * declaration, while `count` in the body must map to its original use.
@@ -195,7 +195,7 @@ function lineAnchors(
   sourceLines: number,
   sourceTokens: ReadonlyMap<string, readonly Token[]>,
   aligned: ReadonlyMap<string, { line: number; column: number }>,
-): VuneSourceMapAnchor[] {
+): MunSourceMapAnchor[] {
   const generatedTokens = tokens(generatedLine)
   if (generatedTokens.length === 0) return [{ ...fallbackAnchor(sourceLines, line), generatedColumn: 0 }]
   return generatedTokens.map(token => {
@@ -204,8 +204,8 @@ function lineAnchors(
   })
 }
 
-/** Create a context-anchored VLQ map for the Vune lowering pipeline. */
-export function createVuneSourceMap(source: string, generated: string, id: string): VuneSourceMap {
+/** Create a context-anchored VLQ map for the Mun lowering pipeline. */
+export function createMunSourceMap(source: string, generated: string, id: string): MunSourceMap {
   const sourceLines = Math.max(1, source.split("\n").length)
   const originalTokens = allTokens(source)
   const generatedTokens = allTokens(generated)
@@ -231,31 +231,31 @@ export function createVuneSourceMap(source: string, generated: string, id: strin
     sourcesContent: [source],
     names: [],
     mappings,
-    x_vune: { lineMappings: segments.map(line => line[0]), segments },
+    x_mun: { lineMappings: segments.map(line => line[0]), segments },
   }
 }
 
-export interface VuneSourcePosition {
+export interface MunSourcePosition {
   readonly line: number
   readonly column: number
 }
 
-export function mapGeneratedPosition(map: VuneSourceMap, position: VuneSourcePosition): VuneSourcePosition {
+export function mapGeneratedPosition(map: MunSourceMap, position: MunSourcePosition): MunSourcePosition {
   const line = Math.max(1, Math.trunc(position.line))
   const column = Math.max(1, Math.trunc(position.column)) - 1
-  const anchors = map.x_vune.segments[Math.min(line - 1, map.x_vune.segments.length - 1)] ?? []
+  const anchors = map.x_mun.segments[Math.min(line - 1, map.x_mun.segments.length - 1)] ?? []
   const anchor = [...anchors].reverse().find(item => item.generatedColumn <= column) ?? anchors[0] ?? { line: 0, column: 0, generatedColumn: 0 }
   return { line: anchor.line + 1, column: anchor.column + Math.max(0, column - anchor.generatedColumn) + 1 }
 }
 
-export function mapOriginalPosition(map: VuneSourceMap, position: VuneSourcePosition): VuneSourcePosition {
+export function mapOriginalPosition(map: MunSourceMap, position: MunSourcePosition): MunSourcePosition {
   const line = Math.max(1, Math.trunc(position.line)) - 1
   const column = Math.max(1, Math.trunc(position.column)) - 1
   let bestLine = 0
-  let best = map.x_vune.lineMappings[0] ?? { line: 0, column: 0, generatedColumn: 0 }
+  let best = map.x_mun.lineMappings[0] ?? { line: 0, column: 0, generatedColumn: 0 }
   let distance = Number.POSITIVE_INFINITY
-  for (let generatedLine = 0; generatedLine < map.x_vune.segments.length; generatedLine += 1) {
-    for (const candidate of map.x_vune.segments[generatedLine]) {
+  for (let generatedLine = 0; generatedLine < map.x_mun.segments.length; generatedLine += 1) {
+    for (const candidate of map.x_mun.segments[generatedLine]) {
       const nextDistance = Math.abs(candidate.line - line) * 10000 + Math.abs(candidate.column - column)
       if (nextDistance >= distance) continue
       distance = nextDistance

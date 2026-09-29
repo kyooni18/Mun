@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom"
 import { renderToStaticMarkup } from "react-dom/server"
 import { createSSRApp } from "vue"
 import { renderToString } from "@vue/server-renderer"
-import { BindingValue, Button, Element, ForeignComponent, LazyVStack, SafeArea, State, Text, Toggle, VStack, defineView, initializer } from "../packages/core/dist/index.js"
+import { BindingValue, Button, Element, ForeignComponent, LazyVStack, SafeArea, State, Text, Toggle, VStack, defineView, initializer } from "../packages/core/dist/compat.js"
 import { render as renderReact } from "../packages/react/dist/index.js"
 import { render as renderVue } from "../packages/vue/dist/index.js"
 import { renderToHTML } from "../packages/web/dist/index.js"
@@ -27,7 +27,7 @@ test("the shared Text/VStack/Button/Card graph has renderer-conformant SSR seman
   ]
 
   for (const html of outputs) {
-    assert.match(html, /data-vune="VStack"/)
+    assert.match(html, /data-mun="VStack"/)
     assert.match(html, /padding:8px/)
     assert.match(html, /<span>Title<\/span>/)
     assert.match(html, /<button type="button"><span>Save<\/span><\/button>/)
@@ -158,7 +158,7 @@ test("safe-area, grid, 3D transform, identity, and accessibility semantics stay 
     assert.equal(element.style.placeSelf, "end end")
     assert.match(element.style.transform, /rotate3d\(0, 1, 0, 30deg\)/)
     assert.equal(element.style.transformOrigin, "left top")
-    assert.equal(element.getAttribute("data-vune-id"), "platform-row")
+    assert.equal(element.getAttribute("data-mun-id"), "platform-row")
     assert.equal(element.getAttribute("role"), "group")
   }
 })
@@ -208,8 +208,8 @@ test("lazy graph boundaries keep renderer-conformant SSR fallback markup", async
     renderToHTML(value),
   ]
   for (const html of outputs) {
-    assert.match(html, /data-vune="LazyVStack"/)
-    assert.match(html, /data-vune-lazy="vertical"/)
+    assert.match(html, /data-mun="LazyVStack"/)
+    assert.match(html, /data-mun-lazy="vertical"/)
     assert.match(html, /<span>One<\/span><span>Two<\/span>/)
   }
 })
@@ -307,7 +307,7 @@ test("withProps cannot reintroduce coercible objects at native roots", async () 
 
 test("custom element object props remain non-serializing across SSR renderers", async () => {
   let coercionCalls = 0
-  const value = Element("vune-card", {
+  const value = Element("mun-card", {
     payload: { toString() { coercionCalls += 1; return "coerced" } },
     label: "safe",
   })

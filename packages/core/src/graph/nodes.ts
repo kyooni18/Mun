@@ -1,4 +1,4 @@
-import { vuneForeignComponent } from "./symbols.js"
+import { munForeignComponent } from "./symbols.js"
 import { arrayCheck, snapshotArrayValues } from "./arrays.js"
 import { decorate, modifiedContent, snapshotRecord } from "./modifiers.js"
 import { snapshotElementProps } from "./element-internal.js"
@@ -78,7 +78,7 @@ export function ForeignComponent(
   const slots = snapshotRecord(normalizedOptions.slots ?? {}) as NonNullable<ForeignComponentOptions["slots"]>
   const componentName = ownDataValue(component, "name")
   const descriptor: ForeignComponentDescriptor = Object.freeze({
-    [vuneForeignComponent]: true,
+    [munForeignComponent]: true,
     component,
     props,
     events,
@@ -101,7 +101,7 @@ export function ForeignComponent(
 export function isForeignComponent(value: unknown): value is ForeignComponentDescriptor {
   if (typeof value !== "object" || value === null) return false
   try {
-    const descriptor = Object.getOwnPropertyDescriptor(value, vuneForeignComponent)
+    const descriptor = Object.getOwnPropertyDescriptor(value, munForeignComponent)
     return !!descriptor && "value" in descriptor && descriptor.value === true
   } catch {
     return false

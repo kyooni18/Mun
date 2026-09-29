@@ -18,7 +18,7 @@ import { createPortal } from 'react-dom'
 import { layoutChild, layoutChildren, markIntrinsic } from './layout.js'
 import { isStateRef, resolveValue } from './state.js'
 import { defineView, initializer, initializerKinds, type ViewCallable } from './view-system.js'
-import { collectChildren, type VuneBuilder } from './builder.js'
+import { collectChildren, type MunBuilder } from './builder.js'
 import { viewElement, viewGraphChild, viewGraphChildren, viewHost, type ViewNode } from './runtime/view-graph.js'
 import type { StateRef, StyledElement, Value } from './types.js'
 
@@ -59,7 +59,7 @@ interface NavigationStackHostProps {
 function NavigationStackHost({ router, children }: NavigationStackHostProps) {
   return createElement(
     'div',
-    { 'data-vune-navigation-stack': '' },
+    { 'data-mun-navigation-stack': '' },
     createElement(
       NavigationContext.Provider,
       { value: router },
@@ -70,7 +70,7 @@ function NavigationStackHost({ router, children }: NavigationStackHostProps) {
 
 function navigationStackGraph(props: object): ViewNode {
   const { children } = props as NavigationStackHostProps
-  return viewElement('div', { 'data-vune-navigation-stack': '' }, viewGraphChildren(
+  return viewElement('div', { 'data-mun-navigation-stack': '' }, viewGraphChildren(
     layoutChildren(flatten(children)),
   ))
 }
@@ -124,7 +124,7 @@ const NavigationStackView = defineView('NavigationStack', {
     return viewHost('NavigationStack', NavigationStackHost, props, navigationStackGraph)
   },
 }) as unknown as PresentationViewCallable<{
-  (router: RouterLike, ...children: Array<ReactNode | VuneBuilder>): StyledElement
+  (router: RouterLike, ...children: Array<ReactNode | MunBuilder>): StyledElement
 }>
 
 export const NavigationStack = NavigationStackView
@@ -201,7 +201,7 @@ function SheetHost({ isPresented, sheetContent, options }: SheetHostProps) {
     if (!mounted || !panel || !isPresented.value) return undefined
     const backdrop = panel.parentElement
     if (backdrop) {
-      const backdrops = [...document.querySelectorAll<HTMLElement>('[data-vune-sheet-backdrop]')]
+      const backdrops = [...document.querySelectorAll<HTMLElement>('[data-mun-sheet-backdrop]')]
       backdrop.style.zIndex = String(1000 + Math.max(0, backdrops.indexOf(backdrop)))
     }
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -248,7 +248,7 @@ function SheetHost({ isPresented, sheetContent, options }: SheetHostProps) {
 
   const panelRadius = options.placement === 'center' ? '16px' : '16px 16px 0 0'
   const backdrop = createElement('div', {
-    'data-vune-sheet-backdrop': '',
+    'data-mun-sheet-backdrop': '',
     role: 'presentation',
     onClick(event: ReactMouseEvent<HTMLDivElement>) {
       if (options.dismissOnBackdrop === false) return
@@ -264,7 +264,7 @@ function SheetHost({ isPresented, sheetContent, options }: SheetHostProps) {
     },
   }, createElement('div', {
     ref: panelRef,
-    'data-vune-sheet': '',
+    'data-mun-sheet': '',
     role: options.role ?? 'dialog',
     'aria-modal': true,
     'aria-label': options.ariaLabel,
@@ -290,7 +290,7 @@ function sheetGraph(props: object): ViewNode {
   const { sheetContent, options } = props as SheetHostProps
   const panelRadius = options.placement === 'center' ? '16px' : '16px 16px 0 0'
   return viewElement('div', {
-    'data-vune-sheet-backdrop': '',
+    'data-mun-sheet-backdrop': '',
     role: 'presentation',
     style: {
       position: 'fixed',
@@ -301,7 +301,7 @@ function sheetGraph(props: object): ViewNode {
       background: 'rgba(0, 0, 0, 0.32)',
     },
   }, [viewElement('div', {
-    'data-vune-sheet': '',
+    'data-mun-sheet': '',
     role: options.role ?? 'dialog',
     'aria-modal': true,
     'aria-label': options.ariaLabel,
@@ -362,8 +362,8 @@ interface AlertHostProps {
 function AlertHost({ isPresented, options }: AlertHostProps): ReactNode {
   const actions = options.actions?.length ? options.actions : [{ label: 'OK', role: 'cancel' as const }]
   const identifier = useId().replace(/[^a-zA-Z0-9_-]/g, '-')
-  const titleId = `vune-alert-title-${identifier}`
-  const messageId = `vune-alert-message-${identifier}`
+  const titleId = `mun-alert-title-${identifier}`
+  const messageId = `mun-alert-message-${identifier}`
   const dialog = createElement('div', {
     style: {
       width: 'min(420px, calc(100vw - 32px))',
@@ -534,7 +534,7 @@ function MenuHost({ label, items }: MenuHostProps) {
     }
   }
 
-  return createElement('details', { ref: detailsRef, 'data-vune-menu': '', onKeyDown, onToggle },
+  return createElement('details', { ref: detailsRef, 'data-mun-menu': '', onKeyDown, onToggle },
     createElement('summary', {
       id: `${menuIdentifier}-trigger`,
       'aria-haspopup': 'menu',
@@ -552,7 +552,7 @@ function MenuHost({ label, items }: MenuHostProps) {
 
 function menuGraph(props: object): ViewNode {
   const { label, items } = props as MenuHostProps
-  return viewElement('details', { 'data-vune-menu': '' }, [
+  return viewElement('details', { 'data-mun-menu': '' }, [
     viewElement('summary', { 'aria-haspopup': 'menu', style: { cursor: 'pointer' } }, [
       viewGraphChild(content(label)),
     ]),
@@ -584,7 +584,7 @@ const MenuView = defineView('Menu', {
     return viewHost('Menu', MenuHost, props, menuGraph)
   },
 }) as unknown as PresentationViewCallable<{
-  (label: ReactNode | Value<string | number>, ...items: Array<ReactNode | VuneBuilder>): StyledElement
+  (label: ReactNode | Value<string | number>, ...items: Array<ReactNode | MunBuilder>): StyledElement
 }>
 
 export const Menu = MenuView

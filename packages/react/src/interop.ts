@@ -8,7 +8,7 @@ import {
   type ModifiableViewNode,
   type ViewValue,
   type BindingRef,
-} from "@vune-ui/core"
+} from "@mun/core/compat"
 
 export type ReactComponentProps<C extends ElementType> = ComponentProps<C>
 type RequiredReactPropKeys<Props> = {
@@ -50,14 +50,14 @@ function componentName(type: unknown): string {
   } catch { return "ReactComponent" }
 }
 
-/** Place a React component or native HTML element in the same Vune graph. */
+/** Place a React component or native HTML element in the same Mün graph. */
 export function Component<C extends ElementType>(type: C, ...args: ReactComponentArguments<C>): ModifiableViewNode
 export function Component(type: ElementType, props: Record<string, unknown> | null = null, ...children: ViewValue[]): ModifiableViewNode {
   if (typeof type === "string") return viewElement(type, props, children)
   return ForeignComponent(type, { props: snapshotComponentProps(props), adapter: "react", name: componentName(type) }, ...children)
 }
 
-/** Adapt a React component into a Vune-callable while preserving its prop surface. */
+/** Adapt a React component into a Mun-callable while preserving its prop surface. */
 export function reactComponent<C extends ElementType>(type: C): ReactComponentView<C> {
   const name = componentName(type)
   const View = defineView(name, {
@@ -88,7 +88,7 @@ export function reactElement(type: ElementType, props?: Record<string, unknown> 
   return createElement(type as any, props, ...children)
 }
 
-/** Adapt a React `useState` pair into a writable Vune Binding lens. */
+/** Adapt a React `useState` pair into a writable Mun Binding lens. */
 export function fromReactState<T>(value: T, setValue: Dispatch<SetStateAction<T>>): BindingRef<T> {
   return Binding(() => value, next => setValue(next))
 }

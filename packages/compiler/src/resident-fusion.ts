@@ -5,7 +5,7 @@ import {
   type KernelMapIR,
   type PackedLayout,
   type ResidentRegionIR,
-} from "@vune-ui/core/internal/execution"
+} from "@mun/core/internal/execution"
 
 /**
  * Residency at a producer-to-consumer connection considered for fusion.

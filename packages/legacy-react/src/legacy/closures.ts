@@ -1,2 +1,2 @@
-/** Compatibility exports. Closure roles are canonical in @vune-ui/core. */
-export * from "@vune-ui/core"
+/** Compatibility exports. Closure roles are canonical in @mun/core. */
+export * from "@mun/core/compat"

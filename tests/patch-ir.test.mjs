@@ -38,9 +38,9 @@ test("Patch IR applies compact dirty text, attribute, property, style, and class
 test("Patch IR child ranges retain anchors and replace only renderer-owned children", () => {
   const document = new JSDOM("<!doctype html><body><div></div></body>").window.document
   const parent = document.querySelector("div")
-  const start = document.createComment("vune:start")
+  const start = document.createComment("mun:start")
   const stale = document.createElement("i")
-  const end = document.createComment("vune:end")
+  const end = document.createComment("mun:end")
   parent.append(start, stale, end)
   const next = document.createElement("b")
   next.textContent = "next"

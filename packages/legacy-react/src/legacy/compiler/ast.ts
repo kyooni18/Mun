@@ -1,55 +1,55 @@
-import { vuneSyntaxError } from './errors.js'
+import { munSyntaxError } from './errors.js'
 
-/** A half-open source range in the original Vune document. */
-export interface VuneSourceRange {
+/** A half-open source range in the original Mun document. */
+export interface MunSourceRange {
   readonly start: number
   readonly end: number
 }
 
-export interface VuneRawExpression {
+export interface MunRawExpression {
   readonly kind: 'raw'
   readonly source: string
-  readonly range: VuneSourceRange
+  readonly range: MunSourceRange
 }
 
-export interface VuneClosureExpression {
+export interface MunClosureExpression {
   readonly kind: 'closure'
   readonly parameter?: string
   /** The source between the closure braces, retained for action lowering. */
   readonly bodySource: string
-  readonly body: VuneBuilderProgram
-  readonly range: VuneSourceRange
+  readonly body: MunBuilderProgram
+  readonly range: MunSourceRange
 }
 
-export interface VuneArgument {
+export interface MunArgument {
   readonly label?: string
-  readonly value: VuneRawExpression | VuneClosureExpression
-  readonly range: VuneSourceRange
+  readonly value: MunRawExpression | MunClosureExpression
+  readonly range: MunSourceRange
 }
 
-export interface VuneCallExpression {
+export interface MunCallExpression {
   readonly kind: 'call'
   readonly callee: string
-  readonly arguments: readonly VuneArgument[]
-  readonly trailing?: VuneClosureExpression
-  readonly range: VuneSourceRange
+  readonly arguments: readonly MunArgument[]
+  readonly trailing?: MunClosureExpression
+  readonly range: MunSourceRange
 }
 
-export interface VuneConditionalExpression {
+export interface MunConditionalExpression {
   readonly kind: 'conditional'
-  readonly condition: VuneRawExpression
-  readonly then: VuneBuilderProgram
-  readonly otherwise?: VuneBuilderProgram | VuneConditionalExpression
-  readonly range: VuneSourceRange
+  readonly condition: MunRawExpression
+  readonly then: MunBuilderProgram
+  readonly otherwise?: MunBuilderProgram | MunConditionalExpression
+  readonly range: MunSourceRange
 }
 
-export type VuneBuilderNode = VuneRawExpression | VuneCallExpression | VuneConditionalExpression
+export type MunBuilderNode = MunRawExpression | MunCallExpression | MunConditionalExpression
 
-export interface VuneBuilderProgram {
+export interface MunBuilderProgram {
   readonly kind: 'program'
   readonly source: string
-  readonly range: VuneSourceRange
-  readonly statements: readonly VuneBuilderNode[]
+  readonly range: MunSourceRange
+  readonly statements: readonly MunBuilderNode[]
 }
 
 type Delimiter = '(' | '{' | '['
@@ -73,7 +73,7 @@ function skipQuoted(source: string, index: number, quote: "'" | '"'): number {
     if (source[i] === '\\') { i += 1; continue }
     if (source[i] === quote) return i + 1
   }
-  throw vuneSyntaxError(`Unclosed ${quote} string in Vune AST`, index)
+  throw munSyntaxError(`Unclosed ${quote} string in Mun AST`, index)
 }
 
 function skipTemplate(source: string, index: number): number {
@@ -84,7 +84,7 @@ function skipTemplate(source: string, index: number): number {
       i = findMatching(source, i + 1, '{')
     }
   }
-  throw vuneSyntaxError('Unclosed template literal in Vune AST', index)
+  throw munSyntaxError('Unclosed template literal in Mun AST', index)
 }
 
 function previousSignificant(source: string, index: number): string | undefined {
@@ -143,7 +143,7 @@ function findMatching(source: string, openIndex: number, open: Delimiter): numbe
     }
     if (char === '/' && next === '*') {
       const end = source.indexOf('*/', i + 2)
-      if (end < 0) throw vuneSyntaxError('Unclosed block comment in Vune AST', i)
+      if (end < 0) throw munSyntaxError('Unclosed block comment in Mun AST', i)
       i = end + 1
       continue
     }
@@ -151,7 +151,7 @@ function findMatching(source: string, openIndex: number, open: Delimiter): numbe
     if (char === open) depth += 1
     if (char === close && --depth === 0) return i
   }
-  throw vuneSyntaxError(`Unclosed ${open} block in Vune AST`, openIndex)
+  throw munSyntaxError(`Unclosed ${open} block in Mun AST`, openIndex)
 }
 
 function nextWord(source: string, index: number): string | undefined {
@@ -195,7 +195,7 @@ function splitTopLevel(source: string, separators: string, baseOffset: number): 
     }
     if (char === '/' && next === '*') {
       const end = source.indexOf('*/', i + 2)
-      if (end < 0) throw vuneSyntaxError('Unclosed block comment in Vune AST', i)
+      if (end < 0) throw munSyntaxError('Unclosed block comment in Mun AST', i)
       i = end + 1
       continue
     }
@@ -231,12 +231,12 @@ function trimSlice(slice: Slice): Slice {
   }
 }
 
-function raw(slice: Slice): VuneRawExpression {
+function raw(slice: Slice): MunRawExpression {
   const value = trimSlice(slice)
   return { kind: 'raw', source: value.source, range: { start: value.start, end: value.end } }
 }
 
-function parseClosure(slice: Slice): VuneClosureExpression | undefined {
+function parseClosure(slice: Slice): MunClosureExpression | undefined {
   const value = trimSlice(slice)
   if (value.source[0] !== '{') return undefined
   const close = findMatching(value.source, 0, '{')
@@ -250,7 +250,7 @@ function parseClosure(slice: Slice): VuneClosureExpression | undefined {
     kind: 'closure',
     parameter: parameterMatch?.[1],
     bodySource,
-    body: parseVuneBuilder(bodySource, bodyOffset),
+    body: parseMunBuilder(bodySource, bodyOffset),
     range: { start: value.start, end: value.end },
   }
 }
@@ -277,7 +277,7 @@ function topLevelColon(source: string): number {
   return -1
 }
 
-function parseArgument(slice: Slice): VuneArgument {
+function parseArgument(slice: Slice): MunArgument {
   const value = trimSlice(slice)
   const colon = topLevelColon(value.source)
   const label = colon < 0 ? undefined : value.source.slice(0, colon).trim()
@@ -292,7 +292,7 @@ function parseArgument(slice: Slice): VuneArgument {
   }
 }
 
-function parseCall(slice: Slice): VuneCallExpression | undefined {
+function parseCall(slice: Slice): MunCallExpression | undefined {
   const value = trimSlice(slice)
   const identifier = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(value.source)
   if (!identifier) return undefined
@@ -300,7 +300,7 @@ function parseCall(slice: Slice): VuneCallExpression | undefined {
   if (value.source[open] !== '(') return undefined
   const close = findMatching(value.source, open, '(')
   const afterClose = skipTrivia(value.source, close + 1)
-  let trailing: VuneClosureExpression | undefined
+  let trailing: MunClosureExpression | undefined
   let end = close + 1
   if (value.source[afterClose] === '{') {
     const blockClose = findMatching(value.source, afterClose, '{')
@@ -320,7 +320,7 @@ function parseCall(slice: Slice): VuneCallExpression | undefined {
   }
 }
 
-function parseConditional(slice: Slice): VuneConditionalExpression | undefined {
+function parseConditional(slice: Slice): MunConditionalExpression | undefined {
   const value = trimSlice(slice)
   if (!/^if\b/.test(value.source)) return undefined
   const open = value.source.indexOf('(')
@@ -333,7 +333,7 @@ function parseConditional(slice: Slice): VuneConditionalExpression | undefined {
   const conditionSlice: Slice = { source: value.source.slice(open + 1, close), start: value.start + open + 1, end: value.start + close }
   const thenSource = value.source.slice(thenOpen + 1, thenClose)
   const thenOffset = value.start + thenOpen + 1
-  let otherwise: VuneBuilderProgram | VuneConditionalExpression | undefined
+  let otherwise: MunBuilderProgram | MunConditionalExpression | undefined
   let end = thenClose + 1
   if (value.source.slice(afterThen, afterThen + 4) === 'else') {
     const elseStart = skipTrivia(value.source, afterThen + 4)
@@ -342,7 +342,7 @@ function parseConditional(slice: Slice): VuneConditionalExpression | undefined {
     if (!otherwise && rest.source[0] === '{') {
       const elseClose = findMatching(rest.source, 0, '{')
       if (skipTrivia(rest.source, elseClose + 1) !== rest.source.length) return undefined
-      otherwise = parseVuneBuilder(rest.source.slice(1, elseClose), rest.start + 1)
+      otherwise = parseMunBuilder(rest.source.slice(1, elseClose), rest.start + 1)
       end = elseStart + elseClose + 1
     } else if (otherwise) {
       end = otherwise.range.end - value.start
@@ -352,13 +352,13 @@ function parseConditional(slice: Slice): VuneConditionalExpression | undefined {
   return {
     kind: 'conditional',
     condition: raw(conditionSlice),
-    then: parseVuneBuilder(thenSource, thenOffset),
+    then: parseMunBuilder(thenSource, thenOffset),
     otherwise,
     range: { start: value.start, end: value.end },
   }
 }
 
-function parseNode(slice: Slice): VuneBuilderNode {
+function parseNode(slice: Slice): MunBuilderNode {
   return parseConditional(slice) ?? parseCall(slice) ?? raw(slice)
 }
 
@@ -378,7 +378,7 @@ function protectLineComment(source: string): string {
     }
     if (char === '/' && next === '*') {
       const end = source.indexOf('*/', i + 2)
-      if (end < 0) throw vuneSyntaxError('Unclosed block comment in Vune AST', i)
+      if (end < 0) throw munSyntaxError('Unclosed block comment in Mun AST', i)
       i = end + 1
       continue
     }
@@ -393,8 +393,8 @@ function protectLineComment(source: string): string {
   return source
 }
 
-/** Parse the Vune builder subset while retaining opaque TypeScript expressions verbatim. */
-export function parseVuneBuilder(source: string, baseOffset = 0): VuneBuilderProgram {
+/** Parse the Mun builder subset while retaining opaque TypeScript expressions verbatim. */
+export function parseMunBuilder(source: string, baseOffset = 0): MunBuilderProgram {
   return {
     kind: 'program',
     source,
@@ -403,34 +403,34 @@ export function parseVuneBuilder(source: string, baseOffset = 0): VuneBuilderPro
   }
 }
 
-export interface VuneStructDeclaration {
+export interface MunStructDeclaration {
   readonly kind: 'struct'
   readonly name: string
   readonly genericParameters?: string
   readonly source: string
   readonly bodySource: string
   readonly bodyExpressionSource: string
-  readonly range: VuneSourceRange
-  readonly bodyRange: VuneSourceRange
-  readonly bodyExpressionRange: VuneSourceRange
-  readonly fields: readonly VuneStructField[]
-  readonly initializers: readonly VuneStructInitializer[]
+  readonly range: MunSourceRange
+  readonly bodyRange: MunSourceRange
+  readonly bodyExpressionRange: MunSourceRange
+  readonly fields: readonly MunStructField[]
+  readonly initializers: readonly MunStructInitializer[]
 }
 
-export interface VuneStructField {
+export interface MunStructField {
   readonly name: string
   readonly kind: 'stored' | 'state' | 'binding'
   readonly type?: string
   readonly initializer?: string
-  readonly range: VuneSourceRange
+  readonly range: MunSourceRange
 }
 
-export interface VuneStructInitializer {
+export interface MunStructInitializer {
   readonly parametersSource: string
   readonly bodySource: string
-  readonly range: VuneSourceRange
-  readonly parametersRange: VuneSourceRange
-  readonly bodyRange: VuneSourceRange
+  readonly range: MunSourceRange
+  readonly parametersRange: MunSourceRange
+  readonly bodyRange: MunSourceRange
 }
 
 function findStructKeyword(source: string, start: number): number {
@@ -445,7 +445,7 @@ function findStructKeyword(source: string, start: number): number {
     }
     if (char === '/' && source[index + 1] === '*') {
       const end = source.indexOf('*/', index + 2)
-      if (end < 0) throw vuneSyntaxError('Unclosed block comment in Vune AST', index)
+      if (end < 0) throw munSyntaxError('Unclosed block comment in Mun AST', index)
       index = end + 1
       continue
     }
@@ -472,7 +472,7 @@ function findGenericEnd(source: string, openIndex: number): number {
     if (char === '<') depth += 1
     if (char === '>' && --depth === 0) return i
   }
-  throw vuneSyntaxError('Unclosed generic parameter list in Vune AST', openIndex)
+  throw munSyntaxError('Unclosed generic parameter list in Mun AST', openIndex)
 }
 
 function findMemberEnd(source: string, start: number): number {
@@ -492,7 +492,7 @@ function findMemberEnd(source: string, start: number): number {
     }
     if (char === '/' && next === '*') {
       const end = source.indexOf('*/', i + 2)
-      if (end < 0) throw vuneSyntaxError('Unclosed block comment in Vune AST', i)
+      if (end < 0) throw munSyntaxError('Unclosed block comment in Mun AST', i)
       i = end + 1
       continue
     }
@@ -511,11 +511,11 @@ function findMemberEnd(source: string, start: number): number {
 }
 
 function parseStructMembers(source: string, baseOffset: number): {
-  fields: VuneStructField[]
-  initializers: VuneStructInitializer[]
+  fields: MunStructField[]
+  initializers: MunStructInitializer[]
 } {
-  const fields: VuneStructField[] = []
-  const initializers: VuneStructInitializer[] = []
+  const fields: MunStructField[] = []
+  const initializers: MunStructInitializer[] = []
   let index = 0
   while (index < source.length) {
     index = skipTrivia(source, index)
@@ -573,8 +573,8 @@ function parseStructMembers(source: string, baseOffset: number): {
 }
 
 /** Parse struct View declarations without interpreting TypeScript expressions inside them. */
-export function parseVuneStructs(source: string, baseOffset = 0): readonly VuneStructDeclaration[] {
-  const declarations: VuneStructDeclaration[] = []
+export function parseMunStructs(source: string, baseOffset = 0): readonly MunStructDeclaration[] {
+  const declarations: MunStructDeclaration[] = []
   let cursor = 0
   while (cursor < source.length) {
     const index = findStructKeyword(source, cursor)
@@ -593,11 +593,11 @@ export function parseVuneStructs(source: string, baseOffset = 0): readonly VuneS
       headerEnd = skipTrivia(source, genericEnd + 1)
     }
     const brace = source.indexOf('{', headerEnd)
-    if (brace < 0) throw vuneSyntaxError(`Missing body for struct ${identifier.name}`, headerEnd + baseOffset)
+    if (brace < 0) throw munSyntaxError(`Missing body for struct ${identifier.name}`, headerEnd + baseOffset)
     const close = findMatching(source, brace, '{')
     const bodySource = source.slice(brace + 1, close)
     const bodyMatch = /\bvar\s+body\s*:[^{]+\{/.exec(bodySource)
-    if (!bodyMatch) throw vuneSyntaxError(`struct ${identifier.name} must declare var body`, index + baseOffset)
+    if (!bodyMatch) throw munSyntaxError(`struct ${identifier.name} must declare var body`, index + baseOffset)
     const bodyOpen = bodySource.indexOf('{', bodyMatch.index! + bodyMatch[0].length - 1)
     const bodyClose = findMatching(bodySource, bodyOpen, '{')
     const bodyExpressionSource = bodySource.slice(bodyOpen + 1, bodyClose)
@@ -623,25 +623,25 @@ export function parseVuneStructs(source: string, baseOffset = 0): readonly VuneS
   return declarations
 }
 
-export interface VuneAstLowering {
-  /** Lower an expression that is not itself a Vune builder node. */
+export interface MunAstLowering {
+  /** Lower an expression that is not itself a Mun builder node. */
   readonly transformRaw: (source: string) => string
   /** Lower a closure after its declaration kind has been inferred by the runtime. */
   readonly closure: (bodySource: string, parameter?: string) => string
 }
 
-function lowerClosure(value: VuneClosureExpression, lowering: VuneAstLowering): string {
+function lowerClosure(value: MunClosureExpression, lowering: MunAstLowering): string {
   return lowering.closure(value.bodySource, value.parameter)
 }
 
-function lowerArgument(argument: VuneArgument, lowering: VuneAstLowering): string {
+function lowerArgument(argument: MunArgument, lowering: MunAstLowering): string {
   const value = argument.value.kind === 'closure'
     ? lowerClosure(argument.value, lowering)
     : lowering.transformRaw(argument.value.source)
   return argument.label ? `${argument.label}: ${value}` : value
 }
 
-function lowerCall(node: VuneCallExpression, lowering: VuneAstLowering): string {
+function lowerCall(node: MunCallExpression, lowering: MunAstLowering): string {
   const values = node.arguments.map(argument => lowerArgument(argument, lowering))
   const labeled = node.arguments.some(argument => argument.label)
   let argumentsSource = values.join(', ')
@@ -658,7 +658,7 @@ function lowerCall(node: VuneCallExpression, lowering: VuneAstLowering): string 
   return `${node.callee}(${argumentsSource})`
 }
 
-function lowerProgram(program: VuneBuilderProgram, lowering: VuneAstLowering): string[] {
+function lowerProgram(program: MunBuilderProgram, lowering: MunAstLowering): string[] {
   return program.statements.map(node => {
     if (node.kind === 'raw') return lowering.transformRaw(protectLineComment(node.source))
     if (node.kind === 'call') return lowerCall(node, lowering)
@@ -673,7 +673,7 @@ function lowerProgram(program: VuneBuilderProgram, lowering: VuneAstLowering): s
   })
 }
 
-function lowerConditional(node: VuneConditionalExpression, lowering: VuneAstLowering): string {
+function lowerConditional(node: MunConditionalExpression, lowering: MunAstLowering): string {
   const thenBranch = lowerProgram(node.then, lowering).join(', ')
   let elseBranch = '[]'
   if (node.otherwise) {
@@ -685,6 +685,6 @@ function lowerConditional(node: VuneConditionalExpression, lowering: VuneAstLowe
 }
 
 /** Lower a parsed builder program to normalized child expressions. */
-export function lowerVuneBuilderAst(program: VuneBuilderProgram, lowering: VuneAstLowering): string[] {
+export function lowerMunBuilderAst(program: MunBuilderProgram, lowering: MunAstLowering): string[] {
   return lowerProgram(program, lowering)
 }

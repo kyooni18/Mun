@@ -1,1 +1,1 @@
-export * from "@vune-ui/core"
+export * from "@mun/core"

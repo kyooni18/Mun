@@ -20,19 +20,20 @@ const targets = [
 ]
 
 if (!existsSync(tsc)) {
-  console.error('Vune dependencies are not installed. Run `pnpm install` first.')
+  console.error('Mün dependencies are not installed. Run `pnpm install` first.')
   process.exit(1)
 }
 
 if (!process.argv.includes('--no-build')) {
   const pnpmCli = process.env.npm_execpath
-  const command = pnpmCli ? process.execPath : 'pnpm'
-  const args = pnpmCli ? [pnpmCli, 'run', 'build'] : ['run', 'build']
+  const cliIsJavaScript = Boolean(pnpmCli && /\.(?:cjs|mjs|js)$/u.test(pnpmCli))
+  const command = pnpmCli ? (cliIsJavaScript ? process.execPath : pnpmCli) : 'pnpm'
+  const args = cliIsJavaScript ? [pnpmCli, 'run', 'build'] : ['run', 'build']
   const build = spawnSync(command, args, { cwd: root, stdio: 'inherit', env: process.env })
   if (build.status !== 0) process.exit(build.status ?? 1)
 }
 
-console.log('Watching Vune package outputs. Press Ctrl+C to stop.')
+console.log('Watching Mün package outputs. Press Ctrl+C to stop.')
 const children = targets.map(([name, config]) => {
   const child = spawn(process.execPath, [tsc, '--watch', '--project', resolve(root, config), '--preserveWatchOutput'], {
     cwd: root,

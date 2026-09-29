@@ -24,7 +24,7 @@ export function createInterpolator(from, to, options = {}) {
   }
   if (options.type === 'color') return interpolateColor(from, to, options.color);
   if (options.type === 'path' || options.type === 'material') {
-    throw new TypeError(`The CSS interpolator does not include ${options.type} interpolation. Import from @vune-ui/animation/interpolate for that feature.`);
+    throw new TypeError(`The CSS interpolator does not include ${options.type} interpolation. Import from @mun/animation/interpolate for that feature.`);
   }
   if (typeof from === 'string' && typeof to === 'string') {
     try { return interpolateColor(from, to, options.color); } catch {}

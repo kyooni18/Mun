@@ -1,4 +1,4 @@
-import { APPLE_CONTINUOUS_CORNER_SMOOTHING, continuousCornerPath, expandCornerRadiusShorthand } from "@vune-ui/core/corners"
+import { APPLE_CONTINUOUS_CORNER_SMOOTHING, continuousCornerPath, expandCornerRadiusShorthand } from "@mun/core/corners"
 
 const observers = new WeakMap<Element, ResizeObserver>()
 const lastClip = new WeakMap<Element, string>()
@@ -17,8 +17,8 @@ function update(element: Element): void {
   const size = Math.min(width, height)
   const css = view.getComputedStyle(element)
   const shorthand = expandCornerRadiusShorthand(css.borderRadius)
-  const smoothing = Number.parseFloat(css.getPropertyValue("--vune-corner-smoothing"))
-  const preserveSmoothing = css.getPropertyValue("--vune-corner-preserve-smoothing").trim() !== "0"
+  const smoothing = Number.parseFloat(css.getPropertyValue("--mun-corner-smoothing"))
+  const preserveSmoothing = css.getPropertyValue("--mun-corner-preserve-smoothing").trim() !== "0"
   const path = continuousCornerPath(width, height, {
     topLeft: radius(css.borderTopLeftRadius || shorthand.topLeft, size),
     topRight: radius(css.borderTopRightRadius || shorthand.topRight, size),
@@ -35,7 +35,7 @@ function update(element: Element): void {
 function hasContinuousCorners(style: unknown): boolean {
   return typeof style === "object"
     && style !== null
-    && (style as Record<string, unknown>)["--vune-corner-style"] === "continuous"
+    && (style as Record<string, unknown>)["--mun-corner-style"] === "continuous"
 }
 
 export function syncContinuousCorners(element: Element, style: unknown): void {

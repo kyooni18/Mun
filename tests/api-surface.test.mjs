@@ -1,48 +1,40 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import test from "node:test"
 import ts from "typescript"
 import * as compiler from "../packages/compiler/dist/index.js"
 import * as core from "../packages/core/dist/index.js"
-import * as vune from "../dist/index.js"
+import * as compat from "../packages/core/dist/compat.js"
+import * as mun from "../dist/index.js"
 import * as react from "../packages/react/dist/index.js"
 import * as vue from "../packages/vue/dist/index.js"
 import * as web from "../packages/web/dist/index.js"
 
-const coreRuntimeExports = [
-  "Action", "Alert", "Binding", "BindingValue", "Box", "Button", "Capsule", "Circle", "ContentTransition", "Divider", "Element", "ElementRef", "ForEach",
-  "ForeignComponent", "GeometryReader", "Grid", "Group", "HStack", "Image", "Key", "Label", "LazyGrid", "LazyHStack", "LazyVStack", "Link", "List", "Menu",
-  "VuneInitializerAmbiguityError", "VuneInitializerError", "NavigationLink", "NavigationStack", "Path", "Picker", "ProgressView", "Rectangle", "RoundedRectangle", "SafeArea", "ScrollView",
-  "Section", "Sheet", "Slider", "Spacer", "State", "Stepper", "Switch", "SymbolEffect", "Text", "TextArea", "TextEditor", "TextField", "Toggle", "Transition", "VStack", "VectorSymbol", "ViewBuilder",
-  "ViewIdentityStore", "ViewType", "ZStack", "actionClosure", "assertInitializerCall", "classNameOf", "closureForKind", "closureKindOf",
-  "closureVariantsOf", "collectLogicalViewIdentities", "collectStateReads", "compiledTemplate", "createViewIdentityStore", "createViewNode", "defineBuiltinView", "defineCompiledTemplate", "defineView", "edgeInsetsFromCss",
-  "flattenViewBuilder", "frameStyle", "geometryView", "initializer", "initializerKinds", "initializersOf", "isBinding", "isForeignComponent", "isStateRef", "isViewNode",
-  "keyedViewIdentity", "layoutLength", "lazyView", "markVuneClosure", "modifiedContent", "modifiedContentCompiled", "modifier", "modifierGraphOf", "vuneClosureKind", "vuneClosureVariants",
-  "vuneForeignComponent", "vuneInitializers", "vuneNamedArguments", "vuneView", "namedArguments", "overloadClosure", "registerInitializers", "renderViewNode",
-  "resolveBuilderClosure", "resolveBuilderInput", "resolveInitializer", "resolveSemanticCall", "resolveSemanticInitializer", "resolveValue", "SemanticModel", "semanticHtmlAttributeNames", "semanticHtmlAttributeSpec", "semanticHtmlTagNames", "semanticHtmlTagSpec", "stateVersion", "structView", "subscribeState", "valueClosure", "viewBuilderClosure", "viewBuilderSemanticSymbol",
-  "viewElement", "viewFragment", "viewHost", "viewIdentityKey", "viewTypeIdentity", "zeroGeometry",
-  "Animation", "Transaction", "animationCSSStyle", "currentRenderTransaction", "currentTransaction", "snapshotTransaction", "stateTransaction",
-  "swiftUIAnimatableModifierNames", "swiftUIAnimationFactoryArgumentLabels", "swiftUIApiManifest", "swiftUICanonicalModifierNames",
-  "swiftUIInitializerSymbols", "swiftUIModifierLowering", "swiftUIStaticModifierNames", "swiftUIViewNames", "withAnimation", "withRenderTransaction", "withTransaction",
-].sort()
-
-const coreTypeOnlyExports = [
-  "AlertProps", "BindingRef", "BoxProps", "ClassValue", "CompiledTemplateDescriptor", "CompiledTemplateElement", "CompiledTemplateFragment", "CompiledTemplateSlot", "CompiledTemplateValue", "CompiledTemplateViewNode", "ContentTransitionDescriptor", "Edge", "EdgeInsets", "EdgeSet", "ElementViewNode", "FragmentViewNode", "FrameAlignment", "FrameOptions",
-  "GeometryFrame", "GeometryProxy", "GeometryReaderCall", "GeometryReaderProps", "GeometryViewNode", "GridOptions", "GridProps", "HStackOptions",
-  "HStackProps", "ImageOptions", "ImageProps", "InitializerMatch", "InitializerParameter", "InitializerParameterKind", "InitializerResolution",
-  "LabelProps", "LayoutEdgeInsets", "LazyGridOptions", "LazyGridProps", "LazyHStackOptions", "LazyHStackProps", "LazyOptions", "LazyVStackOptions", "LazyVStackProps", "LazyViewNode", "LazyViewRange", "Length", "LinkProps", "MenuProps", "ModifiableViewNode", "ModifiedContent", "Modifiers", "VuneClosure", "VuneClosureKind",
-  "ForeignComponentDescriptor", "ForeignComponentOptions", "ForeignComponentSchema", "ForeignComponentSlot", "VuneClosureVariants", "VuneCustomElementAttributes", "VuneDOMEvent", "VuneEventHandler", "VuneEventTarget", "VuneGlobalHtmlAttributes", "NamedArguments",
-  "SemanticArgument", "SemanticArgumentKind", "SemanticBindingSymbol", "SemanticBuilderTypeSymbol", "SemanticCallResolution", "SemanticClosureRole", "SemanticFieldSymbol", "SemanticForeignComponentTypeSymbol", "SemanticHtmlAttributeCategory", "SemanticHtmlAttributeSpec", "SemanticHtmlAttributeSymbol", "SemanticHtmlAttributeValueType", "SemanticHtmlElementSymbol", "SemanticHtmlTagSpec", "SemanticInitializerParameter", "SemanticInitializerParameterKind", "SemanticInitializerResolution", "SemanticInitializerResolutionFailure", "SemanticInitializerResolutionResult", "SemanticInitializerSymbol", "SemanticResolutionDiagnostic", "SemanticStateSymbol", "SemanticStructSymbol", "SemanticSymbol", "SemanticViewTypeSymbol",
-  "VuneHtmlAttributes", "VuneHtmlEventAttributes", "VuneHtmlTagName", "VuneRenderer", "VuneStyleProperties", "VuneStyleValue", "NavigationLinkProps",
-  "NavigationStackProps", "PathProps", "PickerOption", "PickerProps", "ProgressViewOptions", "ProgressViewProps", "RoundedRectangleProps", "SafeAreaCall",
-  "SafeAreaEdge", "SafeAreaProps", "ScrollAxis", "ScrollViewCall", "ScrollViewProps", "SheetProps", "SliderOptions", "SliderProps", "SpacerCall",
-  "SpacerProps", "StackCall", "StateRef", "StepperProps", "SwitchOptions", "SwitchProps", "SymbolEffectDescriptor", "SymbolReplacementFallback", "SymbolReplacementMode", "TextAreaProps", "TextEditorProps", "TextFieldProps", "TextTransitionDirection", "ToggleProps", "TransitionDescriptor", "TransitionEdge", "TransitionEffect", "TypedViewConstructor",
-  "LucideIconDataLike", "SVGIconAttributeValue", "SVGIconNode", "SVGIconOptions", "VStackOptions", "VStackProps", "Value", "VectorSymbolDescriptor", "VectorSymbolLayer", "VectorSymbolOptions", "View", "ViewBuilderClosure", "ViewBuilderContent", "ViewBuilderResult", "ViewConstructor",
-  "ViewConstructorMetadata", "ViewDefinition", "ViewFieldDefinition", "ViewGraphChild", "ViewGraphLeaf", "ViewGraphValue", "ViewHostNode",
-  "ViewIdentity", "ViewIdentitySegment", "ViewModifier", "ViewModifierNode", "ViewNode", "ViewValue", "ZStackOptions", "ZStackProps",
-  "AnimationCSSStyle", "AnimationDescriptor", "AnimationKind", "OffsetValue", "Point", "ScaleEffectValue", "Size", "SwiftUIApiKind",
-  "SwiftUIInitializerSpec", "SwiftUIModifierLoweringSpec", "SwiftUIModifierSpec", "SwiftUIViewSpec", "TransactionOptions",
+const canonicalRuntimeExports = [
+  "Animation",
+  "SemanticModel",
+  "Transaction",
+  "Transition",
+  "actionClosure",
+  "closureForKind",
+  "closureKindOf",
+  "closureVariantsOf",
+  "currentTransaction",
+  "markMunClosure",
+  "munClosureKind",
+  "munClosureVariants",
+  "munMotionPropertyBit",
+  "munMotionPropertyMask",
+  "munMotionPropertyNames",
+  "overloadClosure",
+  "resolveSemanticCall",
+  "resolveSemanticInitializer",
+  "snapshotTransaction",
+  "swiftUIAnimationFactoryArgumentLabels",
+  "valueClosure",
+  "viewBuilderClosure",
+  "withAnimation",
+  "withTransaction",
 ].sort()
 
 function declarationExports(path) {
@@ -61,65 +53,88 @@ function declarationExports(path) {
   return checker.getExportsOfModule(symbol).map(item => item.name).sort()
 }
 
-test("the 1.0 candidate core runtime surface changes only through an explicit snapshot update", () => {
-  assert.deepEqual(Object.keys(core).sort(), coreRuntimeExports)
-  assert.deepEqual(Object.keys(vune).sort(), coreRuntimeExports)
-})
+test("canonical runtime exports are backend-neutral", () => {
+  assert.deepEqual(Object.keys(core).sort(), canonicalRuntimeExports)
+  assert.deepEqual(Object.keys(mun).sort(), canonicalRuntimeExports)
 
-test("React adds only renderer APIs and preserves canonical export identity", () => {
-  const reactOnly = Object.keys(react).filter(name => !(name in core)).sort()
-  assert.deepEqual(reactOnly, ["Component", "VuneView", "Raw", "createReactView", "createRenderer", "foreignComponent", "fromReactState", "mount", "reactComponent", "reactElement", "render", "statefulView", "useVuneState", "view"].sort())
-  for (const name of coreRuntimeExports) assert.equal(react[name], core[name], `${name} must remain a core compatibility re-export`)
-})
-
-test("Vue, Web, and compiler renderer surfaces remain intentionally narrow", () => {
-  assert.deepEqual(Object.keys(vue).sort(), ["Component", "VuneView", "createVueView", "foreignComponent", "fromVueRef", "mount", "render", "toVueRef", "vueComponent"])
-  assert.deepEqual(Object.keys(web).sort(), ["mount", "renderToHTML"])
-  assert.deepEqual(Object.keys(compiler).sort(), [
-    "SemanticModel", "compileVuneFile", "createVuneLanguageService", "createVuneSemanticModel", "createVuneVitePlugin", "diagnoseVuneSource", "formatVuneSource", "generateVueHostModule", "lowerVuneBuilderAst",
-    "mapGeneratedPosition", "mapOriginalPosition", "parseVuneBuilder", "parseVuneStructs", "resolveSemanticCall", "resolveSemanticInitializer", "semanticHtmlAttributeNames", "semanticHtmlAttributeSpec", "semanticHtmlTagNames", "semanticHtmlTagSpec", "transformVuneSource",
-  ])
-})
-
-test("canonical authoring does not expose renderer-owned materialization APIs", () => {
-  for (const name of ["Component", "VuneView", "Raw", "mount", "reactElement", "render", "renderToHTML", "view"]) {
-    assert.equal(name in vune, false, `${name} belongs to a renderer package`)
+  for (const name of [
+    "Element",
+    "Text",
+    "State",
+    "MunInitializerError",
+    "semanticHtmlTagNames",
+    "mount",
+    "renderToHTML",
+  ]) {
+    assert.equal(name in core, false)
   }
 })
 
-test("@vune-ui/react canonical entry stays independent from legacy compiler machinery", () => {
-  const canonicalFiles = ["index.js", "renderer.js", "views.js", "controls.js", "advanced.js", "interop.js", "presentation.js"]
-  const source = canonicalFiles.map(file => readFileSync(resolve(`packages/react/dist/${file}`), "utf8")).join("\n")
-  assert.doesNotMatch(source, /legacy|typescript|@vune-ui\/compiler/)
-  const manifest = JSON.parse(readFileSync(resolve("packages/react/package.json"), "utf8"))
-  assert.equal(manifest.dependencies?.typescript, "^5.8.3")
-  assert.equal(manifest.peerDependencies?.typescript, undefined)
-  assert.equal(manifest.dependencies?.["@vune-ui/legacy-react"], undefined)
-  const legacyManifest = JSON.parse(readFileSync(resolve("packages/legacy-react/package.json"), "utf8"))
-  assert.equal(legacyManifest.dependencies?.typescript, "^5.8.3")
-  assert.doesNotMatch(readFileSync(resolve("packages/react/src/legacy/compiler/index.ts"), "utf8"), /@vune-ui\/legacy-react/)
+test("compatibility graph is explicit and renderer adapters consume it", () => {
+  for (const name of ["Element", "Text", "State", "VStack", "viewElement", "renderViewNode"]) {
+    assert.equal(typeof compat[name], "function")
+  }
+  assert.equal(react.Text, compat.Text)
+  assert.equal(react.Element, compat.Element)
+  assert.equal(typeof react.render, "function")
+  assert.equal(typeof vue.render, "function")
 })
 
-test("the 1.0 candidate declaration surface includes type-only exports in the freeze gate", () => {
-  const coreDeclarations = [...coreRuntimeExports, ...coreTypeOnlyExports].sort()
-  assert.deepEqual(declarationExports("packages/core/dist/index.d.ts"), coreDeclarations)
-  assert.deepEqual(declarationExports("dist/index.d.ts"), coreDeclarations)
-  const reactDeclarations = declarationExports("packages/react/dist/index.d.ts")
-  assert.deepEqual(reactDeclarations.filter(name => !coreDeclarations.includes(name)), [
-    "Component", "ReactComponentProps", "ReactComponentView", "ReactMountOptions", "Raw", "StatefulViewDefinition", "VuneView", "VuneViewProps", "createReactView", "createRenderer", "foreignComponent", "fromReactState", "mount", "reactComponent", "reactElement", "render", "statefulView", "useVuneState", "view",
-  ].sort())
-  assert.deepEqual(declarationExports("packages/vue/dist/index.d.ts"), [
-    "Component", "VuneView", "VuneViewProps", "VuneVueSlot", "VueComponentProps", "VueComponentView", "VueMountOptions", "VueView",
-    "createVueView", "foreignComponent", "fromVueRef", "mount", "render", "toVueRef", "vueComponent",
-  ].sort())
-  assert.deepEqual(declarationExports("packages/web/dist/index.d.ts"), ["WebMountOptions", "mount", "renderToHTML"].sort())
-  assert.deepEqual(declarationExports("packages/compiler/dist/index.d.ts"), [
-    "VuneArgument", "VuneAstLowering", "VuneBuilderNode", "VuneBuilderProgram", "VuneCallExpression", "VuneClosureExpression",
-    "VuneConditionalExpression", "VuneDiagnostic", "VuneLanguageService", "VuneRawExpression", "VuneSemanticCall", "VuneSemanticField",
-    "VuneSemanticForeignComponent", "VuneSemanticHtmlDiagnostic", "VuneSemanticHtmlElement", "VuneSemanticImport", "VuneSemanticInitializer", "VuneSemanticModel", "VuneSemanticView", "VuneSourceMap", "VuneSourceMapAnchor",
-    "VuneSourcePosition", "VuneSourceRange", "VuneStructDeclaration", "VuneStructField", "VuneStructInitializer", "VuneTransformResult",
-    "VuneVitePluginOptions", "VuneVueHostGenerationOptions", "VuneVueHostGenerationResult", "SemanticArgument", "SemanticArgumentKind", "SemanticBindingSymbol", "SemanticBuilderTypeSymbol", "SemanticCallResolution", "SemanticClosureRole", "SemanticFieldSymbol", "SemanticForeignComponentTypeSymbol", "SemanticHtmlAttributeCategory", "SemanticHtmlAttributeSpec", "SemanticHtmlAttributeSymbol", "SemanticHtmlAttributeValueType", "SemanticHtmlElementSymbol", "SemanticHtmlTagSpec", "SemanticInitializerParameter", "SemanticInitializerParameterKind", "SemanticInitializerResolution", "SemanticInitializerResolutionFailure", "SemanticInitializerResolutionResult", "SemanticInitializerSymbol", "SemanticModel", "SemanticResolutionDiagnostic", "SemanticStateSymbol", "SemanticStructSymbol", "SemanticSymbol", "SemanticViewTypeSymbol",
-    "compileVuneFile", "createVuneLanguageService", "createVuneSemanticModel", "createVuneVitePlugin", "diagnoseVuneSource", "formatVuneSource", "generateVueHostModule",
-    "lowerVuneBuilderAst", "mapGeneratedPosition", "mapOriginalPosition", "parseVuneBuilder", "parseVuneStructs", "resolveSemanticCall", "resolveSemanticInitializer", "semanticHtmlAttributeNames", "semanticHtmlAttributeSpec", "semanticHtmlTagNames", "semanticHtmlTagSpec", "transformVuneSource",
-  ].sort())
+test("Web and compiler surfaces expose semantic IR routes without redefining core", () => {
+  assert.deepEqual(Object.keys(web).sort(), [
+    "mount",
+    "renderMunUiProgramToHTML",
+    "renderToHTML",
+  ])
+
+  for (const name of [
+    "compileMunFile",
+    "compileMunUiProgram",
+    "createMunSemanticModel",
+    "diagnoseMunSource",
+    "transformMunSource",
+  ]) {
+    assert.equal(typeof compiler[name], "function")
+  }
+
+  for (const stale of [
+    "semanticHtmlAttributeNames",
+    "semanticHtmlAttributeSpec",
+    "semanticHtmlTagNames",
+    "semanticHtmlTagSpec",
+  ]) {
+    assert.equal(stale in compiler, false)
+  }
+})
+
+test("canonical declaration surfaces contain Semantic UI IR and exclude browser graph contracts", () => {
+  const coreDeclarations = declarationExports("packages/core/dist/index.d.ts")
+  for (const name of [
+    "MunUiProgram",
+    "MunUiNode",
+    "MunUiExpression",
+    "MunUiLayout",
+    "MunUiVisual",
+    "MunUiTransaction",
+  ]) {
+    assert.ok(coreDeclarations.includes(name), `${name} should be exported by canonical core declarations`)
+  }
+
+  for (const name of [
+    "Element",
+    "MunDOMEvent",
+    "MunHtmlTagName",
+    "MunStyleProperties",
+    "SemanticHtmlElementSymbol",
+  ]) {
+    assert.equal(coreDeclarations.includes(name), false, `${name} belongs outside canonical core`)
+  }
+
+  const compilerDeclarations = declarationExports("packages/compiler/dist/index.d.ts")
+  assert.ok(compilerDeclarations.includes("compileMunUiProgram"))
+  assert.equal(compilerDeclarations.some(name => name.startsWith("SemanticHtml") || name.startsWith("MunSemanticHtml")), false)
+
+  const compatDeclarations = declarationExports("packages/core/dist/compat.d.ts")
+  assert.ok(compatDeclarations.includes("Element"))
+  assert.ok(compatDeclarations.includes("MunHtmlTagName"))
 })

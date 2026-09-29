@@ -1,1 +1,1 @@
-export * from "@vune-ui/react/legacy/compiler"
+export * from "@mun/react/legacy/compiler"

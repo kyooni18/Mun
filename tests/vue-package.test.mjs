@@ -11,11 +11,11 @@ import {
   VStack,
   compiledTemplate,
   defineCompiledTemplate,
-} from "../packages/core/dist/index.js"
-import { initializersOf, namedArguments } from "../packages/core/dist/index.js"
+} from "../packages/core/dist/compat.js"
+import { initializersOf, namedArguments } from "../packages/core/dist/compat.js"
 import {
   Component,
-  VuneView,
+  MunView,
   createVueView,
   foreignComponent,
   fromVueRef,
@@ -24,25 +24,25 @@ import {
   vueComponent,
 } from "../packages/vue/dist/index.js"
 
-test("@vune-ui/vue renders the renderer-independent graph as Vue VNodes", async () => {
+test("@mun/vue renders the renderer-independent graph as Vue VNodes", async () => {
   const value = VStack(() => [Text("Hello Vue"), Button("Save", () => undefined)])
-  const html = await renderToString(createSSRApp({ render: () => h(VuneView, { value }) }))
+  const html = await renderToString(createSSRApp({ render: () => h(MunView, { value }) }))
   assert.match(html, /Hello Vue/)
   assert.match(html, /<button[^>]*><span>Save<\/span><\/button>/)
-  assert.match(html, /data-vune="VStack"/)
+  assert.match(html, /data-mun="VStack"/)
   const styled = await renderToString(createSSRApp({ render: () => render(Text("Styled").className(["card", false, "active"])) }))
   assert.match(styled, /class="card active"/)
 })
 
-test("@vune-ui/vue VuneView can suppress explicit animation styles at the host boundary", async () => {
+test("@mun/vue MunView can suppress explicit animation styles at the host boundary", async () => {
   const value = Text("Still").opacity(0.5).animation(Animation.linear(0.4), 0.5)
-  const animated = await renderToString(createSSRApp({ render: () => h(VuneView, { value }) }))
-  const suppressed = await renderToString(createSSRApp({ render: () => h(VuneView, { value, disablesAnimations: true }) }))
+  const animated = await renderToString(createSSRApp({ render: () => h(MunView, { value }) }))
+  const suppressed = await renderToString(createSSRApp({ render: () => h(MunView, { value, disablesAnimations: true }) }))
   assert.match(animated, /transition-duration:0.4s/)
   assert.doesNotMatch(suppressed, /transition-duration/)
 })
 
-test("@vune-ui/vue materializes compiled templates as native Vue VNodes", async () => {
+test("@mun/vue materializes compiled templates as native Vue VNodes", async () => {
   const template = defineCompiledTemplate({
     kind: "element", type: "div", props: { class: "compiled" }, children: [
       { kind: "element", type: "span", props: null, children: ["Static"] },
@@ -53,7 +53,7 @@ test("@vune-ui/vue materializes compiled templates as native Vue VNodes", async 
   assert.match(html, /<div class="compiled"><span>Static<\/span><span>Vue template<\/span><\/div>/)
 })
 
-test("Vue components enter Vune before Vue materialization and Vune Views enter Vue SFCs", async () => {
+test("Vue components enter Mun before Vue materialization and Mün Views enter Vue SFCs", async () => {
   const Badge = defineComponent({
     props: { label: { type: String, required: true } },
     setup(props) { return () => h("strong", null, props.label) },
@@ -61,14 +61,14 @@ test("Vue components enter Vune before Vue materialization and Vune Views enter 
   const value = VStack(Component(Badge, { label: "Vue component" }))
   const html = await renderToString(createSSRApp({ render: () => render(value) }))
   assert.match(html, /<strong>Vue component<\/strong>/)
-  const VuneBadge = foreignComponent(Badge)
-  assert.equal(VuneBadge({ label: "Graph Vue" }).kind, "element")
-  const adaptedHtml = await renderToString(createSSRApp({ render: () => render(VuneBadge({ label: "Adapted Vue" })) }))
+  const MunBadge = foreignComponent(Badge)
+  assert.equal(MunBadge({ label: "Graph Vue" }).kind, "element")
+  const adaptedHtml = await renderToString(createSSRApp({ render: () => render(MunBadge({ label: "Adapted Vue" })) }))
   assert.match(adaptedHtml, /<strong>Adapted Vue<\/strong>/)
-  assert.equal(initializersOf(VuneBadge).length, 1)
-  const LegacyVuneBadge = vueComponent(Badge)
-  assert.equal(initializersOf(LegacyVuneBadge).length, 1)
-  const namedHtml = await renderToString(createSSRApp({ render: () => render(VuneBadge(namedArguments({ label: "Named Vue" }))) }))
+  assert.equal(initializersOf(MunBadge).length, 1)
+  const LegacyMunBadge = vueComponent(Badge)
+  assert.equal(initializersOf(LegacyMunBadge).length, 1)
+  const namedHtml = await renderToString(createSSRApp({ render: () => render(MunBadge(namedArguments({ label: "Named Vue" }))) }))
   assert.match(namedHtml, /<strong>Named Vue<\/strong>/)
 
   const Panel = defineComponent({
@@ -82,8 +82,8 @@ test("Vue components enter Vune before Vue materialization and Vune Views enter 
   assert.match(panelHtml, /<span>Body<\/span>/)
 
   const Greeting = createVueView(props => Text(`Hello ${props.name}`))
-  const greetingHtml = await renderToString(createSSRApp({ render: () => h(Greeting, { name: "Vune" }) }))
-  assert.match(greetingHtml, /Hello Vune/)
+  const greetingHtml = await renderToString(createSSRApp({ render: () => h(Greeting, { name: "Mun" }) }))
+  assert.match(greetingHtml, /Hello Mun/)
 })
 
 test("Vue component adapters isolate revoked and accessor props", () => {
@@ -111,8 +111,8 @@ test("Vue component adapters isolate revoked and accessor props", () => {
   assert.equal(getterCalls, 0)
 })
 
-test("Vue scoped slots and provide/inject cross the Vune graph without losing Vue ownership", async () => {
-  const key = Symbol("vune-context")
+test("Vue scoped slots and provide/inject cross the Mün graph without losing Vue ownership", async () => {
+  const key = Symbol("mun-context")
   const Provider = defineComponent({
     setup(_props, { slots }) {
       provide(key, "provided")
@@ -132,7 +132,7 @@ test("Vue scoped slots and provide/inject cross the Vune graph without losing Vu
   assert.match(html, /Scoped slot/)
 })
 
-test("Vue async components and Suspense retain native slot semantics inside Vune", async () => {
+test("Vue async components and Suspense retain native slot semantics inside Mun", async () => {
   const AsyncBadge = defineAsyncComponent(async () => defineComponent({
     setup: () => () => h("strong", null, "Async Vue"),
   }))
@@ -144,7 +144,7 @@ test("Vue async components and Suspense retain native slot semantics inside Vune
   assert.match(html, /<strong>Async Vue<\/strong>/)
 })
 
-test("@vune-ui/vue preserves component events, refs, and graph keys", () => {
+test("@mun/vue preserves component events, refs, and graph keys", () => {
   const save = () => undefined
   const reference = ref(null)
   const vnode = render(Component("button", { onclick: save, ref: reference }, Text("Save")).keyed("save"))
@@ -153,7 +153,7 @@ test("@vune-ui/vue preserves component events, refs, and graph keys", () => {
   assert.equal(vnode.props?.ref, reference)
 })
 
-test("Vue and Vune reactivity cross only through explicit ref bridges", () => {
+test("Vue and Mun reactivity cross only through explicit ref bridges", () => {
   const state = State(1)
   const vueState = toVueRef(state)
   vueState.value = 2
@@ -184,9 +184,9 @@ test("toVueRef invalidates Vue effects exactly once per State change", () => {
   stop()
 })
 
-test("@vune-ui/vue materializes GeometryReader through a measured host boundary", async () => {
+test("@mun/vue materializes GeometryReader through a measured host boundary", async () => {
   const value = GeometryReader(geometry => Text(`${geometry.size.width}x${geometry.size.height}`))
   const html = await renderToString(createSSRApp({ render: () => render(value) }))
-  assert.match(html, /data-vune="GeometryReader"/)
+  assert.match(html, /data-mun="GeometryReader"/)
   assert.match(html, /0x0/)
 })

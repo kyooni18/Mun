@@ -6,10 +6,10 @@ import {
 } from "../packages/core/dist/resident-execution.js"
 import { emitResidentRegionJS } from "../packages/compiler/dist/resident-js.js"
 
-const count = Number.parseInt(process.env.VUNE_RESIDENT_ROWS ?? "100000", 10)
-const frames = Number.parseInt(process.env.VUNE_RESIDENT_FRAMES ?? "60", 10)
+const count = Number.parseInt(process.env.MUN_RESIDENT_ROWS ?? "100000", 10)
+const frames = Number.parseInt(process.env.MUN_RESIDENT_FRAMES ?? "60", 10)
 if (!Number.isSafeInteger(count) || count <= 0 || !Number.isSafeInteger(frames) || frames <= 0) {
-  throw new Error("VUNE_RESIDENT_ROWS and VUNE_RESIDENT_FRAMES must be positive integers")
+  throw new Error("MUN_RESIDENT_ROWS and MUN_RESIDENT_FRAMES must be positive integers")
 }
 
 const layout = definePackedLayout([
@@ -59,7 +59,7 @@ const region = defineResidentRegion({
   outputResidency: "packed",
   estimatedTransferBytes: 0,
 })
-const executorName = "__vuneResidentBenchmark"
+const executorName = "__munResidentBenchmark"
 const executor = Function(`"use strict"; ${emitResidentRegionJS(region, executorName)}; return ${executorName}`)()
 
 let objects = Array.from({ length: count }, (_, index) => ({

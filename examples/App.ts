@@ -10,14 +10,14 @@ import {
   TextField,
   Toggle,
   VStack,
-} from 'vune-ui'
-import { view } from '@vune-ui/react'
+} from '@mun/ui'
+import { view } from '@mun/react'
 import moduleStyles from './demo.module.css'
 
 const codeSample = `const count = State(0)
 
 VStack(
-  Text('Hello, Vune'),
+  Text('Hello, Mun'),
   Button('Count: ' + count.value, ...),
 )`
 
@@ -32,7 +32,7 @@ function ComponentRow(label: string, content: any) {
 
 export default view({
   state: () => ({
-    text: State('Vune'),
+    text: State('Mun'),
     value: State(60),
     checked: State(true),
   }),
@@ -64,7 +64,7 @@ export default view({
     VStack(
       { alignment: 'leading', spacing: 10 },
       Text('Components').className('section-label'),
-      ComponentRow('Text', Text('Hello, Vune').className('object-preview')),
+      ComponentRow('Text', Text('Hello, Mun').className('object-preview')),
       ComponentRow('Button', Button('Button', () => {}).className('demo-button')),
       ComponentRow('ProgressView', ProgressView(0.7, { max: 1 }).withProps({ 'aria-label': 'Demo progress' }).className('object-progress')),
       ComponentRow('Toggle', Toggle('Component toggle', Binding(checked))),

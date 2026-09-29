@@ -11,8 +11,8 @@ import {
 import { compiledCollectionContent } from "../packages/core/dist/internal-runtime.js"
 import { mount } from "../packages/web/dist/index.js"
 
-const rowCount = Number.parseInt(process.env.VUNE_COLLECTION_ROWS ?? "25000", 10)
-if (!Number.isSafeInteger(rowCount) || rowCount < 3) throw new Error("VUNE_COLLECTION_ROWS must be an integer >= 3")
+const rowCount = Number.parseInt(process.env.MUN_COLLECTION_ROWS ?? "25000", 10)
+if (!Number.isSafeInteger(rowCount) || rowCount < 3) throw new Error("MUN_COLLECTION_ROWS must be an integer >= 3")
 
 function ms(start) {
   return Number((performance.now() - start).toFixed(3))

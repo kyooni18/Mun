@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import ts from 'typescript'
-import { vuneMacro, transformVuneMacros } from '../dist/vite.js'
+import { munMacro, transformMunMacros } from '../dist/vite.js'
 import { State, Text, view } from '../dist/legacy.js'
 
 test('moves State declarations into per-view state and defers Action expressions', () => {
   const source = `
-import { Action, Button, State, Text, VStack, view } from 'vune-ui/legacy'
+import { Action, Button, State, Text, VStack, view } from '@mun/ui/legacy'
 const count = State(0)
 export default view(
   VStack(
@@ -15,7 +15,7 @@ export default view(
   )
 )
 `
-  const output = transformVuneMacros(source, '/src/App.ts')
+  const output = transformMunMacros(source, '/src/App.ts')
   assert.ok(output)
   assert.match(output, /state: \(\) => \{/)
   assert.match(output, /const count = State\(0\)/)
@@ -27,7 +27,7 @@ export default view(
 
 test('preserves State declaration order inside the per-view factory', () => {
   const source = `
-import { State, Text, VStack, view } from 'vune-ui/legacy'
+import { State, Text, VStack, view } from '@mun/ui/legacy'
 const count = State(2)
 const doubled = State(count.value * 2)
 export default view(
@@ -37,7 +37,7 @@ export default view(
   )
 )
 `
-  const output = transformVuneMacros(source, '/src/App.ts')
+  const output = transformMunMacros(source, '/src/App.ts')
   assert.ok(output)
   assert.match(output, /const count = State\(2\)[\s\S]*const doubled = State\(count\.value \* 2\)/)
   assert.match(output, /return \{ count, doubled \}/)
@@ -45,13 +45,13 @@ export default view(
 
 test('hoists only the State graph used by each view when a module has multiple views', () => {
   const source = `
-import { State, Text, view } from 'vune-ui/legacy'
+import { State, Text, view } from '@mun/ui/legacy'
 const firstOnly = State(1)
 const secondOnly = State(2)
 export const First = view(() => Text(String(firstOnly.value)))
 export default view(() => Text(String(secondOnly.value)))
 `
-  const output = transformVuneMacros(source, '/src/MultipleViews.ts')
+  const output = transformMunMacros(source, '/src/MultipleViews.ts')
   assert.ok(output)
   const first = output.slice(output.indexOf('export const First'), output.indexOf('export default'))
   const second = output.slice(output.indexOf('export default'))
@@ -65,16 +65,16 @@ export default view(() => Text(String(secondOnly.value)))
 
 test('multiple transformed views receive distinct State instances at runtime', () => {
   const source = `
-import { State, Text, view } from 'vune-ui/legacy'
+import { State, Text, view } from '@mun/ui/legacy'
 const firstOnly = State(1)
 const secondOnly = State(2)
 export const First = view(() => Text(String(firstOnly.value)))
 export default view(() => Text(String(secondOnly.value)))
 `
-  const output = transformVuneMacros(source, '/src/MultipleRuntimeViews.ts')
+  const output = transformMunMacros(source, '/src/MultipleRuntimeViews.ts')
   assert.ok(output)
   const generated = output
-    .replace(/^\/\* @vune-ui-macro-transformed \*\/\n/, '')
+    .replace(/^\/\* @mun-macro-transformed \*\/\n/, '')
     .replace(/^\s*import[^\n]+\n/, '')
     .replace('export const First', 'const First')
     .replace('export default view', 'const Second = view')
@@ -93,7 +93,7 @@ export default view(
   VStack(Text(label), Text(String(count.value + other.value))),
 )
 `
-  const output = transformVuneMacros(source, '/src/App.ts')
+  const output = transformMunMacros(source, '/src/App.ts')
   assert.ok(output)
   assert.match(output, /label = 'Count';/)
   assert.match(output, /preserve the sibling/)
@@ -106,20 +106,20 @@ export default view(
 })
 
 test('wraps a plain view expression in a render function', () => {
-  const source = `import { Text, view } from 'vune-ui/legacy'\nexport default view(Text('Hello'))`
-  const output = transformVuneMacros(source, '/src/App.ts')
+  const source = `import { Text, view } from '@mun/ui/legacy'\nexport default view(Text('Hello'))`
+  const output = transformMunMacros(source, '/src/App.ts')
   assert.ok(output)
   assert.match(output, /view\(\(\) => \(Text\('Hello'\)\)\)/)
 })
 
-test('does not lower ordinary renderer member calls as Vune syntax', () => {
+test('does not lower ordinary renderer member calls as Mun syntax', () => {
   const source = `class Renderer { view(value) { return value } }\nconst renderer = new Renderer()\nexport const output = renderer.view('hello')`
-  assert.equal(transformVuneMacros(source, '/src/renderer.ts'), null)
+  assert.equal(transformMunMacros(source, '/src/renderer.ts'), null)
 })
 
 test('transforms the complete example, including top-level State declarations', () => {
-  const source = `import { State, Text, VStack, view } from 'vune-ui/legacy'
-const text = State('Vune')
+  const source = `import { State, Text, VStack, view } from '@mun/ui/legacy'
+const text = State('Mun')
 const value = State(60)
 const checked = State(true)
 export default view(() => VStack(
@@ -127,7 +127,7 @@ export default view(() => VStack(
   Text(value.value),
   Text(String(checked.value)),
 ))`
-  const output = transformVuneMacros(source, '/src/examples/App.ts')
+  const output = transformMunMacros(source, '/src/examples/App.ts')
   assert.ok(output)
   for (const name of ['text', 'value', 'checked']) {
     assert.match(output, new RegExp(`const ${name} = State`))
@@ -154,7 +154,7 @@ export default view(
   ),
 )
 `
-  const output = transformVuneMacros(source, '/src/App.ts')
+  const output = transformMunMacros(source, '/src/App.ts')
   assert.ok(output)
   assert.match(output, /const count = State<number>\(0\)/)
   assert.match(output, /const nested = State\(1\)/)
@@ -174,7 +174,7 @@ export default view(
   },
 )
 `
-  const output = transformVuneMacros(source, '/src/App.ts')
+  const output = transformMunMacros(source, '/src/App.ts')
   assert.ok(output)
   assert.match(output, /const model = State<\{ value: number \}>\(\{ value: 1 \}\)/)
   assert.match(output, /body: \(\{ model \}, props\) =>/)
@@ -186,7 +186,7 @@ export default view(
 
 test('Vite macro returns a source map while keeping the helper string-compatible', () => {
   const source = 'const value = State(0)\nconst prefix = "x"\nexport default view(Text(prefix + value.value))\n'
-  const plugin = vuneMacro()
+  const plugin = munMacro()
   const result = plugin.transform(source, '/src/App.ts')
   assert.ok(result)
   assert.equal(typeof result.code, 'string')
@@ -216,7 +216,7 @@ test('Vite macro returns a source map while keeping the helper string-compatible
   assert.equal(hasColumnMapping, true)
 })
 
-test('vuneMacro lowers View builders before TypeScript macro analysis', () => {
+test('munMacro lowers View builders before TypeScript macro analysis', () => {
   const source = `
 const enabled = true
 export default view(
@@ -230,7 +230,7 @@ export default view(
   }
 )
 `
-  const plugin = vuneMacro()
+  const plugin = munMacro()
   const result = plugin.transform(source, '/src/Builder.ts')
   assert.ok(result)
   assert.match(result.code, /VStack\(namedArguments\(\{ alignment: 'leading', spacing: 12 \}\), (?:\(\) => \[|overloadClosure\(\(\) => \[)/)
@@ -239,15 +239,15 @@ export default view(
   assert.equal(parsed.parseDiagnostics.length, 0)
 })
 
-test('vuneMacro lowers Binding shorthand and merges the runtime import', () => {
+test('munMacro lowers Binding shorthand and merges the runtime import', () => {
   const source = `
-import { State, Toggle, view } from 'vune-ui/legacy'
+import { State, Toggle, view } from '@mun/ui/legacy'
 const wifi = State(false)
 export default view(Toggle('Wi-Fi', isOn: $wifi))
 `
-  const output = transformVuneMacros(source, '/src/Binding.ts')
+  const output = transformMunMacros(source, '/src/Binding.ts')
   assert.ok(output)
-  assert.match(output, /import \{ State, Toggle, view, Binding, namedArguments \} from 'vune-ui\/legacy'/)
+  assert.match(output, /import \{ State, Toggle, view, Binding, namedArguments \} from '@mun\/ui\/legacy'/)
   assert.match(output, /Toggle\('Wi-Fi', namedArguments\(\{ isOn: Binding\(wifi\) \}\)\)/)
   const parsed = ts.createSourceFile('Binding.ts', output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   assert.equal(parsed.parseDiagnostics.length, 0)
@@ -260,7 +260,7 @@ let mutable = State(1)
 export default view(Text(String(exported.value + mutable.value)))
 `
   const warnings = []
-  const plugin = vuneMacro()
+  const plugin = munMacro()
   const result = plugin.transform.call({ warn(message) { warnings.push(message) } }, source, '/src/App.ts')
   assert.ok(result)
   assert.equal(warnings.length, 2)
@@ -294,7 +294,7 @@ export default view(
   },
 )
 `
-  const output = transformVuneMacros(source, '/src/Corpus.ts')
+  const output = transformMunMacros(source, '/src/Corpus.ts')
   assert.ok(output)
   assert.match(output, /State<Array<\{ item: Item; tags: readonly string\[\] \}>>/)
   assert.match(output, /tags: \['a'\] as const/)

@@ -96,20 +96,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/vune-validation
-          git worktree add --detach /tmp/vune-checkpoint 71010c2b1c45ff5994eb6561d97e5e406e249d39
+          mkdir -p /tmp/mun-validation
+          git worktree add --detach /tmp/mun-checkpoint 71010c2b1c45ff5994eb6561d97e5e406e249d39
           (
-            cd /tmp/vune-checkpoint
+            cd /tmp/mun-checkpoint
             pnpm install --frozen-lockfile
             pnpm run build
-            node benchmarks/collection-runtime.mjs > /tmp/vune-validation/checkpoint.json
+            node benchmarks/collection-runtime.mjs > /tmp/mun-validation/checkpoint.json
           )
-          git worktree remove --force /tmp/vune-checkpoint
-          node benchmarks/collection-runtime.mjs > /tmp/vune-validation/optimized.json
+          git worktree remove --force /tmp/mun-checkpoint
+          node benchmarks/collection-runtime.mjs > /tmp/mun-validation/optimized.json
           echo 'Checkpoint benchmark:'
-          cat /tmp/vune-validation/checkpoint.json
+          cat /tmp/mun-validation/checkpoint.json
           echo 'Optimized benchmark:'
-          cat /tmp/vune-validation/optimized.json
+          cat /tmp/mun-validation/optimized.json
       - name: Full test suite
         run: pnpm test
       - name: Remove temporary collection diagnostics
@@ -140,8 +140,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          checkpoint=$(node -e "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/tmp/vune-validation/checkpoint.json','utf8'))))")
-          optimized=$(node -e "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/tmp/vune-validation/optimized.json','utf8'))))")
+          checkpoint=$(node -e "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/tmp/mun-validation/checkpoint.json','utf8'))))")
+          optimized=$(node -e "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/tmp/mun-validation/optimized.json','utf8'))))")
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add packages/web/src/dom.ts

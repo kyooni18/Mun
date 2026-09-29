@@ -1,5 +1,5 @@
-import { animate as animateCore, compileMotionPlan as compileCoreMotionPlan, spring as coreSpring } from '@vune-ui/animation/core';
-import { createInterpolator as createCssInterpolator } from '@vune-ui/animation/interpolate/css';
+import { animate as animateCore, compileMotionPlan as compileCoreMotionPlan, spring as coreSpring } from '@mun/animation/core';
+import { createInterpolator as createCssInterpolator } from '@mun/animation/interpolate/css';
 import {
   FrameBudgetGovernor,
   MotionEngine,
@@ -14,14 +14,14 @@ import {
   createDragController,
   type ColorInput,
   type MaterialInput,
-} from '@vune-ui/animation';
-import { animateMaterial, animatePath, bindPointerDrag, bindStyleValue } from '@vune-ui/animation/dom';
-import { captureSharedLayout, createLayoutTransition, createSharedLayoutTransition, SharedLayoutRegistry } from '@vune-ui/animation/layout';
-import { createPathMorpher as createPathMorpherSubpath } from '@vune-ui/animation/path';
-import { VelocityTracker, createDragController as createDragControllerSubpath } from '@vune-ui/animation/gesture';
-import { resolveMaterial } from '@vune-ui/animation/material';
-import { SharedSpringWorkerBackend } from '@vune-ui/animation/worker';
-import { createSharedWasmMemory } from '@vune-ui/animation/wasm';
+} from '@mun/animation';
+import { animateMaterial, animatePath, bindPointerDrag, bindStyleValue } from '@mun/animation/dom';
+import { captureSharedLayout, createLayoutTransition, createSharedLayoutTransition, SharedLayoutRegistry } from '@mun/animation/layout';
+import { createPathMorpher as createPathMorpherSubpath } from '@mun/animation/path';
+import { VelocityTracker, createDragController as createDragControllerSubpath } from '@mun/animation/gesture';
+import { resolveMaterial } from '@mun/animation/material';
+import { SharedSpringWorkerBackend } from '@mun/animation/worker';
+import { createSharedWasmMemory } from '@mun/animation/wasm';
 
 const engine = new MotionEngine({
   autoStart: false,
@@ -62,7 +62,7 @@ const leanControl = animateCore(x, 1, compileCoreMotionPlan(coreSpring({ respons
 leanControl.cancel();
 void createCssInterpolator('#000', '#fff', { type: 'color' })(0.5);
 
-import { createPhaseTimeline, stagger, timeline as createTimeline } from '@vune-ui/animation/timeline';
+import { createPhaseTimeline, stagger, timeline as createTimeline } from '@mun/animation/timeline';
 const timelineX = motionValue(0);
 const clip = createTimeline()
   .track(timelineX, [0, 100, 20], { duration: 1 })
@@ -81,8 +81,8 @@ void phases.phaseAt(0.1);
 void stagger(0.04, { from: 'center' })(2, 5);
 
 
-import { createPresence, createStateTransitionGraph, createTransition } from '@vune-ui/animation/transition';
-import { createTimelineScrubber } from '@vune-ui/animation/timeline';
+import { createPresence, createStateTransitionGraph, createTransition } from '@mun/animation/transition';
+import { createTimelineScrubber } from '@mun/animation/timeline';
 const visibility = motionValue(0);
 const transition = createTransition([{ key: 'opacity', target: visibility, from: 0, to: 1 }], { engine, present: false });
 transition.enter();
@@ -97,11 +97,11 @@ const sharedSnapshot = captureSharedLayout(element, { key: (node) => node.id });
 createSharedLayoutTransition(sharedSnapshot, element, { engine, key: (node) => node.id });
 new SharedLayoutRegistry({ engine, key: (node) => node.id });
 
-import { createScrollTracker, observeScroll, bindScrollTimeline } from '@vune-ui/animation/scroll';
-import { createConstraintGraph } from '@vune-ui/animation/constraints';
-import { createCanvasRenderer } from '@vune-ui/animation/canvas';
-import { createWebGLUniformBinder } from '@vune-ui/animation/webgl';
-import { createWebGPUBufferBinder } from '@vune-ui/animation/webgpu';
+import { createScrollTracker, observeScroll, bindScrollTimeline } from '@mun/animation/scroll';
+import { createConstraintGraph } from '@mun/animation/constraints';
+import { createCanvasRenderer } from '@mun/animation/canvas';
+import { createWebGLUniformBinder } from '@mun/animation/webgl';
+import { createWebGPUBufferBinder } from '@mun/animation/webgpu';
 const scrollTracker = createScrollTracker({ start: 0, end: 1000 });
 scrollTracker.sample(200, 16);
 bindScrollTimeline(player, scrollTracker).dispose();

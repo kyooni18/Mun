@@ -12,7 +12,7 @@ export interface ComponentLayoutProps {
   style?: StyleValue
 }
 
-export const vuneIntrinsic = Symbol.for('vune.intrinsic')
+export const munIntrinsic = Symbol.for('mun.intrinsic')
 
 const componentLayoutProps = new WeakMap<object, ComponentLayoutProps>()
 const proxyTargets = new WeakMap<object, ReactElement>()
@@ -26,14 +26,14 @@ export function registerStyledProxy(proxy: object, target: ReactElement): void {
 }
 
 export function markIntrinsic<T extends Function>(component: T): T {
-  Object.defineProperty(component, vuneIntrinsic, { value: true })
+  Object.defineProperty(component, munIntrinsic, { value: true })
   return component
 }
 
 export function isComponentElement(element: ReactElement): boolean {
   const type = element.type as any
   if (typeof type === 'string' || type === Fragment) return false
-  if (type?.[vuneIntrinsic] === true) return false
+  if (type?.[munIntrinsic] === true) return false
   return true
 }
 
@@ -87,7 +87,7 @@ export function layoutChild(child: ReactNode): ReactNode {
     'div',
     {
       key: child.key ?? undefined,
-      'data-vune-layout-host': '',
+      'data-mun-layout-host': '',
       className: classNameOf(layout?.className),
       style: {
         minWidth: 0,

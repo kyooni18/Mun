@@ -1,6 +1,6 @@
 /**
  * Compatibility module: renderer-neutral presentation Views are owned by
- * @vune-ui/core and materialized by the selected renderer.
+ * @mun/core and materialized by the selected renderer.
  */
-export { Alert, Menu, NavigationLink, NavigationStack, Sheet } from "@vune-ui/core"
-export type { AlertProps, MenuProps, NavigationLinkProps, NavigationStackProps, SheetProps } from "@vune-ui/core"
+export { Alert, Menu, NavigationLink, NavigationStack, Sheet } from "@mun/core/compat"
+export type { AlertProps, MenuProps, NavigationLinkProps, NavigationStackProps, SheetProps } from "@mun/core/compat"

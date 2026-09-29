@@ -1,10 +1,10 @@
 import type { Animation } from "../animation.js"
 import type { EdgeSet, FrameAlignment, FrameOptions, LayoutEdgeInsets } from "../layout.js"
-import type { VuneStyleProperties } from "../html.js"
+import type { MunStyleProperties } from "../html.js"
 import type { ViewIdentity, ViewIdentitySegment } from "../identity.js"
 import type { StateRef } from "../state.js"
 import type { ViewType } from "./initializers.js"
-import type { vuneForeignComponent, vuneInitializers, vuneView } from "./symbols.js"
+import type { munForeignComponent, munInitializers, munView } from "./symbols.js"
 import type { Transition } from "../transition.js"
 import type { ContentTransition } from "../content-transition.js"
 
@@ -100,7 +100,7 @@ export interface ForeignComponentOptions {
 }
 
 export interface ForeignComponentDescriptor {
-  readonly [vuneForeignComponent]: true
+  readonly [munForeignComponent]: true
   readonly component: unknown
   readonly props: Record<string, unknown>
   readonly events: Record<string, unknown>
@@ -514,14 +514,14 @@ export interface Modifiers {
   accessibilityAction(kind: string, action: () => void): ModifiableViewNode
   /**
    * Animate changes owned by the modifiers before this call. With no value,
-   * Vune automatically derives the changed factors and timing domain.
+   * Mun automatically derives the changed factors and timing domain.
    */
   animation(): ModifiableViewNode
   animation(animation: Animation | null): ModifiableViewNode
   animation(animation: Animation | null, value: unknown): ModifiableViewNode
   transition(transition: Transition): ModifiableViewNode
   contentTransition(transition: ContentTransition): ModifiableViewNode
-  style(value: VuneStyleProperties): ModifiableViewNode
+  style(value: MunStyleProperties): ModifiableViewNode
   className(value: ClassValue): ModifiableViewNode
   withProps(value: Record<string, unknown>): ModifiableViewNode
   keyed(value: string | number): ModifiableViewNode
@@ -531,7 +531,7 @@ export interface Modifiers {
 
 export type ModifiableViewNode = ViewNode & Modifiers
 
-export interface VuneRenderer<Output = unknown> {
+export interface MunRenderer<Output = unknown> {
   element(type: unknown, props: Record<string, unknown> | null, ...children: Output[]): Output
   fragment(children: Output[]): Output
   value?(value: unknown): Output

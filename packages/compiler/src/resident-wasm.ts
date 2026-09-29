@@ -3,7 +3,7 @@ import type {
   KernelExpression,
   PackedLayout,
   ResidentRegionIR,
-} from "@vune-ui/core/internal/execution";
+} from "@mun/core/internal/execution";
 
 /** Kept structural so the compiler does not load the WASM runtime in bundles. */
 export interface CompiledResidentWasmProgram {

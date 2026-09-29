@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-const baseURL = process.env.VUNE_BROWSER_URL
+const baseURL = process.env.MUN_BROWSER_URL
 
-test('Vune demo is interactive in a real browser', { skip: !baseURL }, async () => {
+test('Mun demo is interactive in a real browser', { skip: !baseURL }, async () => {
   const { chromium } = await import('@playwright/test')
-  const browser = await chromium.launch({ headless: true, ...(process.env.VUNE_CHROMIUM_EXECUTABLE ? { executablePath: process.env.VUNE_CHROMIUM_EXECUTABLE } : {}) })
+  const browser = await chromium.launch({ headless: true, ...(process.env.MUN_CHROMIUM_EXECUTABLE ? { executablePath: process.env.MUN_CHROMIUM_EXECUTABLE } : {}) })
   try {
     const page = await browser.newPage()
     const errors = []
@@ -15,8 +15,8 @@ test('Vune demo is interactive in a real browser', { skip: !baseURL }, async () 
     assert.ok(await page.getByText('DEMO', { exact: true }).isVisible())
     assert.ok(await page.locator('[class*="demoTitleModule"]').first().isVisible())
     const textField = page.getByRole('textbox', { name: 'Demo text field' })
-    await textField.fill('Vune UI')
-    assert.equal(await textField.inputValue(), 'Vune UI')
+    await textField.fill('Mün UI')
+    assert.equal(await textField.inputValue(), 'Mün UI')
     await textField.focus()
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Demo text field')
     const textFieldBox = await textField.boundingBox()
