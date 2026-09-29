@@ -51,7 +51,7 @@ export interface MunUiState {
   readonly initial: MunUiScalar
 }
 
-export type MunAccessibilityRole = "window" | "group" | "text" | "button"
+export type MunAccessibilityRole = "window" | "group" | "text" | "button" | "textField" | "radioGroup"
 
 export interface MunAccessibilitySemantics {
   readonly role: MunAccessibilityRole
@@ -72,6 +72,19 @@ export type MunUiOverlayAlignment =
   | "bottomLeading"
   | "bottomTrailing"
 
+export type MunUiUnitPoint = MunUiOverlayAlignment
+
+export type MunUiPaint =
+  | string // Semantic UI IR v1 compatibility: legacy solid paint encoding.
+  | { readonly kind: "solid"; readonly color: string }
+  | {
+      readonly kind: "linearGradient"
+      readonly start: string
+      readonly end: string
+      readonly startPoint: MunUiUnitPoint
+      readonly endPoint: MunUiUnitPoint
+    }
+
 export interface MunUiLayout {
   readonly width?: MunUiExpression
   readonly height?: MunUiExpression
@@ -81,8 +94,8 @@ export interface MunUiLayout {
 }
 
 export interface MunUiVisual {
-  readonly background?: string
-  readonly foreground?: string
+  readonly background?: MunUiPaint
+  readonly foreground?: MunUiPaint
   readonly cornerRadius?: number
   /** Presentation-only properties. They do not participate in layout sizing. */
   readonly opacity?: MunUiExpression
@@ -249,8 +262,29 @@ export interface MunUiTextNode extends MunUiNodeBase {
   readonly value: MunUiExpression
 }
 
+export type MunUiShapeKind = "rectangle" | "roundedRectangle" | "circle" | "capsule"
+
 export interface MunUiPanelNode extends MunUiNodeBase {
   readonly kind: "panel"
+  readonly shape?: MunUiShapeKind
+}
+
+export interface MunUiTextFieldNode extends MunUiNodeBase {
+  readonly kind: "textField"
+  readonly state: MunUiStateId
+  readonly placeholder?: string
+}
+
+export interface MunUiSelectionOption {
+  readonly label: string
+  readonly value: MunUiScalar
+  readonly disabled?: boolean
+}
+
+export interface MunUiRadioGroupNode extends MunUiNodeBase {
+  readonly kind: "radioGroup"
+  readonly state: MunUiStateId
+  readonly options: readonly MunUiSelectionOption[]
 }
 
 export interface MunUiActionNode extends MunUiNodeBase {
@@ -266,6 +300,8 @@ export type MunUiNode =
   | MunUiConditionalNode
   | MunUiTextNode
   | MunUiPanelNode
+  | MunUiTextFieldNode
+  | MunUiRadioGroupNode
   | MunUiActionNode
 
 export interface MunUiProgram {

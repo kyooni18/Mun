@@ -12,6 +12,8 @@ import * as web from "../packages/web/dist/index.js"
 
 const canonicalRuntimeExports = [
   "Animation",
+  "Color",
+  "LinearGradient",
   "SemanticModel",
   "Transaction",
   "Transition",

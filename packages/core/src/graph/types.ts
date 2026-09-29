@@ -7,6 +7,7 @@ import type { ViewType } from "./initializers.js"
 import type { munForeignComponent, munInitializers, munView } from "./symbols.js"
 import type { Transition } from "../transition.js"
 import type { ContentTransition } from "../content-transition.js"
+import type { ShapeStyle } from "../style.js"
 
 export type ViewGraphLeaf = string | number | bigint | boolean | null | undefined
 export type ViewGraphValue = ViewGraphLeaf | ViewNode | readonly ViewGraphValue[]
@@ -419,9 +420,9 @@ export interface Modifiers {
   truncationMode(value: TruncationMode): ModifiableViewNode
   textCase(value: TextCase): ModifiableViewNode
   allowsTightening(value: boolean): ModifiableViewNode
-  foreground(value: string): ModifiableViewNode
-  foregroundStyle(primary: string, secondary?: string, tertiary?: string): ModifiableViewNode
-  background(value: string | ViewNode, alignment?: FrameAlignment): ModifiableViewNode
+  foreground(value: ShapeStyle): ModifiableViewNode
+  foregroundStyle(primary: ShapeStyle, secondary?: ShapeStyle, tertiary?: ShapeStyle): ModifiableViewNode
+  background(value: ShapeStyle | ViewNode, alignment?: FrameAlignment): ModifiableViewNode
   background(alignment: FrameAlignment, content: () => ViewGraphValue): ModifiableViewNode
   overlay(value: StructuralModifierValue, alignment?: FrameAlignment): ModifiableViewNode
   opacity(value: number): ModifiableViewNode

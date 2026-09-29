@@ -292,14 +292,46 @@ function parseCall(slice: Slice): MunCallExpression | undefined {
 function parseConditional(slice: Slice): MunConditionalExpression | undefined {
   const value = trimSlice(slice)
   if (!/^if\b/.test(value.source)) return undefined
-  const open = value.source.indexOf("(")
-  if (open < 0) return undefined
-  const close = findMatching(value.source, open, "(")
-  const thenOpen = skipTrivia(value.source, close + 1)
+
+  const conditionStart = skipTrivia(value.source, 2)
+  let conditionSourceStart = conditionStart
+  let conditionEnd: number
+  let thenOpen: number
+
+  if (value.source[conditionStart] === "(") {
+    const close = findMatching(value.source, conditionStart, "(")
+    conditionSourceStart = conditionStart + 1
+    conditionEnd = close
+    thenOpen = skipTrivia(value.source, close + 1)
+  } else {
+    let parenDepth = 0
+    let bracketDepth = 0
+    let cursor = conditionStart
+    for (; cursor < value.source.length; cursor += 1) {
+      const character = value.source[cursor]
+      if (character === "\"" || character === "'" || character === "`") {
+        cursor = skipQuoted(value.source, cursor) - 1
+        continue
+      }
+      if (character === "(") parenDepth += 1
+      else if (character === ")") parenDepth -= 1
+      else if (character === "[") bracketDepth += 1
+      else if (character === "]") bracketDepth -= 1
+      else if (character === "{" && parenDepth === 0 && bracketDepth === 0) break
+    }
+    if (cursor >= value.source.length) return undefined
+    thenOpen = cursor
+    conditionEnd = cursor
+  }
+
   if (value.source[thenOpen] !== "{") return undefined
   const thenClose = findMatching(value.source, thenOpen, "{")
   const afterThen = skipTrivia(value.source, thenClose + 1)
-  const condition = raw({ source: value.source.slice(open + 1, close), start: value.start + open + 1, end: value.start + close })
+  const condition = raw({
+    source: value.source.slice(conditionSourceStart, conditionEnd),
+    start: value.start + conditionSourceStart,
+    end: value.start + conditionEnd,
+  })
   let otherwise: MunBuilderProgram | MunConditionalExpression | undefined
   if (value.source.slice(afterThen, afterThen + 4) === "else" && !/[A-Za-z0-9_$]/.test(value.source[afterThen + 4] ?? "")) {
     const elseStart = skipTrivia(value.source, afterThen + 4)

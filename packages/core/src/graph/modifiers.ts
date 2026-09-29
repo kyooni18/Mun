@@ -4,6 +4,7 @@ import type { Transition } from "../transition.js"
 import type { ContentTransition } from "../content-transition.js"
 import type { MunStyleProperties } from "../html.js"
 import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "../corners.js"
+import { Color, LinearGradient, shapeStyleCss, type ShapeStyle } from "../style.js"
 import { arrayCheck, snapshotArrayValues } from "./arrays.js"
 import type { ClassValue, Length, ModifiableViewNode, Modifiers, OffsetValue, ScaleEffectValue, ViewModifierNode, ViewNode } from "./types.js"
 
@@ -196,12 +197,16 @@ const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.proto
   truncationMode(this: ViewNode, value: unknown) { return applyModifier(this, "truncationMode", [value]) },
   textCase(this: ViewNode, value: unknown) { return applyModifier(this, "textCase", [value]) },
   allowsTightening(this: ViewNode, value: boolean) { return applyModifier(this, "allowsTightening", [value]) },
-  foreground(this: ViewNode, value: string) { return applyModifier(this, "foreground", [value]) },
-  foregroundStyle(this: ViewNode, primary: string, secondary?: string, tertiary?: string) { return applyModifier(this, "foregroundStyle", [primary, secondary, tertiary]) },
+  foreground(this: ViewNode, value: ShapeStyle) { return applyModifier(this, "foreground", [shapeStyleCss(value)]) },
+  foregroundStyle(this: ViewNode, primary: ShapeStyle, secondary?: ShapeStyle, tertiary?: ShapeStyle) { return applyModifier(this, "foregroundStyle", [shapeStyleCss(primary), secondary === undefined ? undefined : shapeStyleCss(secondary), tertiary === undefined ? undefined : shapeStyleCss(tertiary)]) },
   background(this: ViewNode, valueOrAlignment: unknown, contentOrAlignment: unknown = "center") {
     if (typeof contentOrAlignment === "function") return applyModifier(this, "background", [(contentOrAlignment as () => unknown)(), valueOrAlignment])
-    return applyModifier(this, "background", [valueOrAlignment, contentOrAlignment])
+    const value = valueOrAlignment instanceof Color || valueOrAlignment instanceof LinearGradient
+      ? shapeStyleCss(valueOrAlignment)
+      : valueOrAlignment
+    return applyModifier(this, "background", [value, contentOrAlignment])
   },
+
   overlay(this: ViewNode, value: unknown, alignment = "center") {
     return applyModifier(this, "overlay", [typeof value === "function" ? (value as () => unknown)() : value, alignment])
   },

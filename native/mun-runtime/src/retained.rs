@@ -13,6 +13,8 @@ pub enum RetainedNodeKind {
     Conditional,
     Text,
     Panel,
+    TextField,
+    RadioGroup,
     Action,
 }
 

@@ -751,12 +751,43 @@ fn scene_geometry(
         let x1 = right * scale / width * 2.0 - 1.0;
         let y0 = 1.0 - top * scale / height * 2.0;
         let y1 = 1.0 - bottom * scale / height * 2.0;
-        let color = item.color.0;
+        let gradient = scene.gradient_for(&item.id);
         let rect_size = [item.rect.width, item.rect.height];
         let radius = item.corner_radius.max(0.0);
+        let color_at = |local_position: [f32; 2]| {
+            let Some(gradient) = gradient else {
+                return item.color.0;
+            };
+            let point = [
+                if item.rect.width > 0.0 {
+                    local_position[0] / item.rect.width
+                } else {
+                    0.0
+                },
+                if item.rect.height > 0.0 {
+                    local_position[1] / item.rect.height
+                } else {
+                    0.0
+                },
+            ];
+            let dx = gradient.end_point[0] - gradient.start_point[0];
+            let dy = gradient.end_point[1] - gradient.start_point[1];
+            let denominator = dx * dx + dy * dy;
+            let t = if denominator <= f32::EPSILON {
+                0.0
+            } else {
+                (((point[0] - gradient.start_point[0]) * dx
+                    + (point[1] - gradient.start_point[1]) * dy)
+                    / denominator)
+                    .clamp(0.0, 1.0)
+            };
+            std::array::from_fn(|index| {
+                gradient.start.0[index] + (gradient.end.0[index] - gradient.start.0[index]) * t
+            })
+        };
         let vertex = |position, local_position| Vertex {
             position,
-            color,
+            color: color_at(local_position),
             local_position,
             rect_size,
             corner_radius: radius,
@@ -1057,6 +1088,41 @@ mod tests {
         assert_eq!(vertices[0].rect_size, [40.0, 20.0]);
         assert_eq!(vertices[0].color, [0.25, 0.5, 0.75, 1.0]);
         assert_eq!(vertices[0].corner_radius, 6.0);
+    }
+
+    #[test]
+    fn scene_vertices_interpolate_linear_gradient_colors() {
+        let scene = Scene {
+            rects: vec![SceneRect {
+                id: "gradient".into(),
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 40.0,
+                    height: 20.0,
+                },
+                color: Color([1.0, 0.0, 0.0, 1.0]),
+                corner_radius: 0.0,
+            }],
+            gradients: vec![mun_runtime::scene::SceneGradient {
+                id: "gradient".into(),
+                gradient: mun_runtime::scene::LinearGradient {
+                    start: Color([1.0, 0.0, 0.0, 1.0]),
+                    end: Color([0.0, 0.0, 1.0, 1.0]),
+                    start_point: [0.0, 0.5],
+                    end_point: [1.0, 0.5],
+                },
+            }],
+            ..Default::default()
+        };
+
+        let vertices = scene_vertices(&scene, &ScenePresentation::default(), 100.0, 80.0, 1.0);
+
+        assert_eq!(vertices.len(), 6);
+        assert_eq!(vertices[0].local_position, [0.0, 0.0]);
+        assert_eq!(vertices[0].color, [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(vertices[2].local_position, [40.0, 20.0]);
+        assert_eq!(vertices[2].color, [0.0, 0.0, 1.0, 1.0]);
     }
 
     #[test]

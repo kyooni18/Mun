@@ -25,6 +25,24 @@ pub trait IntrinsicMeasurer {
     fn measure_text(&self, text: &str) -> IntrinsicSize;
     fn measure_action(&self, label: &str) -> IntrinsicSize;
     fn measure_panel(&self) -> IntrinsicSize;
+
+    fn measure_text_field(&self, value: &str, placeholder: Option<&str>) -> IntrinsicSize {
+        let text = if value.is_empty() {
+            placeholder.unwrap_or("")
+        } else {
+            value
+        };
+        let measured = self.measure_action(text);
+        IntrinsicSize::new(measured.width.max(180.0), measured.height)
+    }
+
+    fn measure_radio_group(&self, labels: &[String]) -> IntrinsicSize {
+        let width = labels
+            .iter()
+            .map(|label| self.measure_action(label).width)
+            .fold(120.0, f32::max);
+        IntrinsicSize::new(width, (labels.len().max(1) as f32) * 30.0)
+    }
 }
 
 /// Compatibility fallback used when no native backend measurer is supplied.

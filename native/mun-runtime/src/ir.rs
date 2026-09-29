@@ -53,12 +53,14 @@ pub struct UiState {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum AccessibilityRole {
     Window,
     Group,
     Text,
     Button,
+    TextField,
+    RadioGroup,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -94,6 +96,83 @@ pub enum UiOverlayAlignment {
     BottomTrailing,
 }
 
+#[derive(Clone, Debug)]
+pub enum UiPaint {
+    Solid {
+        color: String,
+    },
+    LinearGradient {
+        start: String,
+        end: String,
+        start_point: UiOverlayAlignment,
+        end_point: UiOverlayAlignment,
+    },
+}
+
+impl<'de> Deserialize<'de> for UiPaint {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(tag = "kind")]
+        enum StructuredPaint {
+            #[serde(rename = "solid")]
+            Solid { color: String },
+            #[serde(rename = "linearGradient")]
+            LinearGradient {
+                start: String,
+                end: String,
+                #[serde(rename = "startPoint")]
+                start_point: UiOverlayAlignment,
+                #[serde(rename = "endPoint")]
+                end_point: UiOverlayAlignment,
+            },
+        }
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum PaintWire {
+            LegacySolid(String),
+            Structured(StructuredPaint),
+        }
+
+        Ok(match PaintWire::deserialize(deserializer)? {
+            PaintWire::LegacySolid(color) => Self::Solid { color },
+            PaintWire::Structured(StructuredPaint::Solid { color }) => Self::Solid { color },
+            PaintWire::Structured(StructuredPaint::LinearGradient {
+                start,
+                end,
+                start_point,
+                end_point,
+            }) => Self::LinearGradient {
+                start,
+                end,
+                start_point,
+                end_point,
+            },
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum UiShapeKind {
+    Rectangle,
+    RoundedRectangle,
+    Circle,
+    Capsule,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiSelectionOption {
+    pub label: String,
+    pub value: Value,
+    #[serde(default)]
+    pub disabled: bool,
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiLayout {
@@ -113,9 +192,9 @@ pub struct UiLayout {
 #[serde(rename_all = "camelCase")]
 pub struct UiVisual {
     #[serde(default)]
-    pub background: Option<String>,
+    pub background: Option<UiPaint>,
     #[serde(default)]
-    pub foreground: Option<String>,
+    pub foreground: Option<UiPaint>,
     #[serde(default)]
     pub corner_radius: Option<f32>,
     #[serde(default)]
@@ -332,6 +411,23 @@ pub enum UiNode {
     Panel {
         #[serde(flatten)]
         base: NodeBase,
+        #[serde(default)]
+        shape: Option<UiShapeKind>,
+    },
+    #[serde(rename = "textField")]
+    TextField {
+        #[serde(flatten)]
+        base: NodeBase,
+        state: String,
+        #[serde(default)]
+        placeholder: Option<String>,
+    },
+    #[serde(rename = "radioGroup")]
+    RadioGroup {
+        #[serde(flatten)]
+        base: NodeBase,
+        state: String,
+        options: Vec<UiSelectionOption>,
     },
     #[serde(rename = "action")]
     Action {
@@ -350,7 +446,9 @@ impl UiNode {
             | Self::Overlay { base, .. }
             | Self::Conditional { base, .. }
             | Self::Text { base, .. }
-            | Self::Panel { base }
+            | Self::Panel { base, .. }
+            | Self::TextField { base, .. }
+            | Self::RadioGroup { base, .. }
             | Self::Action { base, .. } => base,
         }
     }

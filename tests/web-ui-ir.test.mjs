@@ -35,3 +35,17 @@ test("web backend preserves native overlay semantics from shared IR", () => {
   assert.match(html, /background:#112233/)
   assert.match(html, /border-radius:12px/)
 })
+
+
+test("web backend lowers shared controls and ShapeStyle paint values", () => {
+  const file = new URL("../examples/NativeControlsStyle.mun", import.meta.url)
+  const source = fs.readFileSync(file, "utf8")
+  const program = compileMunUiProgram(source, file.pathname)
+  const html = renderMunUiProgramToHTML(program)
+
+  assert.match(html, /<input type="text"/)
+  assert.match(html, /role="radiogroup"/)
+  assert.match(html, /type="radio"/)
+  assert.match(html, /linear-gradient\(to right, #FF0000, #0000FF\)/)
+  assert.match(html, /background:#08090A/)
+})

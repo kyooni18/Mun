@@ -177,6 +177,25 @@ export const Picker = defineBuiltinView<PickerProps>(
   ({ value, options }) => viewElement("select", { "data-mun": "Picker", value: value.value, onChange(event: { target?: { value?: string } }) { const selectedValue = event.target ? event.target.value : undefined; const option = options.find(item => String(item.value) === selectedValue); if (option) value.value = option.value } }, options.map(option => viewElement("option", { value: option.value, disabled: option.disabled }, [option.label]))),
 ) as TypedViewConstructor<PickerProps, PickerCall>
 
+export type RadioGroupProps = PickerProps
+interface RadioGroupCall { <T extends string | number>(value: BindingRef<T>, options: readonly PickerOption<NoInfer<T>>[]): ModifiableViewNode }
+
+export const RadioGroup = defineBuiltinView<RadioGroupProps>(
+  "RadioGroup",
+  [initializer("RadioGroup(value, options)", args => args.length === 2 && isBinding(args[0]) && snapshotPickerOptions(args[1]) !== undefined, args => ({ value: args[0] as BindingRef<string | number>, options: requirePickerOptions(args[1]) }), [initializerKinds.binding(true, "value", "string | number"), initializerKinds.value(true, "options", undefined, "array")])],
+  ({ value, options }) => viewElement("div", { "data-mun": "RadioGroup", role: "radiogroup" }, options.map(option =>
+    viewElement("label", {}, [
+      viewElement("input", {
+        type: "radio",
+        checked: String(value.value) === String(option.value),
+        disabled: option.disabled,
+        onChange() { if (!option.disabled) value.value = option.value },
+      }),
+      option.label,
+    ]),
+  )),
+) as TypedViewConstructor<RadioGroupProps, RadioGroupCall>
+
 export interface ProgressViewOptions { readonly label?: string; readonly max?: number }
 export interface ProgressViewProps extends ProgressViewOptions { readonly value?: number }
 interface ProgressViewCall { (value?: Value<number>, options?: ProgressViewOptions): ModifiableViewNode }

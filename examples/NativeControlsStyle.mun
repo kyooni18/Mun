@@ -1,0 +1,65 @@
+struct ShapeStrip: View {
+  var body: some View {
+    HStack(alignment: .bottom, spacing: 8) {
+      Circle()
+        .frame(width: 30, height: 30)
+        .foregroundStyle(Color("#00FF00"))
+
+      Capsule()
+        .frame(width: 60, height: 20)
+        .foregroundStyle(LinearGradient("#00FFFF", "#FF00FF"))
+    }
+  }
+}
+
+struct NativeControlsStyle: View {
+  @State var name: string = "Ada"
+  @State var choice: string = "b"
+  @State var expanded: boolean = false
+
+  var body: some View {
+    VStack(spacing: 8) {
+      TextField($name, "Name")
+        .frame(width: 220, height: 40)
+        .padding(6)
+        .background(Color("#202030"))
+        .foregroundStyle(Color("#F0F0FF"))
+        .cornerRadius(8)
+
+      RadioGroup($choice, [
+        { label: "Alpha", value: "a" },
+        { label: "Beta", value: "b" },
+        { label: "Disabled", value: "x", disabled: true }
+      ])
+        .frame(width: 220, height: 90)
+        .padding(6)
+        .background(Color("#101018"))
+        .cornerRadius(7)
+
+      Button("Toggle Detail") { expanded.toggle() }
+        .frame(width: 160, height: 40)
+        .background(LinearGradient(Color("#FF0000"), Color("#0000FF"), .leading, .trailing))
+        .foregroundStyle(Color("#FFFFFF"))
+        .cornerRadius(14)
+
+      if expanded {
+        ShapeStrip()
+          .padding(4)
+          .background(Color("#0C0D0E"))
+          .cornerRadius(6)
+      }
+
+      Text(name)
+        .padding(6)
+        .background(Color("#111213"))
+        .foregroundStyle(Color("#ABCDEF"))
+        .cornerRadius(4)
+    }
+    .frame(width: 300, height: 360)
+    .padding(12)
+    .background(Color("#08090A"))
+    .cornerRadius(20)
+  }
+}
+
+export default NativeControlsStyle()

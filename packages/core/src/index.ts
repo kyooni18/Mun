@@ -22,6 +22,8 @@ export type {
 export * from "./closures.js"
 export * from "./semantic.js"
 export * from "./ui-ir.js"
+export { Color, LinearGradient } from "./style.js"
+export type { ShapeStyle, UnitPoint } from "./style.js"
 
 export { Transition } from "./transition.js"
 export type { TransitionDescriptor, TransitionEdge, TransitionEffect } from "./transition.js"

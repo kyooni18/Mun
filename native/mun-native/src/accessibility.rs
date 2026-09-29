@@ -168,6 +168,8 @@ fn role(role: MunAccessibilityRole) -> Role {
         MunAccessibilityRole::Group => Role::Group,
         MunAccessibilityRole::Text => Role::Label,
         MunAccessibilityRole::Button => Role::Button,
+        MunAccessibilityRole::TextField => Role::TextInput,
+        MunAccessibilityRole::RadioGroup => Role::RadioGroup,
     }
 }
 

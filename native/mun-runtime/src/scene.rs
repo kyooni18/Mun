@@ -336,6 +336,20 @@ pub struct SceneRect {
     pub corner_radius: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LinearGradient {
+    pub start: Color,
+    pub end: Color,
+    pub start_point: [f32; 2],
+    pub end_point: [f32; 2],
+}
+
+#[derive(Clone, Debug)]
+pub struct SceneGradient {
+    pub id: String,
+    pub gradient: LinearGradient,
+}
+
 #[derive(Clone, Debug)]
 pub struct SceneText {
     pub id: String,
@@ -355,6 +369,7 @@ pub struct ActionHit {
 #[derive(Clone, Debug, Default)]
 pub struct Scene {
     pub rects: Vec<SceneRect>,
+    pub gradients: Vec<SceneGradient>,
     pub texts: Vec<SceneText>,
     pub actions: Vec<ActionHit>,
 }
@@ -366,6 +381,14 @@ impl Scene {
             .rev()
             .find(|action| action.rect.contains(x, y))
             .map(|action| action.id.as_str())
+    }
+
+    pub fn gradient_for(&self, id: &str) -> Option<&LinearGradient> {
+        self.gradients
+            .iter()
+            .rev()
+            .find(|item| item.id == id)
+            .map(|item| &item.gradient)
     }
 }
 

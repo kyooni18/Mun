@@ -15,6 +15,8 @@ import {
   type MunUiLayout,
   type MunUiNode,
   type MunUiOverlayAlignment,
+  type MunUiPaint,
+  type MunUiSelectionOption,
   type MunUiProgram,
   type MunUiScalar,
   type MunUiState,
@@ -244,6 +246,14 @@ function componentSemanticArgument(
     }
   }
 
+  const source = argument.value.source.trim()
+  if (/^(?:\[|Array\s*\()/.test(source)) {
+    return { label: argument.label, type: "array", sourceArgument: argument }
+  }
+  if (/^\{[\s\S]*\}$/.test(source)) {
+    return { label: argument.label, type: "object", sourceArgument: argument }
+  }
+
   let type: string | undefined
   try {
     type = semanticTypeForUiExpression(lowerValueExpression(argument.value.source, bindings), stateTypes)
@@ -364,6 +374,121 @@ function stringValue(source: string | undefined, fallback?: string, bindings: Ui
   const value = lowerValueExpression(source, bindings)
   if (value.kind === "literal" && typeof value.value === "string") return value.value
   throw new SyntaxError(`Native semantic string value must be static: ${source}`)
+}
+
+function staticColor(expression: ts.Expression, source: string): string {
+  const value = unwrap(expression)
+  if (ts.isStringLiteralLike(value)) return value.text
+  if (
+    ts.isCallExpression(value)
+    && ts.isIdentifier(value.expression)
+    && value.expression.text === "Color"
+    && value.arguments.length === 1
+  ) {
+    return staticColor(value.arguments[0], source)
+  }
+  throw new SyntaxError(`Native ShapeStyle color must be a static string or Color(...): ${source}`)
+}
+
+function staticUnitPoint(expression: ts.Expression | undefined, fallback: MunUiOverlayAlignment, source: string): MunUiOverlayAlignment {
+  if (!expression) return fallback
+  const value = unwrap(expression)
+  const raw = expression.getText().trim()
+  const implicit = /^\.([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(raw)
+  const point = ts.isStringLiteralLike(value)
+    ? value.text
+    : ts.isPropertyAccessExpression(value)
+      ? value.name.text
+      : ts.isIdentifier(value)
+        ? value.text
+        : implicit?.[1]
+  if (
+    point === "center"
+    || point === "leading"
+    || point === "trailing"
+    || point === "top"
+    || point === "bottom"
+    || point === "topLeading"
+    || point === "topTrailing"
+    || point === "bottomLeading"
+    || point === "bottomTrailing"
+  ) return point
+  throw new SyntaxError(`Native LinearGradient unit point is not representable: ${source}`)
+}
+
+function paintValue(source: string | undefined): MunUiPaint | undefined {
+  if (source === undefined) return undefined
+  const expression = unwrap(parsedExpression(source))
+  if (ts.isStringLiteralLike(expression)) return { kind: "solid", color: expression.text }
+  if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression)) {
+    if (expression.expression.text === "Color" && expression.arguments.length === 1) {
+      return { kind: "solid", color: staticColor(expression.arguments[0], source) }
+    }
+    if (expression.expression.text === "LinearGradient" && expression.arguments.length >= 2 && expression.arguments.length <= 4) {
+      return {
+        kind: "linearGradient",
+        start: staticColor(expression.arguments[0], source),
+        end: staticColor(expression.arguments[1], source),
+        startPoint: staticUnitPoint(expression.arguments[2], "leading", source),
+        endPoint: staticUnitPoint(expression.arguments[3], "trailing", source),
+      }
+    }
+  }
+  throw new SyntaxError(`Native ShapeStyle must be a static color or LinearGradient: ${source}`)
+}
+
+function selectionOptions(source: string | undefined): readonly MunUiSelectionOption[] {
+  if (!source) throw new SyntaxError("RadioGroup/Picker requires static options")
+  const expression = unwrap(parsedExpression(source))
+  if (!ts.isArrayLiteralExpression(expression)) {
+    throw new SyntaxError("RadioGroup/Picker options must be a static array")
+  }
+  const seen = new Set<string>()
+  return expression.elements.map((element, index) => {
+    if (!ts.isObjectLiteralExpression(element)) {
+      throw new SyntaxError(`RadioGroup/Picker option #${index} must be an object literal`)
+    }
+    let label: string | undefined
+    let value: MunUiScalar | undefined
+    let disabled: boolean | undefined
+    for (const property of element.properties) {
+      if (!ts.isPropertyAssignment(property)) {
+        throw new SyntaxError(`RadioGroup/Picker option #${index} must contain data-only properties`)
+      }
+      const name = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
+        ? property.name.text
+        : undefined
+      if (!name || !["label", "value", "disabled"].includes(name)) {
+        throw new SyntaxError(`RadioGroup/Picker option #${index} has unsupported property`)
+      }
+      const item = unwrap(property.initializer)
+      const scalar = scalarFromExpression(item)
+      if (name === "label") {
+        if (typeof scalar !== "string") throw new SyntaxError(`RadioGroup/Picker option #${index} label must be a string`)
+        label = scalar
+      } else if (name === "value") {
+        if (typeof scalar !== "string" && (typeof scalar !== "number" || !Number.isFinite(scalar))) {
+          throw new SyntaxError(`RadioGroup/Picker option #${index} value must be a string or finite number`)
+        }
+        value = scalar
+      } else {
+        if (typeof scalar !== "boolean") throw new SyntaxError(`RadioGroup/Picker option #${index} disabled must be boolean`)
+        disabled = scalar
+      }
+    }
+    if (label === undefined || value === undefined) {
+      throw new SyntaxError(`RadioGroup/Picker option #${index} requires label and value`)
+    }
+    const key = `${typeof value}:${String(value)}`
+    if (seen.has(key)) throw new SyntaxError("RadioGroup/Picker option values must be unique")
+    seen.add(key)
+    return { label, value, ...(disabled === undefined ? {} : { disabled }) }
+  })
+}
+
+function bindingState(source: string | undefined, bindings: UiBindings, control: string): string {
+  if (!source) throw new SyntaxError(`${control} requires a Binding`)
+  return bindingStateExpression(source, bindings).state
 }
 
 function rawArgument(call: MunCallExpression, label: string, positionalIndex: number): string | undefined {
@@ -1013,26 +1138,22 @@ function applyModifiers(
       }
       continue
     }
-
     if (modifier.name === "background" || modifier.name === "fill") {
-      const background = stringValue(
+      const background = paintValue(
         modifierRaw(modifier, "style", 0) ?? modifierRaw(modifier, "color", 0),
-        undefined,
-        bindings,
       )
       if (background) parts = { ...parts, visual: { ...parts.visual, background } }
       continue
     }
 
     if (modifier.name === "foregroundStyle" || modifier.name === "foregroundColor") {
-      const foreground = stringValue(
+      const foreground = paintValue(
         modifierRaw(modifier, "style", 0) ?? modifierRaw(modifier, "color", 0),
-        undefined,
-        bindings,
       )
       if (foreground) parts = { ...parts, visual: { ...parts.visual, foreground } }
       continue
     }
+
 
     if (modifier.name === "cornerRadius") {
       parts = {
@@ -1633,6 +1754,38 @@ class UiLowerer {
       }
     }
 
+    if (call.callee === "TextField") {
+      const state = bindingState(
+        rawArgument(call, "text", 0) ?? rawArgument(call, "value", 0),
+        bindings,
+        "TextField",
+      )
+      const placeholder = stringValue(rawArgument(call, "placeholder", 1), undefined, bindings)
+      return {
+        kind: "textField",
+        id: this.id("textField", path),
+        state,
+        ...(placeholder ? { placeholder } : {}),
+        accessibility: { role: "textField", ...(placeholder ? { label: placeholder } : {}) },
+      }
+    }
+
+    if (call.callee === "RadioGroup" || call.callee === "Picker") {
+      const state = bindingState(
+        rawArgument(call, "value", 0) ?? rawArgument(call, "selection", 0),
+        bindings,
+        call.callee,
+      )
+      const options = selectionOptions(rawArgument(call, "options", 1))
+      return {
+        kind: "radioGroup",
+        id: this.id("radioGroup", path),
+        state,
+        options,
+        accessibility: { role: "radioGroup" },
+      }
+    }
+
     if (call.callee === "Button" || call.callee === "Action") {
       const labelSource = rawArgument(call, "label", 0)
       const label = stringValue(labelSource, undefined, bindings)
@@ -1647,17 +1800,30 @@ class UiLowerer {
       }
     }
 
-    if (call.callee === "Rectangle" || call.callee === "RoundedRectangle" || call.callee === "Panel") {
+    if (
+      call.callee === "Rectangle"
+      || call.callee === "RoundedRectangle"
+      || call.callee === "Circle"
+      || call.callee === "Capsule"
+      || call.callee === "Panel"
+    ) {
       const cornerRadius = call.callee === "RoundedRectangle"
         ? numberValue(rawArgument(call, "radius", 0), 8, bindings)
         : undefined
+      const shape = call.callee === "RoundedRectangle"
+        ? "roundedRectangle"
+        : call.callee === "Circle"
+          ? "circle"
+          : call.callee === "Capsule"
+            ? "capsule"
+            : "rectangle"
       return {
         kind: "panel",
         id: this.id("panel", path),
+        shape,
         ...(cornerRadius !== undefined ? { visual: { cornerRadius } } : {}),
       }
     }
-
     if (call.callee === "Window") {
       const title = stringValue(rawArgument(call, "title", 0), "Mün", bindings) ?? "Mün"
       const children = this.children(call, bindings, path, statePath)

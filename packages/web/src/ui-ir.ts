@@ -2,6 +2,7 @@ import type {
   MunUiBinaryOperator,
   MunUiExpression,
   MunUiNode,
+  MunUiPaint,
   MunUiProgram,
   MunUiScalar,
 } from "@mun/core"
@@ -97,6 +98,23 @@ function cssValue(value: MunUiScalar): string | undefined {
   return undefined
 }
 
+function paintCss(paint: MunUiPaint): string {
+  if (typeof paint === "string") return paint
+  if (paint.kind === "solid") return paint.color
+  const directions: Readonly<Record<string, string>> = {
+    "leading:trailing": "to right",
+    "trailing:leading": "to left",
+    "top:bottom": "to bottom",
+    "bottom:top": "to top",
+    "topLeading:bottomTrailing": "to bottom right",
+    "topTrailing:bottomLeading": "to bottom left",
+    "bottomLeading:topTrailing": "to top right",
+    "bottomTrailing:topLeading": "to top left",
+  }
+  const direction = directions[`${paint.startPoint}:${paint.endPoint}`] ?? "to right"
+  return `linear-gradient(${direction}, ${paint.start}, ${paint.end})`
+}
+
 function styleFor(
   node: MunUiNode,
   state: Readonly<Record<string, MunUiScalar>>,
@@ -149,8 +167,8 @@ function styleFor(
     declarations.push(`align-items:${alignItems}`)
   }
 
-  if (visual?.background) declarations.push(`background:${visual.background}`)
-  if (visual?.foreground) declarations.push(`color:${visual.foreground}`)
+  if (visual?.background) declarations.push(`background:${paintCss(visual.background)}`)
+  if (visual?.foreground) declarations.push(`color:${paintCss(visual.foreground)}`)
   if (visual?.cornerRadius !== undefined) declarations.push(`border-radius:${visual.cornerRadius}px`)
 
   return declarations.length > 0 ? declarations.join(";") : undefined
@@ -203,6 +221,16 @@ function renderNode(
       return `<span ${attributes}>${escapeText(String(evaluate(node.value, state) ?? ""))}</span>`
     case "panel":
       return `<div ${attributes}></div>`
+    case "textField": {
+      const value = state[node.state]
+      return `<input type="text" ${attributes} value="${escapeText(value == null ? "" : String(value))}"${node.placeholder ? ` placeholder="${escapeText(node.placeholder)}"` : ""}>`
+    }
+    case "radioGroup":
+      return `<div ${attributes} role="radiogroup">${node.options.map((option, index) => {
+        const checked = state[node.state] === option.value ? " checked" : ""
+        const disabled = option.disabled ? " disabled" : ""
+        return `<label><input type="radio" name="${escapeText(node.id)}" value="${escapeText(String(option.value))}"${checked}${disabled}>${escapeText(option.label)}</label>`
+      }).join("")}</div>`
     case "action":
       return `<button type="button" ${attributes}>${escapeText(node.label)}</button>`
   }

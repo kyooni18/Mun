@@ -14,8 +14,8 @@ use crate::{
     },
     ir::{
         AccessibilityRole, MotionExecutionPlan, MotionProperty, TransitionEdge, TransitionEffect,
-        UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiOverlayAlignment,
-        UiProgram, UiTransition,
+        UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiOverlayAlignment, UiPaint,
+        UiProgram, UiShapeKind, UiTransition,
     },
     layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize},
     motion::{MotionChannelKey, MotionScheduler},
@@ -23,7 +23,10 @@ use crate::{
         RetainedIdentityKey, RetainedNodeKind, RetainedNodeSpec, RetainedReconciliation,
         RetainedTree,
     },
-    scene::{ActionHit, Color, Rect as SceneBounds, Scene, SceneRect, SceneText},
+    scene::{
+        ActionHit, Color, LinearGradient as SceneLinearGradient, Rect as SceneBounds, Scene,
+        SceneGradient, SceneRect, SceneText,
+    },
 };
 
 pub const SEMANTIC_UI_IR_VERSION: u32 = 1;
@@ -125,6 +128,72 @@ fn numeric_result(value: f64) -> Value {
     serde_json::Number::from_f64(value)
         .map(Value::Number)
         .unwrap_or(Value::Null)
+}
+
+fn paint_start_color(paint: &UiPaint) -> Option<Color> {
+    match paint {
+        UiPaint::Solid { color } => Color::parse(color),
+        UiPaint::LinearGradient { start, .. } => Color::parse(start),
+    }
+}
+
+fn unit_point(point: UiOverlayAlignment) -> [f32; 2] {
+    match point {
+        UiOverlayAlignment::Center => [0.5, 0.5],
+        UiOverlayAlignment::Leading => [0.0, 0.5],
+        UiOverlayAlignment::Trailing => [1.0, 0.5],
+        UiOverlayAlignment::Top => [0.5, 0.0],
+        UiOverlayAlignment::Bottom => [0.5, 1.0],
+        UiOverlayAlignment::TopLeading => [0.0, 0.0],
+        UiOverlayAlignment::TopTrailing => [1.0, 0.0],
+        UiOverlayAlignment::BottomLeading => [0.0, 1.0],
+        UiOverlayAlignment::BottomTrailing => [1.0, 1.0],
+    }
+}
+
+fn scene_gradient(paint: &UiPaint, opacity: f32) -> Option<SceneLinearGradient> {
+    let UiPaint::LinearGradient {
+        start,
+        end,
+        start_point,
+        end_point,
+    } = paint
+    else {
+        return None;
+    };
+    Some(SceneLinearGradient {
+        start: Color::parse(start)?.with_opacity(opacity),
+        end: Color::parse(end)?.with_opacity(opacity),
+        start_point: unit_point(*start_point),
+        end_point: unit_point(*end_point),
+    })
+}
+
+fn push_painted_rect(
+    scene: &mut Scene,
+    id: String,
+    rect: SceneBounds,
+    paint: Option<&UiPaint>,
+    fallback: Option<Color>,
+    corner_radius: f32,
+    opacity: f32,
+) {
+    let Some(color) = paint
+        .and_then(paint_start_color)
+        .or(fallback)
+        .map(|color| color.with_opacity(opacity))
+    else {
+        return;
+    };
+    scene.rects.push(SceneRect {
+        id: id.clone(),
+        rect,
+        color,
+        corner_radius,
+    });
+    if let Some(gradient) = paint.and_then(|paint| scene_gradient(paint, opacity)) {
+        scene.gradients.push(SceneGradient { id, gradient });
+    }
 }
 
 fn ordered_comparison(
@@ -353,7 +422,7 @@ impl Runtime {
                     let released_over_capture =
                         scene.action_at(position.x, position.y) == Some(captured.as_str());
                     if released_over_capture && self.focus_action(&captured) {
-                        outcome.activated = self.activate_action(&captured).is_some();
+                        outcome.activated = self.activate_interactive(&captured).is_some();
                     }
                 }
             }
@@ -378,6 +447,37 @@ impl Runtime {
                     }
                     outcome.activated = self.activate_focused().is_some();
                     outcome.handled = outcome.activated || self.focused_action().is_some();
+                }
+                LogicalKey::ArrowDown | LogicalKey::ArrowRight => {
+                    let focused_is_radio = self.focused_action.as_deref().is_some_and(|id| {
+                        find_radio_group(&self.program.root.child, self, id).is_some()
+                    });
+                    if focused_is_radio {
+                        outcome.handled = true;
+                        outcome.activated = self.select_adjacent_radio(true).is_some();
+                    }
+                }
+                LogicalKey::ArrowUp | LogicalKey::ArrowLeft => {
+                    let focused_is_radio = self.focused_action.as_deref().is_some_and(|id| {
+                        find_radio_group(&self.program.root.child, self, id).is_some()
+                    });
+                    if focused_is_radio {
+                        outcome.handled = true;
+                        outcome.activated = self.select_adjacent_radio(false).is_some();
+                    }
+                }
+                LogicalKey::Backspace => {
+                    let focused_is_text = self.focused_action.as_deref().is_some_and(|id| {
+                        find_text_field(&self.program.root.child, self, id).is_some()
+                    });
+                    if focused_is_text {
+                        outcome.handled = true;
+                        outcome.activated = self
+                            .edit_focused_text(|value| {
+                                value.pop();
+                            })
+                            .is_some();
+                    }
                 }
                 LogicalKey::Space if !repeat => {
                     if self.focused_action().is_none() {
@@ -410,10 +510,21 @@ impl Runtime {
                 outcome.pressed_changed = true;
                 if self.focused_action() == Some(captured.as_str()) && self.focus_action(&captured)
                 {
-                    outcome.activated = self.activate_action(&captured).is_some();
+                    outcome.activated = self.activate_interactive(&captured).is_some();
                 }
             }
-            InputEvent::Key { .. } | InputEvent::TextInput { .. } | InputEvent::Scroll { .. } => {}
+            InputEvent::TextInput { text } => {
+                let focused_is_text = self.focused_action.as_deref().is_some_and(|id| {
+                    find_text_field(&self.program.root.child, self, id).is_some()
+                });
+                if focused_is_text {
+                    outcome.handled = true;
+                    outcome.activated = self
+                        .edit_focused_text(|value| value.push_str(&text))
+                        .is_some();
+                }
+            }
+            InputEvent::Key { .. } | InputEvent::Scroll { .. } => {}
             InputEvent::Cancel { pointer } => {
                 outcome.pressed_changed = self.input.cancel_pointer(pointer);
                 outcome.handled = outcome.pressed_changed;
@@ -437,6 +548,10 @@ impl Runtime {
 
     pub fn focused_action(&self) -> Option<&str> {
         self.focused_action.as_deref()
+    }
+
+    pub fn state_value(&self, state: &str) -> Option<&Value> {
+        self.state.get(state)
     }
 
     pub fn primary_pressed_action(&self, pointer: crate::input::PointerId) -> Option<&str> {
@@ -527,16 +642,19 @@ impl Runtime {
     }
 
     pub fn focus_action(&mut self, id: &str) -> bool {
-        let Some((_, base)) = find_action(&self.program.root.child, self, id) else {
+        let focus_id = radio_option_target(id)
+            .map(|(group, _)| group)
+            .unwrap_or(id);
+        let Some(base) = find_focusable_base(&self.program.root.child, self, focus_id) else {
             return false;
         };
         if !self.node_enabled(base) {
             return false;
         }
-        if self.focused_action.as_deref() != Some(id) {
+        if self.focused_action.as_deref() != Some(focus_id) {
             self.input.clear_keyboard_capture();
         }
-        self.focused_action = Some(id.to_owned());
+        self.focused_action = Some(focus_id.to_owned());
         true
     }
 
@@ -574,7 +692,67 @@ impl Runtime {
 
     pub fn activate_focused(&mut self) -> Option<Transaction> {
         let id = self.focused_action.clone()?;
-        self.activate_action(&id)
+        self.activate_interactive(&id)
+    }
+
+    fn activate_interactive(&mut self, id: &str) -> Option<Transaction> {
+        if let Some((group_id, index)) = radio_option_target(id) {
+            let (state, options, base) =
+                find_radio_group(&self.program.root.child, self, group_id)?;
+            if !self.node_enabled(base) {
+                return None;
+            }
+            let state = state.to_owned();
+            let option = options.get(index)?;
+            if option.disabled {
+                return None;
+            }
+            return self.set_control_state(state, option.value.clone());
+        }
+        self.activate_action(id)
+    }
+
+    fn select_adjacent_radio(&mut self, forward: bool) -> Option<Transaction> {
+        let focused = self.focused_action.clone()?;
+        let (state, options, base) = find_radio_group(&self.program.root.child, self, &focused)?;
+        if !self.node_enabled(base) || options.is_empty() {
+            return None;
+        }
+        let state = state.to_owned();
+        let options = options.to_vec();
+        let current = self.state.get(&state).cloned().unwrap_or(Value::Null);
+        let current_index = options
+            .iter()
+            .position(|option| option.value == current)
+            .unwrap_or(if forward { options.len() - 1 } else { 0 });
+        for offset in 1..=options.len() {
+            let index = if forward {
+                (current_index + offset) % options.len()
+            } else {
+                (current_index + options.len() - (offset % options.len())) % options.len()
+            };
+            if !options[index].disabled {
+                return self.set_control_state(state, options[index].value.clone());
+            }
+        }
+        None
+    }
+
+    fn edit_focused_text(&mut self, edit: impl FnOnce(&mut String)) -> Option<Transaction> {
+        let focused = self.focused_action.clone()?;
+        let (state, base) = find_text_field(&self.program.root.child, self, &focused)?;
+        if !self.node_enabled(base) {
+            return None;
+        }
+        let state = state.to_owned();
+        let mut value = self
+            .state
+            .get(&state)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        edit(&mut value);
+        self.set_control_state(state, Value::String(value))
     }
 
     pub fn activate_action(&mut self, id: &str) -> Option<Transaction> {
@@ -671,6 +849,64 @@ impl Runtime {
             };
             let current = self.motion.value(&key).unwrap_or(previous.target);
             self.motion.retarget(key, current, next.target, plan);
+        }
+
+        let after_presence = self.active_transition_roots();
+        self.reconcile_presence(before_presence, after_presence, &transaction);
+        let after_layout_neighborhoods = self.layout_neighborhoods();
+        self.reconcile_layout_flips(
+            before_layout_neighborhoods,
+            after_layout_neighborhoods,
+            before_layout_geometry.as_ref(),
+            &replaced_nodes,
+            &transaction,
+        );
+
+        Some(transaction)
+    }
+
+    fn set_control_state(&mut self, state: String, new: Value) -> Option<Transaction> {
+        let old = self.state.get(&state).cloned().unwrap_or(Value::Null);
+        if old == new {
+            return None;
+        }
+
+        let mut focus_order_before = Vec::new();
+        collect_focusable_actions(&self.program.root.child, self, &mut focus_order_before);
+        let before_presence = self.active_transition_roots();
+        let before_layout_neighborhoods = self.layout_neighborhoods();
+        let before_layout_geometry = self.last_live_accessibility.borrow().clone();
+        let before = self.motion_targets();
+
+        let transaction = Transaction {
+            revision: self.revision + 1,
+            mutations: vec![StateMutation {
+                state: state.clone(),
+                old,
+                new: new.clone(),
+            }],
+            ..Default::default()
+        };
+        self.state.insert(state, new);
+
+        self.reconcile_retained_tree();
+        let replaced_nodes = self.reset_replaced_runtime_state();
+        self.reconcile_focus(&focus_order_before);
+        self.reconcile_pointer_captures();
+        self.revision = transaction.revision;
+
+        let after = self.motion_targets();
+        for (key, next) in after {
+            if replaced_nodes.contains(&key.node_id) {
+                continue;
+            }
+            let current = self
+                .motion
+                .value(&key)
+                .or_else(|| before.get(&key).map(|target| target.target))
+                .unwrap_or(next.target);
+            self.motion.snap(&key, current);
+            self.motion.snap(&key, next.target);
         }
 
         let after_presence = self.active_transition_roots();
@@ -946,6 +1182,8 @@ impl Runtime {
             UiNode::Conditional { .. } => RetainedNodeKind::Conditional,
             UiNode::Text { .. } => RetainedNodeKind::Text,
             UiNode::Panel { .. } => RetainedNodeKind::Panel,
+            UiNode::TextField { .. } => RetainedNodeKind::TextField,
+            UiNode::RadioGroup { .. } => RetainedNodeKind::RadioGroup,
             UiNode::Action { .. } => RetainedNodeKind::Action,
         };
         let active_children = self.active_children(node);
@@ -1486,7 +1724,11 @@ impl Runtime {
                 style.align_items = Some(vertical);
                 style.justify_items = Some(horizontal);
             }
-            UiNode::Text { .. } | UiNode::Action { .. } | UiNode::Panel { .. } => {}
+            UiNode::Text { .. }
+            | UiNode::Action { .. }
+            | UiNode::Panel { .. }
+            | UiNode::TextField { .. }
+            | UiNode::RadioGroup { .. } => {}
             UiNode::Conditional { .. } => {
                 unreachable!("conditional fragments are flattened above")
             }
@@ -1496,6 +1738,19 @@ impl Runtime {
             UiNode::Text { value, .. } => Some(measurer.measure_text(&self.eval_text(value))),
             UiNode::Action { label, .. } => Some(measurer.measure_action(label)),
             UiNode::Panel { .. } => Some(measurer.measure_panel()),
+            UiNode::TextField {
+                state, placeholder, ..
+            } => {
+                let value = self.state.get(state).and_then(Value::as_str).unwrap_or("");
+                Some(measurer.measure_text_field(value, placeholder.as_deref()))
+            }
+            UiNode::RadioGroup { options, .. } => {
+                let labels = options
+                    .iter()
+                    .map(|option| option.label.clone())
+                    .collect::<Vec<_>>();
+                Some(measurer.measure_radio_group(&labels))
+            }
             _ => None,
         };
 
@@ -1580,18 +1835,32 @@ impl Runtime {
             height: layout.size.height,
         };
 
-        if let Some(background) = visual
-            .and_then(|visual| visual.background.as_deref())
-            .and_then(Color::parse)
-        {
-            scene.rects.push(SceneRect {
-                id: node.base().id.clone(),
-                rect,
-                color: background.with_opacity(opacity),
-                corner_radius: visual
+        let generic_paint = match node {
+            UiNode::Panel { .. } => {
+                visual.and_then(|visual| visual.background.as_ref().or(visual.foreground.as_ref()))
+            }
+            UiNode::Action { .. } | UiNode::TextField { .. } | UiNode::RadioGroup { .. } => None,
+            _ => visual.and_then(|visual| visual.background.as_ref()),
+        };
+        if let Some(paint) = generic_paint {
+            let corner_radius = match node {
+                UiNode::Panel {
+                    shape: Some(UiShapeKind::Circle | UiShapeKind::Capsule),
+                    ..
+                } => rect.width.min(rect.height) * 0.5,
+                _ => visual
                     .and_then(|visual| visual.corner_radius)
                     .unwrap_or(0.0),
-            });
+            };
+            push_painted_rect(
+                scene,
+                node.base().id.clone(),
+                rect,
+                Some(paint),
+                None,
+                corner_radius,
+                opacity,
+            );
         }
 
         match node {
@@ -1605,37 +1874,174 @@ impl Runtime {
                     color: base
                         .visual
                         .as_ref()
-                        .and_then(|visual| visual.foreground.as_deref())
-                        .and_then(Color::parse)
+                        .and_then(|visual| visual.foreground.as_ref())
+                        .and_then(paint_start_color)
                         .unwrap_or(Color::TEXT)
                         .with_opacity(opacity),
                 });
             }
             UiNode::Action { base, label, .. } => {
                 let focused = self.focused_action.as_deref() == Some(base.id.as_str());
-                scene.rects.push(SceneRect {
-                    id: format!("{}:background", base.id),
+                let paint = base
+                    .visual
+                    .as_ref()
+                    .and_then(|visual| visual.background.as_ref());
+                let fallback = if focused {
+                    Color::ACTION_FOCUSED
+                } else {
+                    Color::ACTION
+                };
+                let background_id = format!("{}:background", base.id);
+                push_painted_rect(
+                    scene,
+                    background_id,
                     rect,
-                    color: if focused {
-                        Color::ACTION_FOCUSED
-                    } else {
-                        Color::ACTION
-                    }
-                    .with_opacity(opacity),
-                    corner_radius: 9.0,
-                });
+                    paint,
+                    Some(fallback),
+                    base.visual
+                        .as_ref()
+                        .and_then(|visual| visual.corner_radius)
+                        .unwrap_or(9.0),
+                    opacity,
+                );
                 scene.texts.push(SceneText {
                     id: format!("{}:label", base.id),
                     text: label.clone(),
                     x: x + 16.0,
                     y: y + 8.0,
                     font_size: 16.0,
-                    color: Color::TEXT.with_opacity(opacity),
+                    color: base
+                        .visual
+                        .as_ref()
+                        .and_then(|visual| visual.foreground.as_ref())
+                        .and_then(paint_start_color)
+                        .unwrap_or(Color::TEXT)
+                        .with_opacity(opacity),
                 });
                 scene.actions.push(ActionHit {
                     id: base.id.clone(),
                     rect,
                 });
+            }
+            UiNode::TextField {
+                base,
+                state,
+                placeholder,
+            } => {
+                let paint = base
+                    .visual
+                    .as_ref()
+                    .and_then(|visual| visual.background.as_ref());
+                push_painted_rect(
+                    scene,
+                    format!("{}:background", base.id),
+                    rect,
+                    paint,
+                    Some(Color::ACTION),
+                    base.visual
+                        .as_ref()
+                        .and_then(|visual| visual.corner_radius)
+                        .unwrap_or(7.0),
+                    opacity,
+                );
+                let value = self.state.get(state).and_then(Value::as_str).unwrap_or("");
+                let (text, text_opacity) = if value.is_empty() {
+                    (placeholder.as_deref().unwrap_or(""), 0.55)
+                } else {
+                    (value, 1.0)
+                };
+                scene.texts.push(SceneText {
+                    id: format!("{}:text", base.id),
+                    text: text.to_owned(),
+                    x: x + 12.0,
+                    y: y + 7.0,
+                    font_size: 16.0,
+                    color: base
+                        .visual
+                        .as_ref()
+                        .and_then(|visual| visual.foreground.as_ref())
+                        .and_then(paint_start_color)
+                        .unwrap_or(Color::TEXT)
+                        .with_opacity(opacity * text_opacity),
+                });
+                scene.actions.push(ActionHit {
+                    id: base.id.clone(),
+                    rect,
+                });
+            }
+            UiNode::RadioGroup {
+                base,
+                state,
+                options,
+            } => {
+                if let Some(paint) = base
+                    .visual
+                    .as_ref()
+                    .and_then(|visual| visual.background.as_ref())
+                {
+                    push_painted_rect(
+                        scene,
+                        format!("{}:background", base.id),
+                        rect,
+                        Some(paint),
+                        None,
+                        base.visual
+                            .as_ref()
+                            .and_then(|visual| visual.corner_radius)
+                            .unwrap_or(0.0),
+                        opacity,
+                    );
+                }
+                let selected = self.state.get(state).cloned().unwrap_or(Value::Null);
+                let foreground = base
+                    .visual
+                    .as_ref()
+                    .and_then(|visual| visual.foreground.as_ref())
+                    .and_then(paint_start_color)
+                    .unwrap_or(Color::TEXT);
+                for (index, option) in options.iter().enumerate() {
+                    let row_y = y + index as f32 * 30.0;
+                    let row_rect = SceneBounds {
+                        x,
+                        y: row_y,
+                        width: rect.width,
+                        height: 30.0,
+                    };
+                    let selected_here = selected == option.value;
+                    scene.rects.push(SceneRect {
+                        id: format!("{}:option:{}:indicator", base.id, index),
+                        rect: SceneBounds {
+                            x: x + 4.0,
+                            y: row_y + 7.0,
+                            width: 16.0,
+                            height: 16.0,
+                        },
+                        color: if selected_here {
+                            Color([0.36, 0.62, 1.0, opacity])
+                        } else {
+                            Color([0.30, 0.30, 0.36, opacity])
+                        },
+                        corner_radius: 8.0,
+                    });
+                    scene.texts.push(SceneText {
+                        id: format!("{}:option:{}:label", base.id, index),
+                        text: option.label.clone(),
+                        x: x + 28.0,
+                        y: row_y + 5.0,
+                        font_size: 16.0,
+                        color: foreground.with_opacity(if option.disabled {
+                            opacity * 0.45
+                        } else {
+                            opacity
+                        }),
+                    });
+                    if !option.disabled {
+                        scene.actions.push(ActionHit {
+                            id: format!("{}:option:{}", base.id, index),
+                            rect: row_rect,
+                        });
+                    }
+                }
             }
             _ => {}
         }
@@ -1680,6 +2086,8 @@ impl Runtime {
             .unwrap_or_else(|| match node {
                 UiNode::Text { .. } => AccessibilityRole::Text,
                 UiNode::Action { .. } => AccessibilityRole::Button,
+                UiNode::TextField { .. } => AccessibilityRole::TextField,
+                UiNode::RadioGroup { .. } => AccessibilityRole::RadioGroup,
                 _ => AccessibilityRole::Group,
             });
         let label = semantics
@@ -1687,6 +2095,17 @@ impl Runtime {
             .or_else(|| match node {
                 UiNode::Text { value, .. } => Some(self.eval_text(value)),
                 UiNode::Action { label, .. } => Some(label.clone()),
+                UiNode::TextField {
+                    state, placeholder, ..
+                } => Some(
+                    self.state
+                        .get(state)
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned)
+                        .or_else(|| placeholder.clone())
+                        .unwrap_or_default(),
+                ),
                 _ => None,
             });
         let enabled = self.node_enabled(base);
@@ -1695,7 +2114,11 @@ impl Runtime {
             .into_iter()
             .map(|child| child.base().id.clone())
             .collect();
-        let action_id = matches!(node, UiNode::Action { .. }).then(|| base.id.clone());
+        let action_id = matches!(
+            node,
+            UiNode::Action { .. } | UiNode::TextField { .. } | UiNode::RadioGroup { .. }
+        )
+        .then(|| base.id.clone());
         output.push(AccessibilityNode {
             id: base.id.clone(),
             role,
@@ -1720,11 +2143,76 @@ impl Runtime {
 }
 
 fn collect_focusable_actions(node: &UiNode, runtime: &Runtime, output: &mut Vec<String>) {
-    if matches!(node, UiNode::Action { .. }) && runtime.node_enabled(node.base()) {
+    if matches!(
+        node,
+        UiNode::Action { .. } | UiNode::TextField { .. } | UiNode::RadioGroup { .. }
+    ) && runtime.node_enabled(node.base())
+    {
         output.push(node.base().id.clone());
     }
     for child in runtime.active_children(node) {
         collect_focusable_actions(child, runtime, output);
+    }
+}
+
+fn radio_option_target(id: &str) -> Option<(&str, usize)> {
+    let (group, index) = id.rsplit_once(":option:")?;
+    Some((group, index.parse().ok()?))
+}
+
+fn find_focusable_base<'a>(
+    node: &'a UiNode,
+    runtime: &Runtime,
+    id: &str,
+) -> Option<&'a crate::ir::NodeBase> {
+    match node {
+        UiNode::Action { base, .. }
+        | UiNode::TextField { base, .. }
+        | UiNode::RadioGroup { base, .. }
+            if base.id == id =>
+        {
+            Some(base)
+        }
+        _ => runtime
+            .active_children(node)
+            .iter()
+            .find_map(|child| find_focusable_base(child, runtime, id)),
+    }
+}
+
+fn find_text_field<'a>(
+    node: &'a UiNode,
+    runtime: &Runtime,
+    id: &str,
+) -> Option<(&'a str, &'a crate::ir::NodeBase)> {
+    match node {
+        UiNode::TextField { base, state, .. } if base.id == id => Some((state, base)),
+        _ => runtime
+            .active_children(node)
+            .iter()
+            .find_map(|child| find_text_field(child, runtime, id)),
+    }
+}
+
+fn find_radio_group<'a>(
+    node: &'a UiNode,
+    runtime: &Runtime,
+    id: &str,
+) -> Option<(
+    &'a str,
+    &'a [crate::ir::UiSelectionOption],
+    &'a crate::ir::NodeBase,
+)> {
+    match node {
+        UiNode::RadioGroup {
+            base,
+            state,
+            options,
+        } if base.id == id => Some((state, options, base)),
+        _ => runtime
+            .active_children(node)
+            .iter()
+            .find_map(|child| find_radio_group(child, runtime, id)),
     }
 }
 
@@ -2016,6 +2504,12 @@ fn snapshot_scene_subtree(scene: &Scene, descendants: &HashSet<String>) -> Scene
     Scene {
         rects: scene
             .rects
+            .iter()
+            .filter(|item| scene_item_belongs(&item.id, descendants))
+            .cloned()
+            .collect(),
+        gradients: scene
+            .gradients
             .iter()
             .filter(|item| scene_item_belongs(&item.id, descendants))
             .cloned()
