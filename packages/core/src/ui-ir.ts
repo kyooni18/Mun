@@ -61,6 +61,17 @@ export interface MunAccessibilitySemantics {
 
 export type MunUiAlignment = "leading" | "center" | "trailing" | "stretch"
 
+export type MunUiOverlayAlignment =
+  | "center"
+  | "leading"
+  | "trailing"
+  | "top"
+  | "bottom"
+  | "topLeading"
+  | "topTrailing"
+  | "bottomLeading"
+  | "bottomTrailing"
+
 export interface MunUiLayout {
   readonly width?: MunUiExpression
   readonly height?: MunUiExpression
@@ -219,6 +230,12 @@ export interface MunUiStackNode extends MunUiNodeBase {
   readonly children: readonly MunUiNode[]
 }
 
+export interface MunUiOverlayNode extends MunUiNodeBase {
+  readonly kind: "overlay"
+  readonly alignment?: MunUiOverlayAlignment
+  readonly children: readonly MunUiNode[]
+}
+
 export interface MunUiConditionalNode extends MunUiNodeBase {
   readonly kind: "conditional"
   readonly condition: MunUiExpression
@@ -245,6 +262,7 @@ export interface MunUiActionNode extends MunUiNodeBase {
 export type MunUiNode =
   | MunUiWindowNode
   | MunUiStackNode
+  | MunUiOverlayNode
   | MunUiConditionalNode
   | MunUiTextNode
   | MunUiPanelNode

@@ -110,6 +110,23 @@ function styleFor(
     declarations.push(`flex-direction:${node.kind === "column" ? "column" : "row"}`)
   }
 
+  if (node.kind === "overlay") {
+    const [alignItems, justifyItems] = {
+      center: ["center", "center"],
+      leading: ["center", "start"],
+      trailing: ["center", "end"],
+      top: ["start", "center"],
+      bottom: ["end", "center"],
+      topLeading: ["start", "start"],
+      topTrailing: ["start", "end"],
+      bottomLeading: ["end", "start"],
+      bottomTrailing: ["end", "end"],
+    }[node.alignment ?? "center"]
+    declarations.push("display:grid")
+    declarations.push(`align-items:${alignItems}`)
+    declarations.push(`justify-items:${justifyItems}`)
+  }
+
   if (layout?.width) {
     const value = cssValue(evaluate(layout.width, state))
     if (value) declarations.push(`width:${value}`)
@@ -176,6 +193,8 @@ function renderNode(
     case "column":
     case "row":
       return `<div ${attributes}>${node.children.map(child => renderNode(child, state)).join("")}</div>`
+    case "overlay":
+      return `<div ${attributes}>${node.children.map(child => `<div style="grid-area:1 / 1">${renderNode(child, state)}</div>`).join("")}</div>`
     case "conditional": {
       const branch = evaluate(node.condition, state) ? node.then : node.otherwise
       return branch.map(child => renderNode(child, state)).join("")

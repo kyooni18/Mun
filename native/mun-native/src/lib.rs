@@ -1055,6 +1055,7 @@ mod tests {
         assert_eq!(vertices[0].local_position, [0.0, 0.0]);
         assert_eq!(vertices[2].local_position, [40.0, 20.0]);
         assert_eq!(vertices[0].rect_size, [40.0, 20.0]);
+        assert_eq!(vertices[0].color, [0.25, 0.5, 0.75, 1.0]);
         assert_eq!(vertices[0].corner_radius, 6.0);
     }
 

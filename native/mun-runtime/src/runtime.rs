@@ -14,7 +14,8 @@ use crate::{
     },
     ir::{
         AccessibilityRole, MotionExecutionPlan, MotionProperty, TransitionEdge, TransitionEffect,
-        UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiProgram, UiTransition,
+        UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiOverlayAlignment,
+        UiProgram, UiTransition,
     },
     layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize},
     motion::{MotionChannelKey, MotionScheduler},
@@ -894,7 +895,9 @@ impl Runtime {
 
     fn active_children<'a>(&self, node: &'a UiNode) -> &'a [UiNode] {
         match node {
-            UiNode::Column { children, .. } | UiNode::Row { children, .. } => children,
+            UiNode::Column { children, .. }
+            | UiNode::Row { children, .. }
+            | UiNode::Overlay { children, .. } => children,
             UiNode::Conditional {
                 condition,
                 then_nodes,
@@ -939,6 +942,7 @@ impl Runtime {
         let kind = match node {
             UiNode::Column { .. } => RetainedNodeKind::Column,
             UiNode::Row { .. } => RetainedNodeKind::Row,
+            UiNode::Overlay { .. } => RetainedNodeKind::Overlay,
             UiNode::Conditional { .. } => RetainedNodeKind::Conditional,
             UiNode::Text { .. } => RetainedNodeKind::Text,
             UiNode::Panel { .. } => RetainedNodeKind::Panel,
@@ -991,7 +995,7 @@ impl Runtime {
                     self.collect_layout_neighborhoods(child, output);
                 }
             }
-            UiNode::Conditional { .. } => {
+            UiNode::Overlay { .. } | UiNode::Conditional { .. } => {
                 for child in self.active_children(node) {
                     self.collect_layout_neighborhoods(child, output);
                 }
@@ -1452,11 +1456,35 @@ impl Runtime {
                     height: LengthPercentage::length(spacing),
                 };
                 style.align_items = Some(match layout.and_then(|layout| layout.alignment) {
-                    Some(UiAlignment::Center) => AlignItems::CENTER,
+                    Some(UiAlignment::Leading) => AlignItems::FLEX_START,
                     Some(UiAlignment::Trailing) => AlignItems::FLEX_END,
                     Some(UiAlignment::Stretch) => AlignItems::STRETCH,
-                    _ => AlignItems::FLEX_START,
+                    Some(UiAlignment::Center) | None => AlignItems::CENTER,
                 });
+            }
+            UiNode::Overlay { alignment, .. } => {
+                style.display = Display::Grid;
+                let (vertical, horizontal) = match alignment.unwrap_or(UiOverlayAlignment::Center) {
+                    UiOverlayAlignment::Center => (AlignItems::CENTER, AlignItems::CENTER),
+                    UiOverlayAlignment::Leading => (AlignItems::CENTER, AlignItems::FLEX_START),
+                    UiOverlayAlignment::Trailing => (AlignItems::CENTER, AlignItems::FLEX_END),
+                    UiOverlayAlignment::Top => (AlignItems::FLEX_START, AlignItems::CENTER),
+                    UiOverlayAlignment::Bottom => (AlignItems::FLEX_END, AlignItems::CENTER),
+                    UiOverlayAlignment::TopLeading => {
+                        (AlignItems::FLEX_START, AlignItems::FLEX_START)
+                    }
+                    UiOverlayAlignment::TopTrailing => {
+                        (AlignItems::FLEX_START, AlignItems::FLEX_END)
+                    }
+                    UiOverlayAlignment::BottomLeading => {
+                        (AlignItems::FLEX_END, AlignItems::FLEX_START)
+                    }
+                    UiOverlayAlignment::BottomTrailing => {
+                        (AlignItems::FLEX_END, AlignItems::FLEX_END)
+                    }
+                };
+                style.align_items = Some(vertical);
+                style.justify_items = Some(horizontal);
             }
             UiNode::Text { .. } | UiNode::Action { .. } | UiNode::Panel { .. } => {}
             UiNode::Conditional { .. } => {
@@ -1473,7 +1501,22 @@ impl Runtime {
 
         let mut children = Vec::new();
         for child in self.active_children(node) {
-            children.extend(self.build_layout_nodes(taffy, child, nodes, measurer)?);
+            let child_nodes = self.build_layout_nodes(taffy, child, nodes, measurer)?;
+            if matches!(node, UiNode::Overlay { .. }) {
+                for child_id in &child_nodes {
+                    let mut child_style = taffy.style(*child_id)?.clone();
+                    child_style.grid_row = Line {
+                        start: line(1),
+                        end: line(2),
+                    };
+                    child_style.grid_column = Line {
+                        start: line(1),
+                        end: line(2),
+                    };
+                    taffy.set_style(*child_id, child_style)?;
+                }
+            }
+            children.extend(child_nodes);
         }
         let id = if children.is_empty() {
             match intrinsic {
@@ -2007,7 +2050,9 @@ fn validate_node_identity(
     }
 
     match node {
-        UiNode::Column { children, .. } | UiNode::Row { children, .. } => {
+        UiNode::Column { children, .. }
+        | UiNode::Row { children, .. }
+        | UiNode::Overlay { children, .. } => {
             for child in children {
                 validate_node_identity(child, identities)?;
             }
@@ -2028,7 +2073,9 @@ fn validate_node_identity(
 
 fn validate_native_transitions(node: &UiNode) -> Result<(), RuntimeLoadError> {
     match node {
-        UiNode::Column { children, .. } | UiNode::Row { children, .. } => {
+        UiNode::Column { children, .. }
+        | UiNode::Row { children, .. }
+        | UiNode::Overlay { children, .. } => {
             for child in children {
                 validate_native_transitions(child)?;
             }
@@ -2373,7 +2420,6 @@ mod tests {
             },
         );
 
-
         runtime
             .activate_action("change")
             .expect("identity-changing action");
@@ -2442,14 +2488,24 @@ mod tests {
 
         assert!(!runtime.layout_flips.contains_key("keyed-child"));
         assert!(runtime.layout_flips.contains_key("change"));
-        assert!(runtime.motion.value(&MotionChannelKey {
-            node_id: "__layout-flip:change".to_owned(),
-            property: MotionProperty::TranslationX,
-        }).is_some());
-        assert!(runtime.motion.value(&MotionChannelKey {
-            node_id: "__layout-flip:keyed-child".to_owned(),
-            property: MotionProperty::TranslationX,
-        }).is_none());
+        assert!(
+            runtime
+                .motion
+                .value(&MotionChannelKey {
+                    node_id: "__layout-flip:change".to_owned(),
+                    property: MotionProperty::TranslationX,
+                })
+                .is_some()
+        );
+        assert!(
+            runtime
+                .motion
+                .value(&MotionChannelKey {
+                    node_id: "__layout-flip:keyed-child".to_owned(),
+                    property: MotionProperty::TranslationX,
+                })
+                .is_none()
+        );
     }
 
     const DYNAMIC_ROOT_IDENTITY_KEY: &str = r#"

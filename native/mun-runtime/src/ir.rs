@@ -80,6 +80,20 @@ pub enum UiAlignment {
     Stretch,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UiOverlayAlignment {
+    Center,
+    Leading,
+    Trailing,
+    Top,
+    Bottom,
+    TopLeading,
+    TopTrailing,
+    BottomLeading,
+    BottomTrailing,
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiLayout {
@@ -290,6 +304,14 @@ pub enum UiNode {
         base: NodeBase,
         children: Vec<UiNode>,
     },
+    #[serde(rename = "overlay")]
+    Overlay {
+        #[serde(flatten)]
+        base: NodeBase,
+        #[serde(default)]
+        alignment: Option<UiOverlayAlignment>,
+        children: Vec<UiNode>,
+    },
     #[serde(rename = "conditional")]
     Conditional {
         #[serde(flatten)]
@@ -325,6 +347,7 @@ impl UiNode {
         match self {
             Self::Column { base, .. }
             | Self::Row { base, .. }
+            | Self::Overlay { base, .. }
             | Self::Conditional { base, .. }
             | Self::Text { base, .. }
             | Self::Panel { base }
@@ -334,7 +357,9 @@ impl UiNode {
 
     pub fn children(&self) -> &[UiNode] {
         match self {
-            Self::Column { children, .. } | Self::Row { children, .. } => children,
+            Self::Column { children, .. }
+            | Self::Row { children, .. }
+            | Self::Overlay { children, .. } => children,
             _ => &[],
         }
     }

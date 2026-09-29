@@ -9,6 +9,7 @@ pub enum RetainedNodeKind {
     Window,
     Column,
     Row,
+    Overlay,
     Conditional,
     Text,
     Panel,

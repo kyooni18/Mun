@@ -535,6 +535,58 @@
       ],
       "additionalProperties": false
     },
+    "overlay": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "overlay"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "alignment": {
+          "enum": [
+            "center",
+            "leading",
+            "trailing",
+            "top",
+            "bottom",
+            "topLeading",
+            "topTrailing",
+            "bottomLeading",
+            "bottomTrailing"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "children"
+      ],
+      "additionalProperties": false
+    },
     "conditionalNode": {
       "type": "object",
       "properties": {
@@ -700,6 +752,9 @@
         },
         {
           "$ref": "#/$defs/row"
+        },
+        {
+          "$ref": "#/$defs/overlay"
         },
         {
           "$ref": "#/$defs/conditionalNode"

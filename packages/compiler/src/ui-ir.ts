@@ -14,6 +14,7 @@ import {
   type MunUiExpression,
   type MunUiLayout,
   type MunUiNode,
+  type MunUiOverlayAlignment,
   type MunUiProgram,
   type MunUiScalar,
   type MunUiState,
@@ -229,6 +230,16 @@ function componentSemanticArgument(
       kind: "binding",
       type: "binding",
       ...(underlyingType ? { underlyingType } : {}),
+      sourceArgument: argument,
+    }
+  }
+
+  const implicitMember = /^\.([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(argument.value.source.trim())
+  if (implicitMember) {
+    return {
+      label: argument.label,
+      type: "string",
+      value: implicitMember[1],
       sourceArgument: argument,
     }
   }
@@ -822,11 +833,37 @@ function modifierRaw(modifier: ModifierCall, label: string, positionalIndex: num
   return argument?.value.kind === "raw" ? argument.value.source.trim() : undefined
 }
 
-function normalizedAlignment(source: string | undefined): MunUiAlignment | undefined {
+function normalizedVStackAlignment(source: string | undefined): MunUiAlignment | undefined {
   if (source === undefined) return undefined
   const value = source.trim().replace(/^\./, "")
   if (value === "leading" || value === "center" || value === "trailing" || value === "stretch") return value
-  throw new SyntaxError(`Native alignment must be a static semantic alignment: ${source}`)
+  throw new SyntaxError(`Native VStack alignment must be leading, center, trailing, or stretch: ${source}`)
+}
+
+function normalizedHStackAlignment(source: string | undefined): MunUiAlignment | undefined {
+  if (source === undefined) return undefined
+  const value = source.trim().replace(/^\./, "")
+  if (value === "top" || value === "leading") return "leading"
+  if (value === "bottom" || value === "trailing") return "trailing"
+  if (value === "center" || value === "stretch") return value
+  throw new SyntaxError(`Native HStack alignment must be top, center, bottom, or stretch: ${source}`)
+}
+
+function normalizedOverlayAlignment(source: string | undefined): MunUiOverlayAlignment | undefined {
+  if (source === undefined) return undefined
+  const value = source.trim().replace(/^\./, "") as MunUiOverlayAlignment
+  if (
+    value === "center"
+    || value === "leading"
+    || value === "trailing"
+    || value === "top"
+    || value === "bottom"
+    || value === "topLeading"
+    || value === "topTrailing"
+    || value === "bottomLeading"
+    || value === "bottomTrailing"
+  ) return value
+  throw new SyntaxError(`Native ZStack alignment must be a static ZStack alignment: ${source}`)
 }
 
 function offsetSources(modifier: ModifierCall): { readonly x?: string; readonly y?: string } {
@@ -1548,7 +1585,7 @@ class UiLowerer {
     validateCanonicalBuiltinCall(call, bindings, this.#stateTypes)
     if (call.callee === "VStack" || call.callee === "Column") {
       const spacing = numberValue(rawArgument(call, "spacing", 0), 0, bindings)
-      const alignment = normalizedAlignment(rawArgument(call, "alignment", 1))
+      const alignment = normalizedVStackAlignment(rawArgument(call, "alignment", 1))
       return {
         kind: "column",
         id: this.id("column", path),
@@ -1560,11 +1597,22 @@ class UiLowerer {
 
     if (call.callee === "HStack" || call.callee === "Row") {
       const spacing = numberValue(rawArgument(call, "spacing", 0), 0, bindings)
-      const alignment = normalizedAlignment(rawArgument(call, "alignment", 1))
+      const alignment = normalizedHStackAlignment(rawArgument(call, "alignment", 1))
       return {
         kind: "row",
         id: this.id("row", path),
         layout: { spacing, ...(alignment ? { alignment } : {}) },
+        accessibility: { role: "group" },
+        children: this.children(call, bindings, path, statePath),
+      }
+    }
+
+    if (call.callee === "ZStack") {
+      const alignment = normalizedOverlayAlignment(rawArgument(call, "alignment", 0))
+      return {
+        kind: "overlay",
+        id: this.id("overlay", path),
+        ...(alignment ? { alignment } : {}),
         accessibility: { role: "group" },
         children: this.children(call, bindings, path, statePath),
       }
