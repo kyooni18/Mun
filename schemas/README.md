@@ -12,4 +12,8 @@ Within one IR version, producers must not start emitting a field or node kind un
 
 The TypeScript semantic types, this schema, and native runtime deserialization must stay in lockstep. The schema is intentionally strict so drift is discovered during development instead of being silently ignored by a backend.
 
+The native runtime (`mun-runtime`) bundles this file and evaluates it against every program before deserializing it: unknown fields, unknown node/expression/action kinds, nested windows and malformed shapes are load errors that name the nearest node identity and the JSON path of the field. It then checks references the schema cannot express (declared and unique state names, text bindings to string state, unique radio option values, `item` expressions inside their `forEach`, item-scoped state naming an existing `forEach`). An unsupported `version` or `sourceLanguage` is reported before any field validation.
+
+`forEach` nodes render one instance of their children per collection item, keyed by `keyPath`. Item identity is the key, never the index: node identities gain a key segment, and states declared with `scope` exist once per live key and are released when the key leaves the collection. Duplicate or invalid keys are errors.
+
 Scroll nodes own an explicit vertical/horizontal viewport. Offsets are runtime-owned, not serialized state or renderer commands. Content extent comes from layout; presentation clips, input hit testing, and accessibility geometry share that viewport.

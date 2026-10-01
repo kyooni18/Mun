@@ -18,6 +18,7 @@ pub mod scroll;
 pub mod scroll_view;
 pub mod text_edit;
 pub mod timeline;
+pub mod validate;
 
 pub use accessibility::{AccessibilityBounds, AccessibilityNode, AccessibilityTree};
 pub use gesture::{

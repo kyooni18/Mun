@@ -1230,6 +1230,21 @@
         },
         "child": {
           "$ref": "#/$defs/node"
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [

@@ -49,6 +49,8 @@ pub enum RuntimeLoadError {
     DuplicateNodeIdentity { id: String },
     #[error("invalid Mün keyed collection: {0}")]
     Collection(crate::collection::CollectionError),
+    #[error("Mün Semantic UI IR violates the v1 contract: {0}")]
+    Invalid(#[from] crate::validate::IrValidationError),
 }
 
 /// Runtime-detected contract violations that were rejected without effect.
@@ -378,18 +380,26 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn from_json(source: &str) -> Result<Self, RuntimeLoadError> {
-        let program: UiProgram = serde_json::from_str(source)?;
-        if program.version != SEMANTIC_UI_IR_VERSION {
-            return Err(RuntimeLoadError::UnsupportedVersion {
-                found: program.version,
-                supported: SEMANTIC_UI_IR_VERSION,
-            });
+        let raw: Value = serde_json::from_str(source)?;
+        // Version and language gate everything else: a future version must be
+        // reported as such, not as a pile of unknown fields.
+        if let Some(found) = raw.get("version").and_then(Value::as_u64) {
+            if found != u64::from(SEMANTIC_UI_IR_VERSION) {
+                return Err(RuntimeLoadError::UnsupportedVersion {
+                    found: u32::try_from(found).unwrap_or(u32::MAX),
+                    supported: SEMANTIC_UI_IR_VERSION,
+                });
+            }
         }
-        if program.source_language != "mun" {
-            return Err(RuntimeLoadError::UnsupportedSourceLanguage {
-                found: program.source_language,
-            });
+        if let Some(found) = raw.get("sourceLanguage").and_then(Value::as_str) {
+            if found != "mun" {
+                return Err(RuntimeLoadError::UnsupportedSourceLanguage {
+                    found: found.to_owned(),
+                });
+            }
         }
+        crate::validate::validate_program(&raw)?;
+        let program: UiProgram = serde_json::from_value(raw)?;
         validate_native_transitions(&program.root.child)?;
         validate_node_identities(&program)?;
         let scope_model = crate::collection::ScopeModel::new(&program.states, &program.root.child);

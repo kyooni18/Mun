@@ -6,7 +6,7 @@ use mun_runtime::text_edit::{Composition, TextEdit};
 use mun_runtime::{AccessibilityNode, InputEvent, Runtime};
 
 const PROGRAM: &str = r##"{"version":1,"sourceLanguage":"mun","entry":"A11y","states":[
- {"name":"choice","initial":"work"},{"name":"name","initial":"한é👍🏽 ok"}],
+ {"name":"choice","initial":"work"},{"name":"flag","initial":false},{"name":"name","initial":"한é👍🏽 ok"}],
  "root":{"kind":"window","id":"window","title":"A11y","child":{"kind":"column","id":"stack","children":[
   {"kind":"textField","id":"field","state":"name","placeholder":"Name","layout":{"width":{"kind":"literal","value":260},"height":{"kind":"literal","value":40}}},
   {"kind":"radioGroup","id":"choices","state":"choice","options":[
@@ -17,11 +17,7 @@ const PROGRAM: &str = r##"{"version":1,"sourceLanguage":"mun","entry":"A11y","st
       {"kind":"action","id":"deep","label":"Deep","action":{"kind":"toggle-state","state":"flag"}}]}]}]}}}"##;
 
 fn runtime() -> Runtime {
-    Runtime::from_json(&PROGRAM.replace(
-        r#"{"kind":"toggle-state","state":"flag"}"#,
-        r#"{"kind":"set-state","state":"choice","value":{"kind":"literal","value":"work"}}"#,
-    ))
-    .unwrap()
+    Runtime::from_json(PROGRAM).unwrap()
 }
 
 fn node(runtime: &Runtime, id: &str) -> AccessibilityNode {
