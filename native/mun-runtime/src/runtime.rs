@@ -729,6 +729,21 @@ impl Runtime {
                 }
                 LogicalKey::Character(ref key)
                     if self.shortcut_modifier()
+                        && (key.eq_ignore_ascii_case("z") || key.eq_ignore_ascii_case("y")) =>
+                {
+                    outcome.handled = self.focused_is_text_field();
+                    // Cmd+Z / Cmd+Shift+Z (Ctrl+Z / Ctrl+Y elsewhere).
+                    let redo = key.eq_ignore_ascii_case("y") || self.input.modifiers().shift;
+                    outcome.activated = self
+                        .edit_focused_text(if redo {
+                            crate::text_edit::TextEdit::Redo
+                        } else {
+                            crate::text_edit::TextEdit::Undo
+                        })
+                        .is_some();
+                }
+                LogicalKey::Character(ref key)
+                    if self.shortcut_modifier()
                         && ["c", "x", "v"]
                             .iter()
                             .any(|shortcut| key.eq_ignore_ascii_case(shortcut)) =>
@@ -2119,6 +2134,18 @@ impl Runtime {
         let mut nodes = HashMap::new();
         let children =
             self.build_layout_nodes(&mut taffy, &self.program.root.child, &mut nodes, measurer)?;
+        // The window's content fills the window on both axes (it already
+        // stretched vertically as the wrapper's cross axis), so resizing the
+        // window resizes the root view, not just the area around it.
+        for child in &children {
+            let mut style = taffy.style(*child)?.clone();
+            if style.size.width == Dimension::auto() {
+                style.flex_grow = 1.0;
+                style.flex_shrink = 1.0;
+                style.flex_basis = Dimension::length(0.0);
+                taffy.set_style(*child, style)?;
+            }
+        }
         let wrapper = taffy.new_with_children(
             Style {
                 size: Size {

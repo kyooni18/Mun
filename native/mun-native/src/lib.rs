@@ -1506,6 +1506,21 @@ fn input_logical_key(key: &Key) -> LogicalKey {
     }
 }
 
+/// With Command/Control held, letter shortcuts are identified by their
+/// physical key: a non-Latin input source (e.g. Korean 2-Set reports `ㅁ` for
+/// the A key) must not disable Cmd+A, Cmd+Z, Cmd+C and friends.
+fn shortcut_key(modifiers: &Modifiers, key: WinitPhysicalKey) -> Option<LogicalKey> {
+    if !(modifiers.meta || modifiers.control) {
+        return None;
+    }
+    let WinitPhysicalKey::Code(code) = key else {
+        return None;
+    };
+    let name = format!("{code:?}");
+    let letter = name.strip_prefix("Key")?;
+    (letter.len() == 1).then(|| LogicalKey::Character(letter.to_ascii_lowercase()))
+}
+
 fn input_physical_key(key: WinitPhysicalKey) -> MunPhysicalKey {
     match key {
         WinitPhysicalKey::Code(KeyCode::Tab) => MunPhysicalKey::Tab,
@@ -2025,7 +2040,8 @@ impl ApplicationHandler<NativeEvent> for Application {
                     None
                 };
                 state.dispatch_input(InputEvent::Key {
-                    logical: input_logical_key(&event.logical_key),
+                    logical: shortcut_key(&state.modifiers, event.physical_key)
+                        .unwrap_or_else(|| input_logical_key(&event.logical_key)),
                     physical: input_physical_key(event.physical_key),
                     state: match event.state {
                         ElementState::Pressed => MunKeyState::Pressed,

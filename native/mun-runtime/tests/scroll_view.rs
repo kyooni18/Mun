@@ -130,10 +130,12 @@ fn keyboard_focus_reveals_offscreen_control_and_pointer_activates_scrolled_contr
 fn scroll_inside_stack_keeps_following_sibling_at_viewport_edge() {
     let child = json!({"kind":"column","id":"stack","children":[scroll("scroll",60,vec![action("a"),action("b"),action("c")]),action("after")]});
     let mut r = runtime(child);
-    wheel(&mut r, 20.0, 20.0, -40.0);
+    // The root column fills the 300pt window and centers its 100pt children.
+    wheel(&mut r, 120.0, 20.0, -40.0);
     let frame = r.build_frame(300.0, 300.0).unwrap();
+    assert_eq!(frame.accessibility.node("after").unwrap().bounds.x, 100.0);
     assert_eq!(frame.accessibility.node("after").unwrap().bounds.y, 60.0);
-    assert_eq!(frame.scene.action_at(20.0, 75.0), Some("after"));
+    assert_eq!(frame.scene.action_at(120.0, 75.0), Some("after"));
 }
 
 #[test]

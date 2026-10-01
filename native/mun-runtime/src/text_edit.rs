@@ -57,7 +57,28 @@ pub enum TextEdit {
     CompositionUpdate(Composition),
     CompositionCommit(String),
     CompositionCancel,
+    /// Restore the state before the last edit group (typing runs coalesce).
+    Undo,
+    Redo,
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Snapshot {
+    text: String,
+    anchor: usize,
+    cursor: usize,
+}
+
+/// Which edit group the last recorded undo step belongs to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Group {
+    #[default]
+    None,
+    Typing,
+    Deleting,
+}
+
+const UNDO_LIMIT: usize = 200;
 
 /// Scalar offsets of every extended grapheme cluster boundary, including 0 and
 /// the scalar length.
@@ -100,6 +121,9 @@ pub struct TextEditor {
     anchor: usize,
     cursor: usize,
     composition: Option<Composition>,
+    undo: Vec<Snapshot>,
+    redo: Vec<Snapshot>,
+    group: Group,
 }
 
 impl TextEditor {
@@ -112,6 +136,9 @@ impl TextEditor {
             anchor: cursor,
             cursor,
             composition: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            group: Group::None,
         }
     }
     pub fn text(&self) -> &str {
@@ -263,6 +290,47 @@ impl TextEditor {
     /// Returns whether committed text changed. Preedit never mutates the binding.
     pub fn apply(&mut self, edit: TextEdit) -> bool {
         let before = self.text.clone();
+        let snapshot = Snapshot {
+            text: before.clone(),
+            anchor: self.anchor,
+            cursor: self.cursor,
+        };
+        // Consecutive typing (or deleting) without caret movement is one undo
+        // step; a word boundary after typing starts a new one.
+        let group = match &edit {
+            TextEdit::Insert(text) | TextEdit::CompositionCommit(text) => {
+                if text.chars().all(char::is_whitespace) {
+                    Group::None
+                } else {
+                    Group::Typing
+                }
+            }
+            TextEdit::Backspace | TextEdit::Delete => Group::Deleting,
+            _ => Group::None,
+        };
+        match edit {
+            TextEdit::Undo | TextEdit::Redo if self.composition.is_some() => return false,
+            TextEdit::Undo => {
+                let Some(previous) = self.undo.pop() else {
+                    return false;
+                };
+                self.redo.push(snapshot);
+                self.restore(previous);
+                self.group = Group::None;
+                return true;
+            }
+            TextEdit::Redo => {
+                let Some(next) = self.redo.pop() else {
+                    return false;
+                };
+                self.undo.push(snapshot);
+                self.restore(next);
+                self.group = Group::None;
+                return true;
+            }
+            _ => {}
+        }
+        let composing = self.composition.is_some();
         match edit {
             TextEdit::CompositionStart => {
                 self.composition = Some(Composition {
@@ -324,8 +392,31 @@ impl TextEditor {
                 let cursor = self.nearest_boundary(offset.min(self.len()));
                 self.move_to(cursor, select);
             }
+            TextEdit::Undo | TextEdit::Redo => unreachable!("handled above"),
         }
-        self.text != before
+        let changed = self.text != before;
+        if changed {
+            if group == Group::None || group != self.group {
+                self.undo.push(snapshot);
+                if self.undo.len() > UNDO_LIMIT {
+                    self.undo.remove(0);
+                }
+            }
+            self.redo.clear();
+            self.group = group;
+        } else if !composing && !matches!(group, Group::Typing | Group::Deleting) {
+            // Caret movement or selection ends the current typing run.
+            self.group = Group::None;
+        }
+        changed
+    }
+
+    fn restore(&mut self, snapshot: Snapshot) {
+        self.boundaries = grapheme_boundaries(&snapshot.text);
+        self.text = snapshot.text;
+        self.anchor = snapshot.anchor.min(self.len());
+        self.cursor = snapshot.cursor.min(self.len());
+        self.composition = None;
     }
 }
 
@@ -539,5 +630,39 @@ mod tests {
         editor.synchronize("external");
         assert!(editor.composition().is_none());
         assert_eq!(editor.cursor(), 8);
+    }
+}
+
+#[cfg(test)]
+mod undo_tests {
+    use super::*;
+
+    #[test]
+    fn undo_groups_typing_runs_and_redo_is_cleared_by_new_edits() {
+        let mut editor = TextEditor::new(String::new());
+        for text in ["한", "국", " ", "어"] {
+            editor.apply(TextEdit::CompositionCommit(text.into()));
+        }
+        editor.apply(TextEdit::Backspace);
+        assert_eq!(editor.text(), "한국 ");
+        assert!(editor.apply(TextEdit::Undo));
+        assert_eq!(editor.text(), "한국 어");
+        assert!(editor.apply(TextEdit::Undo));
+        assert_eq!(editor.text(), "한국 ");
+        editor.apply(TextEdit::Undo);
+        editor.apply(TextEdit::Undo);
+        assert_eq!(editor.text(), "");
+        assert!(!editor.apply(TextEdit::Undo));
+        assert!(editor.apply(TextEdit::Redo));
+        assert_eq!(editor.text(), "한국");
+        editor.apply(TextEdit::Insert("!".into()));
+        assert!(!editor.apply(TextEdit::Redo), "new edit clears redo");
+        // Undo never applies to an uncommitted composition.
+        editor.apply(TextEdit::CompositionUpdate(Composition {
+            text: "ㄱ".into(),
+            selection: None,
+        }));
+        assert!(!editor.apply(TextEdit::Undo));
+        assert_eq!(editor.text(), "한국!");
     }
 }
