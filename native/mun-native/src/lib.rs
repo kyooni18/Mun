@@ -7,13 +7,12 @@ pub use offscreen::{FrameTiming, OffscreenSession, encode_png};
 use std::{collections::HashMap, error::Error, fmt, rc::Rc, sync::Arc, time::Instant};
 
 use accessibility::{AccessibilityHost, NativeEvent};
-use accesskit::{Action, ActionRequest};
+use accesskit::ActionRequest;
 use bytemuck::{Pod, Zeroable};
 use glyphon::{
     Buffer, Cache, Color as GlyphColor, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
-use mun_runtime::accessibility::AccessibilityAction as MunAccessibilityAction;
 use mun_runtime::scene::{Rect, ScenePresentation, SceneTransform};
 use mun_runtime::{
     ButtonState as MunButtonState, Color, ImeRequest, InputEvent, InputPoint,
@@ -1830,14 +1829,8 @@ impl WindowState {
     }
 
     fn handle_accessibility_action(&mut self, request: ActionRequest) {
-        let Some(id) = self.accessibility.semantic_id_for(request.target_node) else {
+        let Some((id, action)) = self.accessibility.semantic_request(&request) else {
             return;
-        };
-        let action = match request.action {
-            Action::Click => MunAccessibilityAction::Activate,
-            Action::Focus => MunAccessibilityAction::Focus,
-            Action::Blur => MunAccessibilityAction::Blur,
-            _ => return,
         };
         let outcome = self.runtime.handle_accessibility_action(&id, action);
         if outcome.needs_redraw {

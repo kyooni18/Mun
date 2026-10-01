@@ -92,6 +92,10 @@ pub enum AccessibilityRole {
     Button,
     TextField,
     RadioGroup,
+    /// One option of a radio group. Runtime-derived from `radioGroup` options;
+    /// never authored in the IR.
+    #[serde(skip_deserializing)]
+    RadioButton,
 }
 
 #[derive(Clone, Debug, Deserialize)]

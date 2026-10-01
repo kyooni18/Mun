@@ -351,6 +351,9 @@ pub struct Runtime {
     revision: u64,
     focused_action: Option<String>,
     reveal_focus: Cell<bool>,
+    /// Explicit reveal request (assistive technology ScrollIntoView); takes
+    /// precedence over focus reveal on the next layout.
+    reveal_request: RefCell<Option<String>>,
     scroll_views: RefCell<HashMap<String, crate::scroll_view::ScrollViewport>>,
     text_editor: Option<(String, crate::text_edit::TextEditor)>,
     text_scroll: RefCell<HashMap<String, f32>>,
@@ -409,6 +412,7 @@ impl Runtime {
             revision: 0,
             focused_action: None,
             reveal_focus: Cell::new(false),
+            reveal_request: RefCell::new(None),
             scroll_views: RefCell::new(HashMap::new()),
             text_editor: None,
             text_scroll: RefCell::new(HashMap::new()),
@@ -1173,7 +1177,7 @@ impl Runtime {
         self.activate_interactive(&id)
     }
 
-    fn activate_interactive(&mut self, id: &str) -> Option<Transaction> {
+    pub(crate) fn activate_interactive(&mut self, id: &str) -> Option<Transaction> {
         if let Some((group_id, index)) = radio_option_target(id) {
             let (state, options, base) =
                 find_radio_group(&self.program.root.child, self, group_id)?;
@@ -1478,6 +1482,98 @@ impl Runtime {
         }
         let line = self.measurer.text_line(&value, TEXT_FIELD_FONT_SIZE);
         Some(line.offset_for_x((local_x - text.x) / scale))
+    }
+
+    /// Assistive-technology text selection, in grapheme indices of the
+    /// committed value. Commits any composition first, like a pointer press.
+    pub(crate) fn accessible_select_text(
+        &mut self,
+        target: &str,
+        anchor: usize,
+        focus: usize,
+    ) -> bool {
+        let Some((state, _)) = find_text_field(&self.program.root.child, self, target) else {
+            return false;
+        };
+        let state = state.to_owned();
+        if !self.focus_action(target) {
+            return false;
+        }
+        self.finish_composition();
+        let value = self.state.get(&state).and_then(Value::as_str).unwrap_or("");
+        let boundaries = crate::text_edit::grapheme_boundaries(value);
+        let (Some(&anchor), Some(&focus)) = (boundaries.get(anchor), boundaries.get(focus)) else {
+            return false;
+        };
+        use crate::text_edit::TextEdit;
+        self.edit_focused_text(TextEdit::PlaceCursor {
+            offset: anchor,
+            select: false,
+        });
+        self.edit_focused_text(TextEdit::PlaceCursor {
+            offset: focus,
+            select: true,
+        });
+        true
+    }
+
+    /// Assistive-technology text replacement through the same editor path as
+    /// typing (`whole` replaces the entire value, i.e. SetValue).
+    pub(crate) fn accessible_replace_text(
+        &mut self,
+        target: &str,
+        text: &str,
+        whole: bool,
+    ) -> bool {
+        if find_text_field(&self.program.root.child, self, target).is_none()
+            || !self.focus_action(target)
+        {
+            return false;
+        }
+        self.finish_composition();
+        use crate::text_edit::TextEdit;
+        if whole {
+            self.edit_focused_text(TextEdit::SelectAll);
+        }
+        let text = sanitize_single_line(text);
+        if text.is_empty() {
+            if self
+                .focused_text_editor()
+                .is_some_and(|editor| !editor.selection().is_empty())
+            {
+                self.edit_focused_text(TextEdit::Backspace);
+            }
+        } else {
+            self.edit_focused_text(TextEdit::Insert(text));
+        }
+        true
+    }
+
+    /// Move a scroll viewport to `offset(view)` on its axis. Returns false for
+    /// unknown or non-scrollable targets.
+    pub(crate) fn accessible_scroll(
+        &mut self,
+        target: &str,
+        offset: impl FnOnce(&crate::scroll_view::ScrollViewport) -> f32,
+    ) -> bool {
+        let mut views = self.scroll_views.borrow_mut();
+        let Some(view) = views.get_mut(target).filter(|view| view.is_scrollable()) else {
+            return false;
+        };
+        let value = offset(view);
+        view.set_axis_offset(value);
+        view.update_scrollbar();
+        true
+    }
+
+    /// Reveal `target` through its scrolling ancestors on the next layout.
+    pub(crate) fn request_reveal(&mut self, target: &str) -> bool {
+        let target = radio_option_target(target).map_or(target, |(group, _)| group);
+        if !active_node_exists(&self.program.root.child, self, target) {
+            return false;
+        }
+        *self.reveal_request.borrow_mut() = Some(target.to_owned());
+        true
     }
 
     pub fn take_clipboard_requests(&mut self) -> Vec<crate::input::ClipboardRequest> {
@@ -1886,6 +1982,9 @@ impl Runtime {
             },
             children: root_child_ids,
             action_id: None,
+            checked: None,
+            text: None,
+            scroll: None,
         }];
         for child in root_children {
             self.collect_accessibility(taffy, child, nodes, 0.0, 0.0, measurer, &mut output)?;
@@ -2682,12 +2781,20 @@ impl Runtime {
         taffy: &LayoutTree,
         nodes: &HashMap<String, NodeId>,
     ) -> Result<(), taffy::TaffyError> {
-        if !self.reveal_focus.replace(false) {
-            return Ok(());
-        }
-        let Some(focused) = &self.focused_action else {
-            return Ok(());
+        let requested = self.reveal_request.borrow_mut().take();
+        let target = match requested {
+            Some(target) => target,
+            None => {
+                if !self.reveal_focus.replace(false) {
+                    return Ok(());
+                }
+                let Some(focused) = &self.focused_action else {
+                    return Ok(());
+                };
+                focused.clone()
+            }
         };
+        let focused = target.as_str();
         fn visit(
             runtime: &Runtime,
             node: &UiNode,
@@ -3259,6 +3366,56 @@ impl Runtime {
         Ok(())
     }
 
+    /// Committed text of a field as assistive-technology characters, positioned
+    /// with the same shaped line layout and text scroll as the presented text.
+    fn accessible_text(
+        &self,
+        base: &crate::ir::NodeBase,
+        value: &str,
+        x: f32,
+        y: f32,
+        measurer: &dyn IntrinsicMeasurer,
+    ) -> crate::accessibility::AccessibleText {
+        use unicode_segmentation::UnicodeSegmentation;
+        let line = measurer.text_line(value, TEXT_FIELD_FONT_SIZE);
+        let boundaries = crate::text_edit::grapheme_boundaries(value);
+        let index_of = |scalar: usize| match boundaries.binary_search(&scalar) {
+            Ok(index) | Err(index) => index,
+        };
+        let mut positions = Vec::with_capacity(boundaries.len());
+        let mut widths = Vec::with_capacity(boundaries.len());
+        for pair in boundaries.windows(2) {
+            let (start, end) = (line.x_for_offset(pair[0]), line.x_for_offset(pair[1]));
+            positions.push(start.min(end));
+            widths.push((end - start).abs());
+        }
+        let editor = self
+            .focused_text_editor()
+            .filter(|_| self.focused_action.as_deref() == Some(base.id.as_str()))
+            .filter(|editor| editor.text() == value);
+        let scroll = editor
+            .and_then(|_| self.text_scroll.borrow().get(&base.id).copied())
+            .unwrap_or(0.0);
+        crate::accessibility::AccessibleText {
+            id: format!("{}:text-run", base.id),
+            value: value.to_owned(),
+            character_lengths: value.graphemes(true).map(str::len).collect(),
+            character_positions: positions,
+            character_widths: widths,
+            word_starts: crate::text_edit::word_ranges(value)
+                .into_iter()
+                .map(|range| index_of(range.start))
+                .collect(),
+            bounds: AccessibilityBounds {
+                x: x + TEXT_FIELD_INSET_X - scroll,
+                y: y + TEXT_FIELD_INSET_Y,
+                width: line.width,
+                height: line.line_height,
+            },
+            selection: editor.map(|editor| (index_of(editor.anchor()), index_of(editor.cursor()))),
+        }
+    }
+
     fn collect_accessibility(
         &self,
         taffy: &LayoutTree,
@@ -3309,7 +3466,7 @@ impl Runtime {
                 _ => None,
             });
         let enabled = self.node_enabled(base);
-        let children = self
+        let mut children: Vec<String> = self
             .active_semantic_children(node)
             .into_iter()
             .map(|child| child.base().id.clone())
@@ -3319,6 +3476,56 @@ impl Runtime {
             UiNode::Action { .. } | UiNode::TextField { .. } | UiNode::RadioGroup { .. }
         )
         .then(|| base.id.clone());
+        let mut options = Vec::new();
+        if let UiNode::RadioGroup {
+            state,
+            options: items,
+            ..
+        } = node
+        {
+            // Same row geometry as the presented options and pointer targets.
+            let selected = self.state.get(state).cloned().unwrap_or(Value::Null);
+            for (index, option) in items.iter().enumerate() {
+                let id = format!("{}:option:{}", base.id, index);
+                children.push(id.clone());
+                let option_enabled = enabled && !option.disabled;
+                options.push(AccessibilityNode {
+                    id: id.clone(),
+                    role: AccessibilityRole::RadioButton,
+                    label: Some(option.label.clone()),
+                    value: None,
+                    enabled: option_enabled,
+                    focused: false,
+                    bounds: AccessibilityBounds {
+                        x,
+                        y: y + index as f32 * 30.0,
+                        width: layout.size.width,
+                        height: 30.0,
+                    },
+                    children: Vec::new(),
+                    action_id: option_enabled.then_some(id),
+                    checked: Some(selected == option.value),
+                    text: None,
+                    scroll: None,
+                });
+            }
+        }
+        let text = match node {
+            UiNode::TextField { state, .. } => {
+                let value = self.state.get(state).and_then(Value::as_str).unwrap_or("");
+                Some(self.accessible_text(base, value, x, y, measurer))
+            }
+            _ => None,
+        };
+        let scroll = matches!(node, UiNode::Scroll { .. })
+            .then(|| self.scroll_views.borrow().get(&base.id).cloned())
+            .flatten()
+            .filter(|view| view.is_scrollable())
+            .map(|view| crate::accessibility::AccessibleScroll {
+                horizontal: view.horizontal,
+                offset: view.axis_offset(),
+                max: view.max_offset(),
+            });
         output.push(AccessibilityNode {
             id: base.id.clone(),
             role,
@@ -3343,7 +3550,11 @@ impl Runtime {
             },
             children,
             action_id,
+            checked: None,
+            text,
+            scroll,
         });
+        output.extend(options);
 
         let start = output.len();
         let offset = self
@@ -3416,6 +3627,14 @@ fn collect_focusable_actions(node: &UiNode, runtime: &Runtime, output: &mut Vec<
     for child in runtime.active_children(node) {
         collect_focusable_actions(child, runtime, output);
     }
+}
+
+fn active_node_exists(node: &UiNode, runtime: &Runtime, id: &str) -> bool {
+    node.base().id == id
+        || runtime
+            .active_children(node)
+            .iter()
+            .any(|child| active_node_exists(child, runtime, id))
 }
 
 fn radio_option_target(id: &str) -> Option<(&str, usize)> {

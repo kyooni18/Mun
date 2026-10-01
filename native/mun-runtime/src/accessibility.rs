@@ -20,6 +20,40 @@ pub struct AccessibilityNode {
     pub bounds: AccessibilityBounds,
     pub children: Vec<String>,
     pub action_id: Option<String>,
+    /// Radio option state; `None` for nodes that are not checkable.
+    pub checked: Option<bool>,
+    /// Editable single-line text geometry and selection (text fields only).
+    pub text: Option<AccessibleText>,
+    /// Scroll position of a scrollable viewport whose content overflows.
+    pub scroll: Option<AccessibleScroll>,
+}
+
+/// One line of committed text inside a text field, in assistive-technology
+/// units. A "character" is an extended grapheme cluster: exactly one caret step
+/// of the runtime editor, so screen-reader navigation never splits what the
+/// editor treats as one character. Preedit text is never included.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AccessibleText {
+    pub id: String,
+    pub value: String,
+    /// UTF-8 byte length of each grapheme.
+    pub character_lengths: Vec<usize>,
+    /// Start of each grapheme along the line, relative to `bounds.x`.
+    pub character_positions: Vec<f32>,
+    pub character_widths: Vec<f32>,
+    /// Grapheme index at which each word starts.
+    pub word_starts: Vec<usize>,
+    /// Unclipped line box (scrolled with the field's horizontal text scroll).
+    pub bounds: AccessibilityBounds,
+    /// `(anchor, focus)` grapheme indices; present while the field is focused.
+    pub selection: Option<(usize, usize)>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AccessibleScroll {
+    pub horizontal: bool,
+    pub offset: f32,
+    pub max: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -35,11 +69,23 @@ impl AccessibilityTree {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AccessibilityAction {
     Activate,
     Focus,
     Blur,
+    /// Grapheme indices into the target field's committed text.
+    SetTextSelection {
+        anchor: usize,
+        focus: usize,
+    },
+    ReplaceSelectedText(String),
+    SetValue(String),
+    /// Scroll the target viewport by pages (negative = toward the start).
+    ScrollByPages(f32),
+    SetScrollOffset(f32),
+    /// Reveal the target node through every scrolling ancestor.
+    ScrollIntoView,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -48,6 +94,8 @@ pub struct AccessibilityActionOutcome {
     pub needs_redraw: bool,
     pub focus_changed: bool,
     pub activated: bool,
+    /// Text content or selection changed (IME state must be resynchronized).
+    pub edited: bool,
 }
 
 impl Runtime {
@@ -63,7 +111,7 @@ impl Runtime {
             AccessibilityAction::Activate => {
                 if self.focus_action(target) {
                     outcome.handled = true;
-                    outcome.activated = self.activate_action(target).is_some();
+                    outcome.activated = self.activate_interactive(target).is_some();
                 }
             }
             AccessibilityAction::Focus => {
@@ -75,10 +123,33 @@ impl Runtime {
                     outcome.handled = true;
                 }
             }
+            AccessibilityAction::SetTextSelection { anchor, focus } => {
+                outcome.handled = self.accessible_select_text(target, anchor, focus);
+                outcome.edited = outcome.handled;
+            }
+            AccessibilityAction::ReplaceSelectedText(text) => {
+                outcome.handled = self.accessible_replace_text(target, &text, false);
+                outcome.edited = outcome.handled;
+            }
+            AccessibilityAction::SetValue(text) => {
+                outcome.handled = self.accessible_replace_text(target, &text, true);
+                outcome.edited = outcome.handled;
+            }
+            AccessibilityAction::ScrollByPages(pages) => {
+                outcome.handled =
+                    self.accessible_scroll(target, |view| view.axis_offset() + pages * view.page());
+            }
+            AccessibilityAction::SetScrollOffset(offset) => {
+                outcome.handled = self.accessible_scroll(target, |_| offset);
+            }
+            AccessibilityAction::ScrollIntoView => {
+                outcome.handled = self.request_reveal(target);
+            }
         }
 
         outcome.focus_changed = self.focused_action() != focus_before.as_deref();
-        outcome.needs_redraw = outcome.focus_changed || outcome.activated;
+        outcome.needs_redraw =
+            outcome.focus_changed || outcome.activated || outcome.edited || outcome.handled;
         outcome
     }
 }
