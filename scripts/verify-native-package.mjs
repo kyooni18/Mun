@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import assert from 'node:assert/strict'
+import { assembleNativeHost } from './assemble-native-host.mjs'
 const temporary = mkdtempSync(resolve(tmpdir(), 'mun-package-'))
 const name = process.platform === 'win32' ? 'mun-native.exe' : 'mun-native'
 const key = `${process.platform}-${process.arch}`
@@ -20,9 +21,9 @@ try {
   for (const entry of ['package.json', ...manifest.files]) {
     if (existsSync(entry)) cpSync(entry, resolve(stage, entry), { recursive: true })
   }
-  const hostDirectory = resolve(stage, 'native/bin', key)
-  mkdirSync(hostDirectory, { recursive: true })
-  cpSync(resolve('native/target/debug', name), resolve(hostDirectory, name))
+  // The same release assembly a release pipeline runs, into the stage only.
+  const { metadata } = assembleNativeHost({ out: stage, profile: process.env.MUN_PACKAGE_PROFILE || 'release' })
+  assert.equal(metadata.packageVersion, manifest.version)
   // Explicitly bypass prepack only because CI already rebuilt all source.
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
   const workspaceManifests = readdirSync('packages').map(name => resolve('packages', name, 'package.json')).filter(existsSync).map(path => ({ path, manifest: JSON.parse(readFileSync(path, 'utf8')) }))
@@ -50,6 +51,7 @@ try {
   writeFileSync(resolve(stage, 'package.json'), JSON.stringify(publishManifest(manifest)))
   const packed = JSON.parse(run(npm, ['pack', '--ignore-scripts', '--json'], stage))[0]
   assert(packed.files.some(file => file.path === `native/bin/${key}/${name}`), 'host must be in npm tarball')
+  assert(packed.files.some(file => file.path === `native/bin/${key}/mun-native.json`), 'host metadata must be in npm tarball')
   assert(packed.files.some(file => file.path === 'dist/index.js'), 'compiled runtime must be in tarball')
   assert(!packed.files.some(file => file.path.includes('target/')), 'Cargo target must not be published')
   const consumer = resolve(temporary, 'consumer')
@@ -62,5 +64,20 @@ try {
   assert(existsSync(host), 'installed native host')
   // A real native launch, with no Cargo and no repository fixture dependency.
   run(host, ['--smoke', 'app.json'], consumer)
+
+  // A host assembled for another package version is rejected before launch,
+  // and an installed package never falls back to building with Cargo.
+  const cli = resolve(consumer, 'node_modules/@mun/ui/bin/mun.mjs')
+  const metadataPath = resolve(consumer, 'node_modules/@mun/ui/native/bin', key, 'mun-native.json')
+  const original = readFileSync(metadataPath, 'utf8')
+  writeFileSync(metadataPath, JSON.stringify({ ...JSON.parse(original), packageVersion: '0.0.0-stale' }))
+  const env = { ...process.env, MUN_NATIVE_HOST: '', CARGO: resolve(temporary, 'no-cargo') }
+  let mismatch = spawnSync(process.execPath, [cli, 'run', 'App.mun'], { cwd: consumer, encoding: 'utf8', env, timeout: 60_000 })
+  assert.notEqual(mismatch.status, 0)
+  assert.match(mismatch.stderr, /built for packageVersion "0\.0\.0-stale"/)
+  rmSync(resolve(consumer, 'node_modules/@mun/ui/native/bin', key), { recursive: true })
+  mismatch = spawnSync(process.execPath, [cli, 'run', 'App.mun'], { cwd: consumer, encoding: 'utf8', env, timeout: 60_000 })
+  assert.notEqual(mismatch.status, 0)
+  assert.match(mismatch.stderr, /No Mün native host is packaged for/)
   console.log(`Packaged native consumer verified: ${key}`)
 } finally { rmSync(temporary, { recursive: true, force: true }) }

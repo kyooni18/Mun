@@ -50,7 +50,24 @@ fn program_path() -> Result<(PathBuf, Mode), io::Error> {
     Ok((PathBuf::from(path), mode))
 }
 
+/// Machine-readable host identity used by release assembly and launchers to
+/// reject a host built for another package version or IR contract.
+fn host_info() -> String {
+    format!(
+        "{{\"name\":\"mun-native\",\"crateVersion\":\"{}\",\"semanticUiIrVersion\":{},\"os\":\"{}\",\"arch\":\"{}\",\"profile\":\"{}\"}}",
+        env!("CARGO_PKG_VERSION"),
+        mun_runtime::SEMANTIC_UI_IR_VERSION,
+        env::consts::OS,
+        env::consts::ARCH,
+        if cfg!(debug_assertions) { "debug" } else { "release" },
+    )
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
+    if env::args_os().nth(1).is_some_and(|argument| argument == "--host-info") {
+        println!("{}", host_info());
+        return Ok(());
+    }
     let (path, mode) = program_path()?;
     let source = fs::read_to_string(&path).map_err(|error| {
         io::Error::new(

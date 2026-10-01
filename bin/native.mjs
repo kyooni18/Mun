@@ -32,7 +32,7 @@ function runProcess(command, args, options) {
   return result.status ?? 1
 }
 
-function resolveNativeHost(cwd, env) {
+function resolveNativeHost(cwd, env, irVersion) {
   const override = env.MUN_NATIVE_HOST?.trim()
   if (override) {
     const command = override.includes('/') || override.includes('\\') || override.includes(sep)
@@ -42,15 +42,50 @@ function resolveNativeHost(cwd, env) {
   }
 
   const binary = nativeBinaryName()
-  const packaged = resolve(packageRoot, 'native', 'bin', `${process.platform}-${process.arch}`, binary)
-  if (existsSync(packaged)) return { kind: 'binary', command: packaged }
+  const key = `${process.platform}-${process.arch}`
+  const packaged = resolve(packageRoot, 'native', 'bin', key, binary)
+  if (existsSync(packaged)) {
+    verifyPackagedHost(resolve(packageRoot, 'native', 'bin', key, 'mun-native.json'), key, irVersion)
+    return { kind: 'binary', command: packaged }
+  }
 
+  // Building the host from source is a development path for repository
+  // checkouts (or an explicit opt-in); installed packages use a packaged host.
   const manifest = resolve(packageRoot, 'native', 'Cargo.toml')
-  if (existsSync(manifest)) return { kind: 'cargo', manifest }
+  const developmentCheckout = existsSync(resolve(packageRoot, '.git'))
+  if (existsSync(manifest) && (developmentCheckout || env.MUN_NATIVE_BUILD_FROM_SOURCE === '1')) {
+    return { kind: 'cargo', manifest }
+  }
 
   throw new Error(
-    'No Mün native host is available. Install a package containing the native runtime or set MUN_NATIVE_HOST to a mun-native executable.',
+    `No Mün native host is packaged for ${key} in ${packageManifest.name}@${packageManifest.version}. ` +
+      'Install a release that includes this platform, set MUN_NATIVE_HOST to a mun-native executable, ' +
+      'or set MUN_NATIVE_BUILD_FROM_SOURCE=1 to build one with Cargo.',
   )
+}
+
+/** Reject a packaged host assembled for another package version, IR contract or platform. */
+function verifyPackagedHost(path, key, irVersion) {
+  let metadata
+  try {
+    metadata = JSON.parse(readFileSync(path, 'utf8'))
+  } catch (error) {
+    throw new Error(`Packaged Mün native host for ${key} has no readable metadata (${path}): ${error.message}`)
+  }
+  const expected = {
+    packageVersion: packageManifest.version,
+    semanticUiIrVersion: irVersion,
+    platform: process.platform,
+    arch: process.arch,
+  }
+  for (const [field, value] of Object.entries(expected)) {
+    if (metadata[field] !== value) {
+      throw new Error(
+        `Packaged Mün native host for ${key} was built for ${field} ${JSON.stringify(metadata[field])}, ` +
+          `but this ${packageManifest.name} requires ${JSON.stringify(value)}. Reinstall ${packageManifest.name} or set MUN_NATIVE_HOST.`,
+      )
+    }
+  }
 }
 
 export function runNativeSource(inputArg, {
@@ -69,7 +104,7 @@ export function runNativeSource(inputArg, {
 
   try {
     writeFileSync(ir, `${JSON.stringify(program, null, 2)}\n`)
-    const host = resolveNativeHost(cwd, env)
+    const host = resolveNativeHost(cwd, env, program.version)
 
     if (host.kind === 'binary') {
       return runProcess(host.command, [ir], { cwd, env, stdio: 'inherit' })
