@@ -18,6 +18,8 @@ interface WebScope {
   readonly items: ReadonlyMap<string, MunUiValue>
   /** Keyed instance suffix composed onto every node identity in an item. */
   readonly suffix: string
+  /** Main axis of the enclosing flex container, for flexible frames. */
+  readonly axis?: "row" | "column"
 }
 
 function lookupState(scope: WebScope, name: string): MunUiValue {
@@ -215,6 +217,18 @@ function styleFor(
     const value = cssValue(evaluate(layout.height, state))
     if (value) declarations.push(`height:${value}`)
   }
+  // Flexible frames: grow along the parent's main axis, stretch across it.
+  for (const [dimension, min, max, fixed, horizontal] of [
+    ["width", layout?.minWidth, layout?.maxWidth, layout?.width, true],
+    ["height", layout?.minHeight, layout?.maxHeight, layout?.height, false],
+  ] as const) {
+    if (min !== undefined) declarations.push(`min-${dimension}:${min}px`)
+    if (typeof max === "number") declarations.push(`max-${dimension}:${max}px`)
+    if (max === undefined || fixed) continue
+    if (state.axis === (horizontal ? "row" : "column")) declarations.push("flex:1 1 0")
+    else if (state.axis) declarations.push("align-self:stretch")
+    else declarations.push(`${dimension}:100%`)
+  }
   if (layout?.padding !== undefined) declarations.push(`padding:${layout.padding}px`)
   if (layout?.spacing !== undefined && (node.kind === "column" || node.kind === "row")) {
     declarations.push(`gap:${layout.spacing}px`)
@@ -272,10 +286,13 @@ function renderNode(
       return renderNode(node.child, state)
     case "scroll":
     case "column":
-    case "row":
-      return `<div ${attributes}>${node.children.map(child => renderNode(child, state)).join("")}</div>`
+    case "row": {
+      const axis = node.kind === "row" || (node.kind === "scroll" && node.axis === "horizontal") ? "row" : "column"
+      const scope: WebScope = { ...state, axis }
+      return `<div ${attributes}>${node.children.map(child => renderNode(child, scope)).join("")}</div>`
+    }
     case "overlay":
-      return `<div ${attributes}>${node.children.map(child => `<div style="grid-area:1 / 1">${renderNode(child, state)}</div>`).join("")}</div>`
+      return `<div ${attributes}>${node.children.map(child => `<div style="grid-area:1 / 1">${renderNode(child, { ...state, axis: undefined })}</div>`).join("")}</div>`
     case "conditional": {
       const branch = evaluate(node.condition, state) ? node.then : node.otherwise
       return branch.map(child => renderNode(child, state)).join("")
@@ -293,7 +310,7 @@ function renderNode(
         seen.add(segment)
         const items = new Map(state.items)
         items.set(node.id, item)
-        const scope: WebScope = { values: state.values, items, suffix: `${state.suffix}[${segment}]` }
+        const scope: WebScope = { values: state.values, items, suffix: `${state.suffix}[${segment}]`, axis: state.axis }
         return node.children.map(child => renderNode(child, scope)).join("")
       }).join("")
     }

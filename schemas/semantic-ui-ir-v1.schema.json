@@ -336,6 +336,36 @@
             "trailing",
             "stretch"
           ]
+        },
+        "minWidth": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maxWidth": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "const": "infinity"
+            }
+          ]
+        },
+        "minHeight": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maxHeight": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "const": "infinity"
+            }
+          ]
         }
       },
       "required": [],

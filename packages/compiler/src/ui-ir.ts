@@ -1275,7 +1275,7 @@ interface SupportedModifierShape {
 
 const supportedModifierShapes: Readonly<Record<string, SupportedModifierShape>> = {
   id: { labels: new Set(["value"]), maxPositional: 1 },
-  frame: { labels: new Set(["width", "height"]), maxPositional: 2 },
+  frame: { labels: new Set(["width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight"]), maxPositional: 2 },
   padding: { labels: new Set(["length"]), maxPositional: 1 },
   background: { labels: new Set(["style", "color"]), maxPositional: 1 },
   fill: { labels: new Set(["style", "color"]), maxPositional: 1 },
@@ -1286,6 +1286,27 @@ const supportedModifierShapes: Readonly<Record<string, SupportedModifierShape>> 
   offset: { labels: new Set(["x", "y"]), maxPositional: 2 },
   transition: { labels: new Set(["transition", "value"]), maxPositional: 1 },
   animation: { labels: new Set(["animation", "value"]), maxPositional: 2 },
+}
+
+/** `.frame(minWidth:maxWidth:minHeight:maxHeight:)`; `.infinity` only for max bounds. */
+function frameBounds(modifier: ModifierCall, bindings: UiBindings): Pick<MunUiLayout, "minWidth" | "maxWidth" | "minHeight" | "maxHeight"> {
+  const bounds: { minWidth?: number; maxWidth?: number | "infinity"; minHeight?: number; maxHeight?: number | "infinity" } = {}
+  for (const label of ["minWidth", "maxWidth", "minHeight", "maxHeight"] as const) {
+    const source = modifier.arguments.find(argument => argument.label === label)
+    if (source?.value.kind !== "raw") continue
+    const text = source.value.source.trim()
+    if (/^(?:\.infinity|Infinity|Number\.POSITIVE_INFINITY)$/.test(text)) {
+      if (label === "minWidth" || label === "minHeight") throw new SyntaxError(`.frame(${label}:) must be finite`)
+      bounds[label] = "infinity"
+      continue
+    }
+    const value = numberValue(text, undefined, bindings)
+    if (value === undefined || value < 0) {
+      throw new SyntaxError(`.frame(${label}:) must be a static non-negative number or .infinity: ${text}`)
+    }
+    bounds[label] = value
+  }
+  return bounds
 }
 
 function assertSupportedModifierShape(modifier: ModifierCall): void {
@@ -1345,6 +1366,7 @@ function applyModifiers(
           ...parts.layout,
           width: modifierRaw(modifier, "width", 0) ? lowerValueExpression(modifierRaw(modifier, "width", 0)!, bindings) : parts.layout?.width,
           height: modifierRaw(modifier, "height", 1) ? lowerValueExpression(modifierRaw(modifier, "height", 1)!, bindings) : parts.layout?.height,
+          ...frameBounds(modifier, bindings),
         },
       }
       continue

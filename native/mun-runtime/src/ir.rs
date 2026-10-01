@@ -221,6 +221,38 @@ pub struct UiLayout {
     pub spacing: Option<f32>,
     #[serde(default)]
     pub alignment: Option<UiAlignment>,
+    #[serde(default)]
+    pub min_width: Option<f32>,
+    #[serde(default)]
+    pub max_width: Option<UiFrameBound>,
+    #[serde(default)]
+    pub min_height: Option<f32>,
+    #[serde(default)]
+    pub max_height: Option<UiFrameBound>,
+}
+
+/// Upper bound of a flexible frame: a length or `"infinity"`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum UiFrameBound {
+    Length(f32),
+    Unbounded(UiInfinity),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub enum UiInfinity {
+    #[serde(rename = "infinity")]
+    Infinity,
+}
+
+impl UiFrameBound {
+    /// Finite maximum, if any (`None` for unbounded).
+    pub fn length(self) -> Option<f32> {
+        match self {
+            Self::Length(value) => Some(value),
+            Self::Unbounded(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

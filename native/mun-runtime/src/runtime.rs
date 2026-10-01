@@ -366,6 +366,9 @@ pub struct Runtime {
     reveal_request: RefCell<Option<String>>,
     /// Inputs of the last layout that refreshed scroll viewport geometry.
     geometry_stamp: Cell<Option<GeometryStamp>>,
+    /// Flexible-frame intent ([width, height]) of layout nodes in the tree
+    /// being built; consumed by each node's parent.
+    flexible_frames: RefCell<HashMap<NodeId, [bool; 2]>>,
     scroll_views: RefCell<HashMap<String, crate::scroll_view::ScrollViewport>>,
     text_editor: Option<(String, crate::text_edit::TextEditor)>,
     text_scroll: RefCell<HashMap<String, f32>>,
@@ -439,6 +442,7 @@ impl Runtime {
             reveal_focus: Cell::new(false),
             reveal_request: RefCell::new(None),
             geometry_stamp: Cell::new(None),
+            flexible_frames: RefCell::new(HashMap::new()),
             scroll_views: RefCell::new(HashMap::new()),
             text_editor: None,
             text_scroll: RefCell::new(HashMap::new()),
@@ -2132,6 +2136,7 @@ impl Runtime {
     ) -> Result<(LayoutTree, HashMap<String, NodeId>), taffy::TaffyError> {
         let mut taffy: LayoutTree = TaffyTree::new();
         let mut nodes = HashMap::new();
+        self.flexible_frames.borrow_mut().clear();
         let children =
             self.build_layout_nodes(&mut taffy, &self.program.root.child, &mut nodes, measurer)?;
         // The window's content fills the window on both axes (it already
@@ -2143,6 +2148,11 @@ impl Runtime {
                 style.flex_grow = 1.0;
                 style.flex_shrink = 1.0;
                 style.flex_basis = Dimension::length(0.0);
+                // The window bounds its content; overflowing content is
+                // clipped like any oversized view instead of widening it.
+                if style.min_size.width == LengthPercentageAuto::auto() {
+                    style.min_size.width = LengthPercentageAuto::length(0.0);
+                }
                 taffy.set_style(*child, style)?;
             }
         }
@@ -2746,6 +2756,35 @@ impl Runtime {
             .and_then(|value| self.presentation_number(node, MotionProperty::Height, value));
         let padding = layout.and_then(|layout| layout.padding).unwrap_or(0.0);
         let spacing = layout.and_then(|layout| layout.spacing).unwrap_or(0.0);
+        // Flexible frames: a max bound on an axis without a fixed size makes the
+        // view take what its parent offers on that axis (applied by the parent,
+        // which knows its main axis), clamped to [min, max].
+        let mut flexible = [
+            width.is_none() && layout.and_then(|layout| layout.max_width).is_some(),
+            height.is_none() && layout.and_then(|layout| layout.max_height).is_some(),
+        ];
+        let bound = |value: Option<f32>| {
+            value
+                .filter(|value| value.is_finite())
+                .map(LengthPercentageAuto::length)
+                .unwrap_or(LengthPercentageAuto::auto())
+        };
+        let min_size = Size {
+            width: bound(layout.and_then(|layout| layout.min_width)),
+            height: bound(layout.and_then(|layout| layout.min_height)),
+        };
+        let max_size = Size {
+            width: bound(
+                layout
+                    .and_then(|layout| layout.max_width)
+                    .and_then(|bound| bound.length()),
+            ),
+            height: bound(
+                layout
+                    .and_then(|layout| layout.max_height)
+                    .and_then(|bound| bound.length()),
+            ),
+        };
 
         let mut style = Style {
             size: Size {
@@ -2758,6 +2797,8 @@ impl Runtime {
                 top: LengthPercentage::length(padding),
                 bottom: LengthPercentage::length(padding),
             },
+            min_size,
+            max_size,
             ..Default::default()
         };
 
@@ -2782,10 +2823,14 @@ impl Runtime {
                         taffy::style::Overflow::Scroll
                     },
                 };
-                style.min_size = Size {
-                    width: LengthPercentageAuto::length(0.0),
-                    height: LengthPercentageAuto::length(0.0),
-                };
+                // Viewports never take their content's size as a minimum;
+                // an authored minWidth/minHeight still applies.
+                if style.min_size.width == LengthPercentageAuto::auto() {
+                    style.min_size.width = LengthPercentageAuto::length(0.0);
+                }
+                if style.min_size.height == LengthPercentageAuto::auto() {
+                    style.min_size.height = LengthPercentageAuto::length(0.0);
+                }
                 style.align_items = Some(AlignItems::FLEX_START);
             }
             UiNode::Column { .. } | UiNode::Row { .. } => {
@@ -2861,8 +2906,52 @@ impl Runtime {
         };
 
         let mut children = Vec::new();
+        // Main axis of this container for children's flexible frames.
+        let main_axis_horizontal = match node {
+            UiNode::Row { .. } => Some(true),
+            UiNode::Column { .. } => Some(false),
+            UiNode::Scroll { axis, .. } => {
+                Some(matches!(axis, crate::ir::UiScrollAxis::Horizontal))
+            }
+            _ => None,
+        };
         for child in self.active_children(node) {
             let child_nodes = self.build_layout_nodes(taffy, child, nodes, measurer)?;
+            for child_id in &child_nodes {
+                let Some(child_flex) = self.flexible_frames.borrow().get(child_id).copied() else {
+                    continue;
+                };
+                let mut child_style = taffy.style(*child_id)?.clone();
+                for (axis, wants) in [(true, child_flex[0]), (false, child_flex[1])] {
+                    if !wants {
+                        continue;
+                    }
+                    match main_axis_horizontal {
+                        // A scroll view's main axis is unbounded: nothing to fill.
+                        Some(main) if main == axis && matches!(node, UiNode::Scroll { .. }) => {}
+                        Some(main) if main == axis => {
+                            child_style.flex_grow = 1.0;
+                            child_style.flex_basis = Dimension::length(0.0);
+                        }
+                        // Cross axis of a flex container stretches.
+                        Some(_) => child_style.align_self = Some(AlignItems::STRETCH),
+                        None => {}
+                    }
+                }
+                // Like SwiftUI, a stack/overlay containing a flexible child is
+                // itself flexible on that axis unless it has a fixed size; a
+                // scroll view's content does not flex the viewport.
+                if !matches!(node, UiNode::Scroll { .. }) {
+                    flexible[0] |= width.is_none() && child_flex[0];
+                    flexible[1] |= height.is_none() && child_flex[1];
+                }
+                // Grid (overlay) uses justify_self for width, align_self for height.
+                if main_axis_horizontal.is_none() {
+                    child_style.justify_self = child_flex[0].then_some(AlignItems::STRETCH);
+                    child_style.align_self = child_flex[1].then_some(AlignItems::STRETCH);
+                }
+                taffy.set_style(*child_id, child_style)?;
+            }
             if matches!(node, UiNode::Scroll { .. }) {
                 for child_id in &child_nodes {
                     let mut child_style = taffy.style(*child_id)?.clone();
@@ -2895,6 +2984,9 @@ impl Runtime {
             taffy.new_with_children(style, &children)?
         };
         nodes.insert(base.id.clone(), id);
+        if flexible[0] || flexible[1] {
+            self.flexible_frames.borrow_mut().insert(id, flexible);
+        }
         Ok(vec![id])
     }
 

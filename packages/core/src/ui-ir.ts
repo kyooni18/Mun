@@ -118,6 +118,14 @@ export interface MunUiLayout {
   readonly padding?: number
   readonly spacing?: number
   readonly alignment?: MunUiAlignment
+  /**
+   * Flexible frame bounds. A max on an axis makes the view take the space its
+   * parent offers on that axis, up to the bound ("infinity" = unbounded).
+   */
+  readonly minWidth?: number
+  readonly maxWidth?: number | "infinity"
+  readonly minHeight?: number
+  readonly maxHeight?: number | "infinity"
 }
 
 export interface MunUiVisual {
