@@ -74,6 +74,14 @@ pub struct RuntimeFrame {
     pub ime_cursor_area: Option<SceneBounds>,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum ScrollCommand {
+    Lines(f32),
+    Pages(f32),
+    ToStart,
+    ToEnd,
+}
+
 /// Platform-adapter requests about text input services.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImeRequest {
@@ -321,6 +329,8 @@ pub struct Runtime {
     clipboard_requests: Vec<crate::input::ClipboardRequest>,
     pending_cut: Option<(u64, String, crate::text_edit::TextEditor)>,
     pending_paste: Option<(u64, String)>,
+    /// Active scrollbar thumb drag: pointer, scroll view id, grab offset.
+    scrollbar_drag: Option<(crate::input::PointerId, String, f32)>,
     clipboard_revision: u64,
     input: InputState,
     entering: HashMap<String, EnterPresence>,
@@ -369,6 +379,7 @@ impl Runtime {
             clipboard_requests: Vec::new(),
             pending_cut: None,
             pending_paste: None,
+            scrollbar_drag: None,
             clipboard_revision: 0,
             input: InputState::default(),
             entering: HashMap::new(),
@@ -469,6 +480,28 @@ impl Runtime {
         match event {
             InputEvent::PointerMoved { pointer, position } => {
                 self.input.set_pointer_position(pointer, position);
+                if let Some((_, view_id, grab)) = self
+                    .scrollbar_drag
+                    .clone()
+                    .filter(|(drag_pointer, _, _)| *drag_pointer == pointer)
+                {
+                    let mut views = self.scroll_views.borrow_mut();
+                    if let Some(view) = views.get_mut(&view_id) {
+                        let axis = if view.horizontal {
+                            position.x
+                        } else {
+                            position.y
+                        };
+                        if let Some(offset) = view.offset_for_thumb_position(axis, grab) {
+                            let before = view.axis_offset();
+                            view.set_axis_offset(offset);
+                            view.update_scrollbar();
+                            outcome.handled = true;
+                            outcome.needs_redraw = view.axis_offset() != before;
+                        }
+                    }
+                    return Ok(outcome);
+                }
                 let dragging_text = self
                     .input
                     .primary_capture(pointer)
@@ -505,6 +538,9 @@ impl Runtime {
                         return Ok(outcome);
                     };
                     let scene = self.build_scene(width, height)?;
+                    if let Some(bar_outcome) = self.press_scrollbar(pointer, position) {
+                        return Ok(bar_outcome);
+                    }
                     let target = scene.action_at(position.x, position.y).map(str::to_owned);
                     // Any primary press deliberately ends an active composition: the
                     // preedit is committed where it is displayed before the caret or
@@ -538,6 +574,15 @@ impl Runtime {
                 button: PointerButton::Primary,
                 state: ButtonState::Released,
             } => {
+                if self
+                    .scrollbar_drag
+                    .as_ref()
+                    .is_some_and(|(drag_pointer, _, _)| *drag_pointer == pointer)
+                {
+                    self.scrollbar_drag = None;
+                    outcome.handled = true;
+                    return Ok(outcome);
+                }
                 let Some(captured) = self.input.take_primary_capture(pointer) else {
                     return Ok(outcome);
                 };
@@ -658,6 +703,15 @@ impl Runtime {
                     if focused_is_radio {
                         outcome.handled = true;
                         outcome.activated = self.select_adjacent_radio(true).is_some();
+                    } else {
+                        let horizontal = logical == LogicalKey::ArrowRight;
+                        outcome.handled = self.keyboard_scroll(
+                            ScrollCommand::Lines(1.0),
+                            Some(horizontal),
+                            width,
+                            height,
+                        )?;
+                        outcome.needs_redraw |= outcome.handled;
                     }
                 }
                 LogicalKey::ArrowUp | LogicalKey::ArrowLeft => {
@@ -667,7 +721,36 @@ impl Runtime {
                     if focused_is_radio {
                         outcome.handled = true;
                         outcome.activated = self.select_adjacent_radio(false).is_some();
+                    } else {
+                        let horizontal = logical == LogicalKey::ArrowLeft;
+                        outcome.handled = self.keyboard_scroll(
+                            ScrollCommand::Lines(-1.0),
+                            Some(horizontal),
+                            width,
+                            height,
+                        )?;
+                        outcome.needs_redraw |= outcome.handled;
                     }
+                }
+                LogicalKey::PageUp | LogicalKey::PageDown => {
+                    let direction = if logical == LogicalKey::PageDown {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    outcome.handled =
+                        self.keyboard_scroll(ScrollCommand::Pages(direction), None, width, height)?;
+                    outcome.needs_redraw |= outcome.handled;
+                }
+                LogicalKey::Home | LogicalKey::End => {
+                    // Reached only when no editable field owns Home/End.
+                    let command = if logical == LogicalKey::Home {
+                        ScrollCommand::ToStart
+                    } else {
+                        ScrollCommand::ToEnd
+                    };
+                    outcome.handled = self.keyboard_scroll(command, None, width, height)?;
+                    outcome.needs_redraw |= outcome.handled;
                 }
                 LogicalKey::Space | LogicalKey::Enter
                     if self.focused_action.as_deref().is_some_and(|id| {
@@ -826,6 +909,14 @@ impl Runtime {
             }
             InputEvent::Key { .. } => {}
             InputEvent::Cancel { pointer } => {
+                if pointer.is_none()
+                    || self
+                        .scrollbar_drag
+                        .as_ref()
+                        .is_some_and(|(drag_pointer, _, _)| Some(*drag_pointer) == pointer)
+                {
+                    self.scrollbar_drag = None;
+                }
                 outcome.pressed_changed = self.input.cancel_pointer(pointer);
                 outcome.handled = outcome.pressed_changed;
             }
@@ -834,6 +925,7 @@ impl Runtime {
                     editor.cancel_composition();
                 }
                 self.input.set_modifiers(Default::default());
+                self.scrollbar_drag = None;
                 let pointer_changed = self.input.cancel_pointer(None);
                 let keyboard_changed = self.input.clear_keyboard_capture();
                 outcome.pressed_changed = pointer_changed || keyboard_changed;
@@ -1056,6 +1148,130 @@ impl Runtime {
             }
         }
         None
+    }
+
+    /// Scroll views enclosing `id`, innermost first.
+    fn scroll_ancestors(&self, id: &str) -> Vec<String> {
+        fn visit(runtime: &Runtime, node: &UiNode, id: &str, path: &mut Vec<String>) -> bool {
+            let is_scroll = matches!(node, UiNode::Scroll { .. });
+            if is_scroll {
+                path.push(node.base().id.clone());
+            }
+            if node.base().id == id
+                || runtime
+                    .active_children(node)
+                    .iter()
+                    .any(|child| visit(runtime, child, id, path))
+            {
+                return true;
+            }
+            if is_scroll {
+                path.pop();
+            }
+            false
+        }
+        let mut path = Vec::new();
+        visit(self, &self.program.root.child, id, &mut path);
+        // A focused scroll view itself is excluded only when it is the target
+        // node; its own viewport is the nearest container for keyboard scrolling.
+        path.reverse();
+        path
+    }
+
+    /// Scroll views under a window point, innermost first.
+    fn scroll_views_at(&self, position: crate::input::InputPoint) -> Vec<String> {
+        let views = self.scroll_views.borrow();
+        let mut hits = views
+            .iter()
+            .filter(|(_, view)| view.bounds.contains(position.x, position.y))
+            .map(|(id, view)| (id.clone(), view.bounds.width * view.bounds.height))
+            .collect::<Vec<_>>();
+        hits.sort_by(|a, b| a.1.total_cmp(&b.1));
+        hits.into_iter().map(|(id, _)| id).collect()
+    }
+
+    /// Keyboard scrolling owned by the nearest scroll container of semantic
+    /// focus (or the hovered viewport when nothing is focused). Movement the
+    /// inner container cannot absorb routes to its ancestors; focus never moves.
+    fn keyboard_scroll(
+        &mut self,
+        command: ScrollCommand,
+        horizontal: Option<bool>,
+        width: f32,
+        height: f32,
+    ) -> Result<bool, taffy::TaffyError> {
+        self.build_frame(width, height)?;
+        let chain = match self.focused_action.clone() {
+            Some(focused) => self.scroll_ancestors(&focused),
+            None => self
+                .input
+                .pointer_position(crate::input::PointerId::MOUSE)
+                .map(|position| self.scroll_views_at(position))
+                .unwrap_or_default(),
+        };
+        let mut views = self.scroll_views.borrow_mut();
+        for id in chain {
+            let Some(view) = views.get_mut(&id) else {
+                continue;
+            };
+            if horizontal.is_some_and(|horizontal| horizontal != view.horizontal)
+                || !view.is_scrollable()
+            {
+                continue;
+            }
+            let before = view.axis_offset();
+            let target = match command {
+                ScrollCommand::Lines(lines) => before + lines * crate::scroll_view::SCROLL_LINE,
+                ScrollCommand::Pages(pages) => before + pages * view.page(),
+                ScrollCommand::ToStart => 0.0,
+                ScrollCommand::ToEnd => view.max_offset(),
+            };
+            view.set_axis_offset(target);
+            view.update_scrollbar();
+            if (view.axis_offset() - before).abs() > f32::EPSILON {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Scrollbar press: thumb starts a drag, track pages toward the pointer.
+    fn press_scrollbar(
+        &mut self,
+        pointer: crate::input::PointerId,
+        position: crate::input::InputPoint,
+    ) -> Option<InputOutcome> {
+        let mut views = self.scroll_views.borrow_mut();
+        let (id, view) = views
+            .iter_mut()
+            .filter(|(_, view)| {
+                view.scrollbar
+                    .is_some_and(|bar| bar.track.contains(position.x, position.y))
+            })
+            .min_by(|a, b| {
+                (a.1.bounds.width * a.1.bounds.height)
+                    .total_cmp(&(b.1.bounds.width * b.1.bounds.height))
+            })?;
+        let bar = view.scrollbar?;
+        let (axis, thumb_start, thumb_length) = if view.horizontal {
+            (position.x, bar.thumb.x, bar.thumb.width)
+        } else {
+            (position.y, bar.thumb.y, bar.thumb.height)
+        };
+        let mut outcome = InputOutcome {
+            handled: true,
+            ..Default::default()
+        };
+        if axis >= thumb_start && axis <= thumb_start + thumb_length {
+            self.scrollbar_drag = Some((pointer, id.clone(), axis - thumb_start));
+        } else {
+            let before = view.axis_offset();
+            let direction = if axis < thumb_start { -1.0 } else { 1.0 };
+            view.set_axis_offset(before + direction * view.page());
+            view.update_scrollbar();
+            outcome.needs_redraw = view.axis_offset() != before;
+        }
+        Some(outcome)
     }
 
     fn focused_is_text_field(&self) -> bool {
@@ -2882,9 +3098,15 @@ impl Runtime {
                 width: layout.size.width,
                 height: layout.size.height,
             };
-            if let Some(view) = self.scroll_views.borrow_mut().get_mut(&node.base().id) {
-                view.bounds = viewport;
-            }
+            let scrollbar = self
+                .scroll_views
+                .borrow_mut()
+                .get_mut(&node.base().id)
+                .and_then(|view| {
+                    view.bounds = viewport;
+                    view.update_scrollbar();
+                    view.scrollbar
+                });
             let ids = scene.rects[start.0..]
                 .iter()
                 .map(|item| item.id.clone())
@@ -2899,6 +3121,22 @@ impl Runtime {
                     .unwrap_or(viewport);
                 let clip = scene.presentation.push_clip(None, clip, None);
                 scene.presentation.bind_clip(id, clip);
+            }
+            // Scrollbars are presentation of runtime scroll state; they sit above
+            // content inside the viewport and are clipped only by ancestors.
+            if let Some(bar) = scrollbar {
+                let id = &node.base().id;
+                for (suffix, rect, color) in [
+                    ("scrollbar-track", bar.track, Color::SCROLLBAR_TRACK),
+                    ("scrollbar-thumb", bar.thumb, Color::SCROLLBAR_THUMB),
+                ] {
+                    scene.rects.push(SceneRect {
+                        id: format!("{id}:{suffix}"),
+                        rect,
+                        color: color.with_opacity(opacity),
+                        corner_radius: crate::scroll_view::SCROLLBAR_THICKNESS * 0.5,
+                    });
+                }
             }
         }
         Ok(())

@@ -197,3 +197,200 @@ fn duplicate_ids_inside_scroll_fail_before_layout() {
             .contains("same")
     );
 }
+
+fn press_key(r: &mut Runtime, logical: mun_runtime::LogicalKey) -> mun_runtime::InputOutcome {
+    r.handle_input(
+        InputEvent::Key {
+            logical,
+            physical: mun_runtime::PhysicalKey::Other,
+            state: mun_runtime::KeyState::Pressed,
+            repeat: false,
+        },
+        300.0,
+        300.0,
+    )
+    .unwrap()
+}
+
+fn offset(r: &Runtime, id: &str) -> f32 {
+    r.scroll_view(id).unwrap().offset[1]
+}
+
+fn pointer(r: &mut Runtime, event: InputEvent) {
+    r.handle_input(event, 300.0, 300.0).unwrap();
+}
+
+fn primary(state: mun_runtime::ButtonState) -> InputEvent {
+    InputEvent::PointerButton {
+        pointer: PointerId::MOUSE,
+        button: mun_runtime::PointerButton::Primary,
+        state,
+    }
+}
+
+fn moved(x: f32, y: f32) -> InputEvent {
+    InputEvent::PointerMoved {
+        pointer: PointerId::MOUSE,
+        position: InputPoint::new(x, y),
+    }
+}
+
+fn tall(id: &str, count: usize) -> Value {
+    scroll(
+        id,
+        200,
+        (0..count)
+            .map(|index| action(&format!("{id}-{index}")))
+            .collect(),
+    )
+}
+
+#[test]
+fn keyboard_scrolling_is_owned_by_the_focused_scroll_container() {
+    use mun_runtime::LogicalKey;
+    // 10 x 40pt actions in a 200pt viewport: max offset 200.
+    let mut r = runtime(tall("list", 10));
+    r.build_frame(300.0, 300.0).unwrap();
+    r.focus_action("list-0");
+    r.build_frame(300.0, 300.0).unwrap();
+    assert!(press_key(&mut r, LogicalKey::ArrowDown).needs_redraw);
+    assert_eq!(offset(&r, "list"), 40.0);
+    press_key(&mut r, LogicalKey::PageDown);
+    assert_eq!(
+        offset(&r, "list"),
+        200.0,
+        "page = viewport - one line, clamped"
+    );
+    press_key(&mut r, LogicalKey::Home);
+    assert_eq!(offset(&r, "list"), 0.0);
+    press_key(&mut r, LogicalKey::End);
+    assert_eq!(offset(&r, "list"), 200.0);
+    assert!(
+        !press_key(&mut r, LogicalKey::PageDown).handled,
+        "already at end"
+    );
+    // Scrolling never moves semantic focus.
+    assert_eq!(r.focused_action(), Some("list-0"));
+    press_key(&mut r, LogicalKey::PageUp);
+    assert_eq!(offset(&r, "list"), 40.0);
+}
+
+#[test]
+fn unfocused_keyboard_scrolling_targets_the_hovered_viewport() {
+    use mun_runtime::LogicalKey;
+    let mut r = runtime(tall("list", 10));
+    r.build_frame(300.0, 300.0).unwrap();
+    assert!(
+        !press_key(&mut r, LogicalKey::PageDown).handled,
+        "no focus, no hover"
+    );
+    pointer(&mut r, moved(20.0, 20.0));
+    press_key(&mut r, LogicalKey::PageDown);
+    assert_eq!(offset(&r, "list"), 160.0);
+    assert_eq!(r.focused_action(), None);
+}
+
+#[test]
+fn nested_keyboard_scroll_routes_to_ancestor_when_inner_is_exhausted() {
+    use mun_runtime::LogicalKey;
+    let outer = json!({"kind":"scroll","id":"outer","axis":"vertical","layout":{"width":literal(120),"height":literal(150)},"children":[
+        tall("inner", 6), action("after-0"), action("after-1"), action("after-2")
+    ]});
+    let mut r = runtime(outer);
+    r.build_frame(300.0, 300.0).unwrap();
+    r.focus_action("inner-0");
+    r.build_frame(300.0, 300.0).unwrap();
+    press_key(&mut r, LogicalKey::End);
+    assert_eq!(offset(&r, "inner"), 40.0);
+    assert_eq!(offset(&r, "outer"), 0.0, "inner absorbed the movement");
+    press_key(&mut r, LogicalKey::ArrowDown);
+    assert_eq!(offset(&r, "outer"), 40.0, "residual routed to the ancestor");
+}
+
+#[test]
+fn focus_reveal_through_nested_ancestors_is_minimal() {
+    let outer = json!({"kind":"scroll","id":"outer","axis":"vertical","layout":{"width":literal(120),"height":literal(150)},"children":[
+        action("before-0"), action("before-1"), tall("inner", 8)
+    ]});
+    let mut r = runtime(outer);
+    r.build_frame(300.0, 300.0).unwrap();
+    // inner viewport occupies outer content 80..280; target inner-6 sits at
+    // inner content 240..280.
+    r.focus_action("inner-6");
+    let frame = r.build_frame(300.0, 300.0).unwrap();
+    assert_eq!(offset(&r, "inner"), 80.0, "inner scrolls just enough");
+    assert_eq!(offset(&r, "outer"), 130.0, "outer scrolls just enough");
+    let bounds = frame.accessibility.node("inner-6").unwrap().bounds;
+    assert_eq!(
+        bounds.y + bounds.height,
+        150.0,
+        "target touches the visible edge"
+    );
+    // Revealing an already visible control does not move anything.
+    r.focus_action("inner-5");
+    r.build_frame(300.0, 300.0).unwrap();
+    assert_eq!((offset(&r, "inner"), offset(&r, "outer")), (80.0, 130.0));
+}
+
+#[test]
+fn scrollbar_presentation_drag_and_track_paging_are_semantic_scroll_operations() {
+    let mut r = runtime(
+        json!({"kind":"row","id":"stack","layout":{"alignment":"leading"},"children":[tall("list", 10), tall("short", 2)]}),
+    );
+    let scene = r.build_scene(300.0, 300.0).unwrap();
+    let thumb = scene
+        .rects
+        .iter()
+        .find(|item| item.id == "list:scrollbar-thumb")
+        .expect("overflowing viewport shows a thumb")
+        .rect;
+    assert!(
+        !scene
+            .rects
+            .iter()
+            .any(|item| item.id.starts_with("short:scrollbar")),
+        "content that fits has no scrollbar"
+    );
+    // Thumb ratio: 200/400 of a 196pt track.
+    assert!((thumb.height - 98.0).abs() < 0.01);
+
+    // Drag the thumb by half its travel -> half the offset range.
+    let (x, y) = (thumb.x + 3.0, thumb.y + 10.0);
+    pointer(&mut r, moved(x, y));
+    pointer(&mut r, primary(mun_runtime::ButtonState::Pressed));
+    assert_eq!(
+        r.focused_action(),
+        None,
+        "scrollbar presses never take focus"
+    );
+    pointer(&mut r, moved(x, y + 49.0));
+    assert!((offset(&r, "list") - 100.0).abs() < 0.01);
+    pointer(&mut r, primary(mun_runtime::ButtonState::Released));
+    assert_eq!(
+        r.state_value("flag").unwrap(),
+        false,
+        "no activation under the bar"
+    );
+
+    // Track press below the thumb pages forward.
+    let scene = r.build_scene(300.0, 300.0).unwrap();
+    let track = scene
+        .rects
+        .iter()
+        .find(|item| item.id == "list:scrollbar-track")
+        .unwrap()
+        .rect;
+    pointer(&mut r, moved(track.x + 3.0, track.y + track.height - 2.0));
+    pointer(&mut r, primary(mun_runtime::ButtonState::Pressed));
+    pointer(&mut r, primary(mun_runtime::ButtonState::Released));
+    assert_eq!(offset(&r, "list"), 200.0);
+    let thumb = r
+        .build_scene(300.0, 300.0)
+        .unwrap()
+        .rects
+        .into_iter()
+        .find(|item| item.id == "list:scrollbar-thumb")
+        .unwrap()
+        .rect;
+    assert!((thumb.y + thumb.height - (track.y + track.height)).abs() < 0.01);
+}
