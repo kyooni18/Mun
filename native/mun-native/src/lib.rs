@@ -1684,7 +1684,7 @@ impl WindowState {
         let logical_height = size.height.max(1) as f32 / scale_factor;
         let tree = runtime
             .build_accessibility_tree(logical_width, logical_height)
-            .expect("build initial Mün accessibility tree");
+            .map_err(|error| GpuError::new("layout", error))?;
         let accessibility = AccessibilityHost::new(event_loop, &window, tree, scale_factor, proxy);
         // The platform IME is routed only while an editable field owns focus.
         window.set_ime_allowed(false);
@@ -1714,10 +1714,14 @@ impl WindowState {
 
     fn dispatch_input(&mut self, event: InputEvent) {
         let (width, height) = self.logical_size();
-        let outcome = self
-            .runtime
-            .handle_input(event, width, height)
-            .expect("route Mün semantic input");
+        let outcome = match self.runtime.handle_input(event, width, height) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                // Layout failures are reported, never a crash of the host.
+                eprintln!("{}", GpuError::new("layout", error));
+                return;
+            }
+        };
         if outcome.needs_redraw {
             self.window.request_redraw();
         }
@@ -1774,12 +1778,12 @@ impl WindowState {
                     }
                 };
                 if let Some(response) = response {
-                    let outcome = self
-                        .runtime
-                        .handle_input(response, width, height)
-                        .expect("acknowledge Mün clipboard service");
-                    if outcome.needs_redraw || outcome.activated {
-                        self.window.request_redraw();
+                    match self.runtime.handle_input(response, width, height) {
+                        Ok(outcome) if outcome.needs_redraw || outcome.activated => {
+                            self.window.request_redraw();
+                        }
+                        Ok(_) => {}
+                        Err(error) => eprintln!("{}", GpuError::new("layout", error)),
                     }
                 }
             }
@@ -1850,10 +1854,13 @@ impl WindowState {
         self.runtime.step(dt);
 
         let (width, height) = self.logical_size();
-        let frame = self
-            .runtime
-            .build_frame(width, height)
-            .expect("build Mün native frame");
+        let frame = match self.runtime.build_frame(width, height) {
+            Ok(frame) => frame,
+            Err(error) => {
+                eprintln!("{}", GpuError::new("layout", error));
+                return;
+            }
+        };
         self.update_ime_cursor_area(frame.ime_cursor_area);
         self.accessibility
             .update(frame.accessibility, self.window.scale_factor() as f32);
@@ -1941,6 +1948,9 @@ impl ApplicationHandler<NativeEvent> for Application {
             WindowEvent::ScaleFactorChanged { .. } => {
                 let size = state.window.inner_size();
                 state.renderer.resize(size.width, size.height);
+                // The cached candidate area is logical; the platform position
+                // it maps to changed with the scale, so send it again.
+                state.ime_cursor_area = None;
                 state.window.request_redraw();
             }
             WindowEvent::ModifiersChanged(modifiers) => {

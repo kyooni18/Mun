@@ -255,6 +255,20 @@ impl<'s> Validator<'s> {
             .map(|branch| self.resolve(branch))
             .collect::<Result<Vec<_>, _>>()?;
         let mut candidates = branches.clone();
+        // Branches whose declared JSON type cannot match are never the
+        // intended form (e.g. `null` beside a motion plan).
+        let typed: Vec<_> = candidates
+            .iter()
+            .copied()
+            .filter(|branch| {
+                branch
+                    .get("type")
+                    .is_none_or(|rule| check_type(rule, value, context).is_ok())
+            })
+            .collect();
+        if !typed.is_empty() {
+            candidates = typed;
+        }
         for tag in ["kind", "operation"] {
             let tagged = candidates
                 .iter()
