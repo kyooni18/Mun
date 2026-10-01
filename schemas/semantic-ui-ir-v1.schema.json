@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:mun:semantic-ui-ir:v1",
-  "title": "M\u00fcn Semantic UI IR v1",
-  "description": "Canonical backend-neutral wire format emitted by the M\u00fcn compiler and consumed by native/web backends. A program has exactly one root Window; descendant UI nodes are content nodes.",
+  "title": "Mün Semantic UI IR v1",
+  "description": "Canonical backend-neutral wire format emitted by the Mün compiler and consumed by native/web backends. A program has exactly one root Window; descendant UI nodes are content nodes.",
   "type": "object",
   "properties": {
     "version": {
@@ -51,7 +51,7 @@
               "const": "literal"
             },
             "value": {
-              "$ref": "#/$defs/scalar"
+              "$ref": "#/$defs/value"
             }
           },
           "required": [
@@ -97,6 +97,60 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "stringify"
+            },
+            "value": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "binary"
+            },
+            "operator": {
+              "enum": [
+                "add",
+                "subtract",
+                "multiply",
+                "divide",
+                "modulo",
+                "equal",
+                "notEqual",
+                "less",
+                "lessOrEqual",
+                "greater",
+                "greaterOrEqual",
+                "and",
+                "or"
+              ]
+            },
+            "left": {
+              "$ref": "#/$defs/expression"
+            },
+            "right": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "operator",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "conditional"
             },
             "condition": {
@@ -116,6 +170,101 @@
             "otherwise"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "item"
+            },
+            "forEach": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "forEach",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "record"
+            },
+            "fields": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/expression"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "fields"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "count"
+            },
+            "collection": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "collection"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "filter"
+            },
+            "collection": {
+              "$ref": "#/$defs/expression"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "operator": {
+              "enum": [
+                "equal",
+                "notEqual"
+              ]
+            },
+            "value": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "collection",
+            "path",
+            "operator",
+            "value"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -127,7 +276,11 @@
           "minLength": 1
         },
         "initial": {
-          "$ref": "#/$defs/scalar"
+          "$ref": "#/$defs/value"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -456,6 +609,228 @@
             "value"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "collection"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "keyPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "transaction": {
+              "$ref": "#/$defs/transaction"
+            },
+            "operation": {
+              "const": "insert"
+            },
+            "index": {
+              "$ref": "#/$defs/expression"
+            },
+            "value": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "state",
+            "keyPath",
+            "operation",
+            "index",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "collection"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "keyPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "transaction": {
+              "$ref": "#/$defs/transaction"
+            },
+            "operation": {
+              "const": "append"
+            },
+            "value": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "state",
+            "keyPath",
+            "operation",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "collection"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "keyPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "transaction": {
+              "$ref": "#/$defs/transaction"
+            },
+            "operation": {
+              "const": "remove"
+            },
+            "key": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "state",
+            "keyPath",
+            "operation",
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "collection"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "keyPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "transaction": {
+              "$ref": "#/$defs/transaction"
+            },
+            "operation": {
+              "const": "move"
+            },
+            "key": {
+              "$ref": "#/$defs/expression"
+            },
+            "offset": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "state",
+            "keyPath",
+            "operation",
+            "key",
+            "offset"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "collection"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1
+            },
+            "keyPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "transaction": {
+              "$ref": "#/$defs/transaction"
+            },
+            "operation": {
+              "const": "update"
+            },
+            "key": {
+              "$ref": "#/$defs/expression"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "value": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "kind",
+            "state",
+            "keyPath",
+            "operation",
+            "key",
+            "path",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "sequence"
+            },
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/action"
+              }
+            },
+            "transaction": {
+              "$ref": "#/$defs/transaction"
+            }
+          },
+          "required": [
+            "kind",
+            "actions"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -489,6 +864,12 @@
           "items": {
             "$ref": "#/$defs/node"
           }
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -528,6 +909,12 @@
           "items": {
             "$ref": "#/$defs/node"
           }
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -580,6 +967,12 @@
             "bottomLeading",
             "bottomTrailing"
           ]
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -628,6 +1021,12 @@
           "items": {
             "$ref": "#/$defs/node"
           }
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -666,6 +1065,12 @@
         },
         "value": {
           "$ref": "#/$defs/expression"
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -707,6 +1112,12 @@
             "circle",
             "capsule"
           ]
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -745,6 +1156,12 @@
         },
         "action": {
           "$ref": "#/$defs/action"
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -768,6 +1185,9 @@
         },
         {
           "$ref": "#/$defs/conditionalNode"
+        },
+        {
+          "$ref": "#/$defs/forEach"
         },
         {
           "$ref": "#/$defs/textNode"
@@ -926,6 +1346,12 @@
         },
         "placeholder": {
           "type": "string"
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -988,6 +1414,12 @@
           "items": {
             "$ref": "#/$defs/selectionOption"
           }
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -1034,6 +1466,12 @@
             "vertical",
             "horizontal"
           ]
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
         }
       },
       "required": [
@@ -1041,6 +1479,167 @@
         "id",
         "children",
         "axis"
+      ],
+      "additionalProperties": false
+    },
+    "value": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/scalar"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      ]
+    },
+    "transitionEffect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "opacity"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "scale"
+            },
+            "scale": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "scale"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "move"
+            },
+            "edge": {
+              "enum": [
+                "top",
+                "bottom",
+                "leading",
+                "trailing",
+                "left",
+                "right"
+              ]
+            },
+            "distance": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "edge",
+            "distance"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "transition": {
+      "type": "object",
+      "properties": {
+        "insertion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transitionEffect"
+          }
+        },
+        "removal": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transitionEffect"
+          }
+        },
+        "animation": {
+          "$ref": "#/$defs/motionPlan"
+        }
+      },
+      "required": [
+        "insertion",
+        "removal"
+      ],
+      "additionalProperties": false
+    },
+    "forEach": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
+        },
+        "kind": {
+          "const": "forEach"
+        },
+        "collection": {
+          "$ref": "#/$defs/expression"
+        },
+        "keyPath": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "collection",
+        "keyPath",
+        "children"
       ],
       "additionalProperties": false
     }

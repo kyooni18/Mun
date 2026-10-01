@@ -47,6 +47,19 @@ pub enum RuntimeLoadError {
     UnsupportedSourceLanguage { found: String },
     #[error("duplicate Mün semantic node identity '{id}'")]
     DuplicateNodeIdentity { id: String },
+    #[error("invalid Mün keyed collection: {0}")]
+    Collection(crate::collection::CollectionError),
+}
+
+/// Runtime-detected contract violations that were rejected without effect.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RuntimeDiagnostic {
+    /// A transaction would have produced an invalid keyed collection (duplicate
+    /// or invalid keys); all of its mutations were rolled back.
+    RejectedTransaction {
+        action: Option<String>,
+        error: crate::collection::CollectionError,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -167,12 +180,25 @@ impl Default for PresenceValues {
     }
 }
 
-fn scalar_string(value: &Value) -> String {
+/// Canonical number text shared with the web adapter (ECMAScript `String(n)`
+/// for the finite range Mün produces): integral values print without a
+/// fractional part, so `10 + 1` renders as "11", never "11.0".
+pub(crate) fn number_string(value: &serde_json::Number) -> String {
+    match value.as_f64() {
+        Some(number) if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e21 => {
+            format!("{:.0}", if number == 0.0 { 0.0 } else { number })
+        }
+        Some(number) if number.is_finite() => number.to_string(),
+        _ => value.to_string(),
+    }
+}
+
+pub(crate) fn scalar_string(value: &Value) -> String {
     match value {
         Value::String(value) => value.clone(),
         Value::Null => "null".to_string(),
         Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
+        Value::Number(value) => number_string(value),
         other => other.to_string(),
     }
 }
@@ -264,7 +290,7 @@ fn ordered_comparison(
     Value::Bool(false)
 }
 
-fn evaluate_binary(operator: UiBinaryOperator, left: Value, right: Value) -> Value {
+pub(crate) fn evaluate_binary(operator: UiBinaryOperator, left: Value, right: Value) -> Value {
     match operator {
         UiBinaryOperator::Add => {
             if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
@@ -314,7 +340,12 @@ fn evaluate_binary(operator: UiBinaryOperator, left: Value, right: Value) -> Val
     }
 }
 pub struct Runtime {
+    /// Materialized program: `root.child` has every `forEach` instantiated per
+    /// item key. The authored template is kept separately in `template`.
     pub program: UiProgram,
+    template: UiNode,
+    scope_model: crate::collection::ScopeModel,
+    diagnostics: Vec<RuntimeDiagnostic>,
     state: HashMap<String, Value>,
     motion: MotionScheduler,
     revision: u64,
@@ -358,13 +389,21 @@ impl Runtime {
         }
         validate_native_transitions(&program.root.child)?;
         validate_node_identities(&program)?;
+        let scope_model = crate::collection::ScopeModel::new(&program.states, &program.root.child);
+        // Item-scoped state has no global instance; materialization creates one
+        // per live key.
         let state = program
             .states
             .iter()
+            .filter(|item| item.scope.is_none())
             .map(|item| (item.name.clone(), item.initial.clone()))
             .collect();
+        let template = program.root.child.clone();
         let mut runtime = Self {
             program,
+            template,
+            scope_model,
+            diagnostics: Vec::new(),
             state,
             motion: MotionScheduler::default(),
             revision: 0,
@@ -390,8 +429,35 @@ impl Runtime {
             last_live_scene: RefCell::new(None),
             last_live_accessibility: RefCell::new(None),
         };
+        runtime
+            .materialize()
+            .map_err(RuntimeLoadError::Collection)?;
         runtime.reconcile_retained_tree();
         Ok(runtime)
+    }
+
+    /// Re-instantiate keyed collections from the template and current state.
+    fn materialize(&mut self) -> Result<(), crate::collection::CollectionError> {
+        if !self.scope_model.has_collections() {
+            return Ok(());
+        }
+        let materialized =
+            crate::collection::materialize(&self.template, &self.scope_model, &mut self.state)?;
+        self.program.root.child = materialized.root;
+        Ok(())
+    }
+
+    /// Diagnostics for rejected transactions since the last call.
+    pub fn take_diagnostics(&mut self) -> Vec<RuntimeDiagnostic> {
+        std::mem::take(&mut self.diagnostics)
+    }
+
+    /// Number of live item-scoped state instances (runtime-owned state scopes).
+    pub fn scoped_state_count(&self) -> usize {
+        self.state
+            .keys()
+            .filter(|name| self.scope_model.is_instance(name))
+            .count()
     }
 
     /// Install backend-derived text/control metrics (shaped glyph geometry).
@@ -1467,27 +1533,29 @@ impl Runtime {
             is_continuous: action_transaction.is_continuous,
         };
 
-        match action {
-            UiAction::ToggleState { state, .. } => {
-                let old = self
-                    .state
-                    .get(&state)
-                    .cloned()
-                    .unwrap_or(Value::Bool(false));
-                let new = Value::Bool(!old.as_bool().unwrap_or(false));
-                self.state.insert(state.clone(), new.clone());
-                transaction
-                    .mutations
-                    .push(StateMutation { state, old, new });
-            }
-            UiAction::SetState { state, value, .. } => {
-                let old = self.state.get(&state).cloned().unwrap_or(Value::Null);
-                let new = self.eval(&value);
-                self.state.insert(state.clone(), new.clone());
-                transaction
-                    .mutations
-                    .push(StateMutation { state, old, new });
-            }
+        let snapshot = self.state.clone();
+        let applied =
+            self.apply_action_mutations(&action, &mut transaction.mutations)
+                .and_then(|()| {
+                    let structural = transaction.mutations.iter().any(|mutation| {
+                        self.scope_model.structural_states.contains(&mutation.state)
+                    });
+                    if structural {
+                        self.materialize()
+                    } else {
+                        Ok(())
+                    }
+                });
+        if let Err(error) = applied {
+            // Reject the whole transaction: no partial, aliased or index-shifted
+            // state survives. The previous materialization is still current.
+            self.state = snapshot;
+            self.diagnostics
+                .push(RuntimeDiagnostic::RejectedTransaction {
+                    action: Some(id.to_owned()),
+                    error,
+                });
+            return None;
         }
 
         self.reconcile_retained_tree();
@@ -1556,10 +1624,81 @@ impl Runtime {
         Some(transaction)
     }
 
+    /// Apply an action's state mutations in order; later mutations observe
+    /// earlier ones. Any collection error aborts; the caller rolls back.
+    fn apply_action_mutations(
+        &mut self,
+        action: &UiAction,
+        mutations: &mut Vec<StateMutation>,
+    ) -> Result<(), crate::collection::CollectionError> {
+        match action {
+            UiAction::ToggleState { state, .. } => {
+                let old = self.state.get(state).cloned().unwrap_or(Value::Bool(false));
+                let new = Value::Bool(!old.as_bool().unwrap_or(false));
+                self.state.insert(state.clone(), new.clone());
+                mutations.push(StateMutation {
+                    state: state.clone(),
+                    old,
+                    new,
+                });
+            }
+            UiAction::SetState { state, value, .. } => {
+                let old = self.state.get(state).cloned().unwrap_or(Value::Null);
+                let new = self.eval(value);
+                self.state.insert(state.clone(), new.clone());
+                mutations.push(StateMutation {
+                    state: state.clone(),
+                    old,
+                    new,
+                });
+            }
+            UiAction::Collection {
+                state,
+                key_path,
+                operation,
+                ..
+            } => {
+                let old = self.state.get(state).cloned().unwrap_or(Value::Null);
+                let operation =
+                    crate::collection::EvaluatedOperation::evaluate(operation, &self.state);
+                let new = crate::collection::apply_operation(state, &old, key_path, &operation)?;
+                self.state.insert(state.clone(), new.clone());
+                mutations.push(StateMutation {
+                    state: state.clone(),
+                    old,
+                    new,
+                });
+            }
+            UiAction::Sequence { actions, .. } => {
+                for action in actions {
+                    self.apply_action_mutations(action, mutations)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn set_control_state(&mut self, state: String, new: Value) -> Option<Transaction> {
         let old = self.state.get(&state).cloned().unwrap_or(Value::Null);
         if old == new {
             return None;
+        }
+        if self.scope_model.structural_states.contains(&state) {
+            let snapshot = self.state.clone();
+            self.state.insert(state.clone(), new.clone());
+            if let Err(error) = self.materialize() {
+                self.state = snapshot;
+                self.diagnostics
+                    .push(RuntimeDiagnostic::RejectedTransaction {
+                        action: None,
+                        error,
+                    });
+                return None;
+            }
+            // Materialization may have created/released item scopes; restore
+            // only the edited binding's prior value so the transaction below
+            // records the mutation normally.
+            self.state.insert(state.clone(), old.clone());
         }
 
         let mut focus_order_before = Vec::new();
@@ -1815,30 +1954,7 @@ impl Runtime {
     }
 
     fn eval(&self, expression: &UiExpression) -> Value {
-        match expression {
-            UiExpression::Literal { value } => value.clone(),
-            UiExpression::State { state } => self.state.get(state).cloned().unwrap_or(Value::Null),
-            UiExpression::Not { value } => {
-                Value::Bool(!self.eval(value).as_bool().unwrap_or(false))
-            }
-            UiExpression::Stringify { value } => Value::String(scalar_string(&self.eval(value))),
-            UiExpression::Binary {
-                operator,
-                left,
-                right,
-            } => evaluate_binary(*operator, self.eval(left), self.eval(right)),
-            UiExpression::Conditional {
-                condition,
-                then_value,
-                otherwise,
-            } => {
-                if self.eval(condition).as_bool().unwrap_or(false) {
-                    self.eval(then_value)
-                } else {
-                    self.eval(otherwise)
-                }
-            }
-        }
+        crate::collection::evaluate(expression, &self.state)
     }
 
     fn eval_number(&self, expression: &UiExpression) -> Option<f32> {
@@ -1901,7 +2017,8 @@ impl Runtime {
             UiNode::Row { .. } => RetainedNodeKind::Row,
             UiNode::Overlay { .. } => RetainedNodeKind::Overlay,
             UiNode::Scroll { .. } => RetainedNodeKind::Scroll,
-            UiNode::Conditional { .. } => RetainedNodeKind::Conditional,
+            // Materialized trees contain no forEach; keep the fragment kind.
+            UiNode::Conditional { .. } | UiNode::ForEach { .. } => RetainedNodeKind::Conditional,
             UiNode::Text { .. } => RetainedNodeKind::Text,
             UiNode::Panel { .. } => RetainedNodeKind::Panel,
             UiNode::TextField { .. } => RetainedNodeKind::TextField,
@@ -2352,7 +2469,7 @@ impl Runtime {
         match value {
             Value::String(value) => value,
             Value::Bool(value) => value.to_string(),
-            Value::Number(value) => value.to_string(),
+            Value::Number(value) => number_string(&value),
             Value::Null => String::new(),
             other => other.to_string(),
         }
@@ -2493,8 +2610,8 @@ impl Runtime {
             | UiNode::Panel { .. }
             | UiNode::TextField { .. }
             | UiNode::RadioGroup { .. } => {}
-            UiNode::Conditional { .. } => {
-                unreachable!("conditional fragments are flattened above")
+            UiNode::Conditional { .. } | UiNode::ForEach { .. } => {
+                unreachable!("fragments are flattened above and forEach is materialized")
             }
         }
 
@@ -3694,7 +3811,8 @@ fn validate_node_identity(
         UiNode::Column { children, .. }
         | UiNode::Row { children, .. }
         | UiNode::Overlay { children, .. }
-        | UiNode::Scroll { children, .. } => {
+        | UiNode::Scroll { children, .. }
+        | UiNode::ForEach { children, .. } => {
             for child in children {
                 validate_node_identity(child, identities)?;
             }
@@ -3718,7 +3836,8 @@ fn validate_native_transitions(node: &UiNode) -> Result<(), RuntimeLoadError> {
         UiNode::Column { children, .. }
         | UiNode::Row { children, .. }
         | UiNode::Overlay { children, .. }
-        | UiNode::Scroll { children, .. } => {
+        | UiNode::Scroll { children, .. }
+        | UiNode::ForEach { children, .. } => {
             for child in children {
                 validate_native_transitions(child)?;
             }
@@ -3787,6 +3906,16 @@ mod tests {
         assert!(!action.focused);
         assert_eq!(tree.focus_id, None);
         assert!(tree.node("root").expect("root accessibility node").focused);
+    }
+
+    #[test]
+    fn number_text_matches_ecmascript_for_integral_results() {
+        let number = |value: f64| number_string(&serde_json::Number::from_f64(value).unwrap());
+        assert_eq!(number(11.0), "11");
+        assert_eq!(number(-0.0), "0");
+        assert_eq!(number(0.5), "0.5");
+        assert_eq!(number(-3.0), "-3");
+        assert_eq!(number_string(&serde_json::Number::from(7)), "7");
     }
 
     #[test]

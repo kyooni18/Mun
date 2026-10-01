@@ -43,6 +43,34 @@ pub enum UiExpression {
         then_value: Box<UiExpression>,
         otherwise: Box<UiExpression>,
     },
+    /// Current item (or field path inside it) of the enclosing `forEach`.
+    #[serde(rename = "item")]
+    Item {
+        #[serde(rename = "forEach")]
+        for_each: String,
+        #[serde(default)]
+        path: Vec<String>,
+    },
+    #[serde(rename = "record")]
+    Record {
+        fields: std::collections::BTreeMap<String, UiExpression>,
+    },
+    #[serde(rename = "count")]
+    Count { collection: Box<UiExpression> },
+    #[serde(rename = "filter")]
+    Filter {
+        collection: Box<UiExpression>,
+        path: Vec<String>,
+        operator: UiFilterOperator,
+        value: Box<UiExpression>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum UiFilterOperator {
+    Equal,
+    NotEqual,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -50,6 +78,9 @@ pub enum UiExpression {
 pub struct UiState {
     pub name: String,
     pub initial: Value,
+    /// `forEach` template whose items each own an instance of this state.
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -322,6 +353,31 @@ pub struct UiTransaction {
     pub is_continuous: bool,
 }
 
+/// Keyed collection mutation; items are addressed by key, never by index.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "operation", rename_all = "camelCase")]
+pub enum UiCollectionOperation {
+    Insert {
+        index: UiExpression,
+        value: UiExpression,
+    },
+    Append {
+        value: UiExpression,
+    },
+    Remove {
+        key: UiExpression,
+    },
+    Move {
+        key: UiExpression,
+        offset: UiExpression,
+    },
+    Update {
+        key: UiExpression,
+        path: Vec<String>,
+        value: UiExpression,
+    },
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind")]
 pub enum UiAction {
@@ -338,14 +394,31 @@ pub enum UiAction {
         #[serde(default)]
         transaction: Option<UiTransaction>,
     },
+    #[serde(rename = "collection")]
+    Collection {
+        state: String,
+        #[serde(rename = "keyPath")]
+        key_path: Vec<String>,
+        #[serde(flatten)]
+        operation: UiCollectionOperation,
+        #[serde(default)]
+        transaction: Option<UiTransaction>,
+    },
+    #[serde(rename = "sequence")]
+    Sequence {
+        actions: Vec<UiAction>,
+        #[serde(default)]
+        transaction: Option<UiTransaction>,
+    },
 }
 
 impl UiAction {
     pub fn transaction(&self) -> Option<&UiTransaction> {
         match self {
-            Self::ToggleState { transaction, .. } | Self::SetState { transaction, .. } => {
-                transaction.as_ref()
-            }
+            Self::ToggleState { transaction, .. }
+            | Self::SetState { transaction, .. }
+            | Self::Collection { transaction, .. }
+            | Self::Sequence { transaction, .. } => transaction.as_ref(),
         }
     }
 }
@@ -415,6 +488,18 @@ pub enum UiNode {
         #[serde(default)]
         otherwise: Vec<UiNode>,
     },
+    /// Keyed dynamic children: `children` is instantiated per collection item.
+    /// The runtime materializes each instance (identity = template identity +
+    /// item key) before layout; materialized trees never contain this variant.
+    #[serde(rename = "forEach")]
+    ForEach {
+        #[serde(flatten)]
+        base: NodeBase,
+        collection: UiExpression,
+        #[serde(rename = "keyPath")]
+        key_path: Vec<String>,
+        children: Vec<UiNode>,
+    },
     #[serde(rename = "text")]
     Text {
         #[serde(flatten)]
@@ -459,6 +544,7 @@ impl UiNode {
             | Self::Row { base, .. }
             | Self::Overlay { base, .. }
             | Self::Conditional { base, .. }
+            | Self::ForEach { base, .. }
             | Self::Text { base, .. }
             | Self::Panel { base, .. }
             | Self::Scroll { base, .. }
@@ -473,7 +559,8 @@ impl UiNode {
             Self::Column { children, .. }
             | Self::Row { children, .. }
             | Self::Overlay { children, .. }
-            | Self::Scroll { children, .. } => children,
+            | Self::Scroll { children, .. }
+            | Self::ForEach { children, .. } => children,
             _ => &[],
         }
     }

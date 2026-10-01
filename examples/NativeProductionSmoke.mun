@@ -2,6 +2,12 @@ struct NativeProductionSmoke: View {
   @State var name: string = "한글 / 日本語 / 中文"
   @State var choice: string = "work"
   @State var details: boolean = false
+  @State var tasks: Task[] = [
+    { id: "draft", title: "Draft" },
+    { id: "review", title: "Review" },
+    { id: "ship", title: "Ship" }
+  ]
+  @State var nextTask: number = 1
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -36,6 +42,14 @@ struct NativeProductionSmoke: View {
             }
             .transition(Transition.opacity.animation(Animation.linear(0.2)))
           }
+          Button("Add task") {
+            tasks.insert({ id: "task" + String(nextTask), title: "Task " + String(nextTask) }, at: 0)
+            nextTask += 1
+          }
+            .frame(width: 160, height: 36)
+          ForEach(tasks, id: \.id) { task in
+            TaskRow(tasks: $tasks, task: task)
+          }
           Text("Section one").frame(height: 70)
           Button("Toggle inside scroll") { details.toggle() }.frame(width: 220, height: 40)
           Text("Section two").frame(height: 70)
@@ -48,5 +62,24 @@ struct NativeProductionSmoke: View {
     }
     .padding(16)
     .background(Color("#101018"))
+  }
+}
+
+struct TaskRow: View {
+  @Binding var tasks: Task[]
+  var task: Task
+  @State var note: string = ""
+  @State var done: boolean = false
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Button("Done") { done.toggle() }.frame(width: 56, height: 32)
+      Text(done ? "✓" : "·").frame(width: 14)
+      Text(task.title).frame(width: 64)
+      TextField($note, "Note for this row").frame(width: 120, height: 32)
+      Button("Up") { tasks.move(task.id, by: -1) }.frame(width: 44, height: 32)
+      Button("Down") { tasks.move(task.id, by: 1) }.frame(width: 56, height: 32)
+      Button("Remove") { tasks.remove(task.id) }.frame(width: 70, height: 32)
+    }
   }
 }

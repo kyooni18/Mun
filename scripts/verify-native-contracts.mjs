@@ -17,7 +17,11 @@ try {
     ['NativeLayoutStyle', 'native_layout_style', 'MUN_NATIVE_UI_IR'],
   ]) {
     const path = resolve(directory, `${source}.json`)
+    const test = (name, env, filter) => run('cargo', ['test', '--manifest-path', 'native/Cargo.toml', '--locked', '-p', 'mun-runtime', '--test', name, '--', '--ignored', ...filter], { ...process.env, ...env })
     run(process.execPath, ['bin/mun.mjs', 'compile', `examples/${source}.mun`, path])
-    run('cargo', ['test', '--manifest-path', 'native/Cargo.toml', '--locked', '-p', 'mun-runtime', '--test', suite, '--', '--ignored'], { ...process.env, [variable]: path })
+    test(suite, { [variable]: path }, suite === 'compiler_contract' ? ['compiler_output_deserializes_into_native_runtime'] : [])
+    if (source === 'NativeProductionSmoke') {
+      test('compiler_contract', { MUN_KEYED_CONTRACT_IR: path }, ['compiled_keyed_rows_keep_state_by_key'])
+    }
   }
 } finally { rmSync(directory, { recursive: true, force: true }) }

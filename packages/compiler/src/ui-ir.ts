@@ -20,6 +20,7 @@ import {
   type MunUiProgram,
   type MunUiScalar,
   type MunUiState,
+  type MunUiValue,
   type MunUiTransition,
   type MunUiVisual,
   type MunUiWindowNode,
@@ -71,7 +72,7 @@ interface ComponentSemanticArgument extends SemanticArgument {
 }
 
 const emptyBindings: UiBindings = new Map()
-const literal = (value: MunUiScalar): MunUiExpression => ({ kind: "literal", value })
+const literal = (value: MunUiValue): MunUiExpression => ({ kind: "literal", value })
 const canonicalUiViewSymbols = canonicalViewSymbols()
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -95,6 +96,18 @@ function parsedExpression(source: string): ts.Expression {
   return unwrap(statement.expression)
 }
 
+/**
+ * TypeScript recovers from syntax errors (`[` parses as `[]`). State initial
+ * values are stored data, so a recovered tree must never become one.
+ */
+function assertWellFormedValueSource(source: string, owner: string): void {
+  const file = ts.createSourceFile("mun-ui-value.ts", `(${source})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const diagnostics = (file as ts.SourceFile & { readonly parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics
+  if (file.statements.length !== 1 || (diagnostics?.length ?? 0) > 0) {
+    throw new SyntaxError(`${owner} has a malformed initial value: ${source}`)
+  }
+}
+
 function scalarFromExpression(expression: ts.Expression): MunUiScalar | undefined {
   const value = unwrap(expression)
   if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) return value.text
@@ -106,6 +119,48 @@ function scalarFromExpression(expression: ts.Expression): MunUiScalar | undefine
     return -Number((unwrap(value.operand) as ts.NumericLiteral).text)
   }
   return undefined
+}
+
+/** Fully static array/object/scalar literal values (collection initial state). */
+function staticValueFromExpression(expression: ts.Expression): MunUiValue | undefined {
+  const value = unwrap(expression)
+  const scalar = scalarFromExpression(value)
+  if (scalar !== undefined || value.kind === ts.SyntaxKind.NullKeyword) return scalar ?? null
+  if (ts.isArrayLiteralExpression(value)) {
+    const items: MunUiValue[] = []
+    for (const element of value.elements) {
+      const item = staticValueFromExpression(element)
+      if (item === undefined) return undefined
+      items.push(item)
+    }
+    return items
+  }
+  if (ts.isObjectLiteralExpression(value)) {
+    const record: Record<string, MunUiValue> = {}
+    for (const property of value.properties) {
+      if (!ts.isPropertyAssignment(property)) return undefined
+      const name = propertyName(property.name)
+      if (name === undefined) return undefined
+      const field = staticValueFromExpression(property.initializer)
+      if (field === undefined) return undefined
+      record[name] = field
+    }
+    return record
+  }
+  return undefined
+}
+
+function propertyName(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text
+  return undefined
+}
+
+/** `\.a.b` key paths; `\.self` (or absent) is the item itself. */
+function keyPathFromSource(source: string | undefined): readonly string[] {
+  if (!source) return ["id"]
+  const match = /^\\\.([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)$/.exec(source.trim())
+  if (!match) throw new SyntaxError(`ForEach id must be a key path such as \\.id: ${source}`)
+  return match[1] === "self" ? [] : match[1].split(".")
 }
 
 function binaryOperator(kind: ts.SyntaxKind): MunUiBinaryOperator | undefined {
@@ -133,10 +188,90 @@ function lowerValueExpression(source: string, bindings: UiBindings = emptyBindin
   const expression = unwrap(parsedExpression(source))
   const scalar = scalarFromExpression(expression)
   if (scalar !== undefined || expression.kind === ts.SyntaxKind.NullKeyword) return literal(scalar ?? null)
+  const staticValue = staticValueFromExpression(expression)
+  if (staticValue !== undefined) return literal(staticValue)
 
   if (ts.isIdentifier(expression)) {
     const binding = bindings.get(expression.text)
     if (binding) return binding
+  }
+
+  if (ts.isObjectLiteralExpression(expression)) {
+    const fields: Record<string, MunUiExpression> = {}
+    for (const property of expression.properties) {
+      if (ts.isShorthandPropertyAssignment(property)) {
+        fields[property.name.text] = lowerValueExpression(property.name.text, bindings)
+        continue
+      }
+      const name = ts.isPropertyAssignment(property) ? propertyName(property.name) : undefined
+      if (!ts.isPropertyAssignment(property) || name === undefined) {
+        throw new SyntaxError(`Native record fields must be plain property assignments: ${source}`)
+      }
+      fields[name] = lowerValueExpression(property.initializer.getText(), bindings)
+    }
+    return { kind: "record", fields }
+  }
+
+  if (ts.isPropertyAccessExpression(expression)) {
+    const base = expression.expression
+    const name = expression.name.text
+    const baseBinding = ts.isIdentifier(base) ? bindings.get(base.text) : undefined
+    if (name !== "value" || baseBinding?.kind === "item") {
+      if (name === "count" || name === "length") {
+        const collection = lowerValueExpression(base.getText(), bindings)
+        if (collection.kind !== "item" || collection.path.length > 0 || name === "count") {
+          return { kind: "count", collection }
+        }
+      }
+      const lowered = name === "value" && baseBinding?.kind !== "item"
+        ? undefined
+        : lowerValueExpression(base.getText(), bindings)
+      if (lowered?.kind === "item") return { ...lowered, path: [...lowered.path, name] }
+    }
+  }
+
+  if (
+    ts.isCallExpression(expression)
+    && ts.isPropertyAccessExpression(expression.expression)
+    && expression.expression.name.text === "filter"
+    && expression.arguments.length === 1
+  ) {
+    const predicate = unwrap(expression.arguments[0])
+    const parameter = ts.isArrowFunction(predicate) && predicate.parameters.length === 1
+      && ts.isIdentifier(predicate.parameters[0].name)
+      ? predicate.parameters[0].name.text
+      : undefined
+    const body = parameter && ts.isArrowFunction(predicate) && !ts.isBlock(predicate.body)
+      ? unwrap(predicate.body)
+      : undefined
+    const operator = body && ts.isBinaryExpression(body) ? binaryOperator(body.operatorToken.kind) : undefined
+    const fieldPath = (side: ts.Expression): string[] | undefined => {
+      const path: string[] = []
+      let current = unwrap(side)
+      while (ts.isPropertyAccessExpression(current)) {
+        path.unshift(current.name.text)
+        current = unwrap(current.expression)
+      }
+      return ts.isIdentifier(current) && current.text === parameter && path.length > 0 ? path : undefined
+    }
+    if (body && ts.isBinaryExpression(body) && (operator === "equal" || operator === "notEqual")) {
+      const leftPath = fieldPath(body.left)
+      const rightPath = fieldPath(body.right)
+      const path = leftPath ?? rightPath
+      const other = leftPath ? body.right : body.left
+      if (path && !(leftPath && rightPath)) {
+        return {
+          kind: "filter",
+          collection: lowerValueExpression(expression.expression.expression.getText(), bindings),
+          path,
+          operator,
+          value: lowerValueExpression(other.getText(), bindings),
+        }
+      }
+    }
+    throw new SyntaxError(
+      `Native collection filters must compare one item field with a value, e.g. items.filter(item => item.done == false): ${source}`,
+    )
   }
 
   if (
@@ -212,6 +347,10 @@ function semanticTypeForUiExpression(
     const otherwiseType = semanticTypeForUiExpression(expression.otherwise, stateTypes)
     return thenType && thenType === otherwiseType ? thenType : undefined
   }
+  if (expression.kind === "item") return "dynamic"
+  if (expression.kind === "record") return "object"
+  if (expression.kind === "count") return "number"
+  if (expression.kind === "filter") return "array"
   return undefined
 }
 
@@ -265,6 +404,16 @@ function componentSemanticArgument(
     ...(type ? { type } : {}),
     sourceArgument: argument,
   }
+}
+
+/**
+ * Collection state is typed structurally at runtime ("array"); a declared
+ * element type (`Task[]`, `Array<Task>`) is accepted for it. Element shapes are
+ * not checked here: the runtime validates keys when it materializes items.
+ */
+function bindingTypeMatches(expected: string, actual: string): boolean {
+  if (expected === actual) return true
+  return actual === "array" && /^(?:[\s\S]+\[\]|(?:Readonly)?Array\s*<[\s\S]+>)$/.test(expected)
 }
 
 function stateTypeMap(states: readonly MunUiState[]): Map<string, string> {
@@ -516,8 +665,63 @@ function entryName(source: string, fallback: string): string {
   return source.match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1] ?? fallback
 }
 
+/** Labeled/positional arguments of a collection method call. */
+function collectionArguments(source: string): { readonly label?: string; readonly source: string }[] {
+  if (!source.trim()) return []
+  return splitTopLevel(source).map(part => {
+    const labeled = /^([A-Za-z_$][\w$]*)\s*:\s*([\s\S]+)$/.exec(part.trim())
+    return labeled ? { label: labeled[1], source: labeled[2] } : { source: part.trim() }
+  })
+}
+
+function collectionAction(
+  state: string,
+  method: string,
+  argumentSource: string,
+  bindings: UiBindings,
+): MunUiAction {
+  const args = collectionArguments(argumentSource)
+  const positional = args.filter(argument => argument.label === undefined)
+  const labeled = (label: string) => args.find(argument => argument.label === label)?.source
+  const value = (expression: string | undefined, role: string): MunUiExpression => {
+    if (!expression) throw new SyntaxError(`Collection ${method} requires ${role}: ${state}.${method}(${argumentSource})`)
+    return lowerValueExpression(expression, bindings)
+  }
+  // Key paths are stamped from the rendering ForEach after lowering.
+  const base = { kind: "collection" as const, state, keyPath: [] as readonly string[] }
+  switch (method) {
+    case "insert":
+      return { ...base, operation: "insert", value: value(positional[0]?.source, "a value"), index: value(labeled("at"), "at: index") }
+    case "append":
+      return { ...base, operation: "append", value: value(positional[0]?.source, "a value") }
+    case "remove":
+      return { ...base, operation: "remove", key: value(positional[0]?.source ?? labeled("id"), "an item key") }
+    case "move":
+      return { ...base, operation: "move", key: value(positional[0]?.source, "an item key"), offset: value(labeled("by"), "by: offset") }
+    case "update": {
+      const key = value(positional[0]?.source, "an item key")
+      const fields = args.filter(argument => argument.label !== undefined)
+      if (fields.length === 0) throw new SyntaxError(`Collection update requires field: value arguments: ${state}.update(${argumentSource})`)
+      const updates = fields.map(field => ({
+        ...base,
+        operation: "update" as const,
+        key,
+        path: [field.label as string],
+        value: lowerValueExpression(field.source, bindings),
+      }))
+      return updates.length === 1 ? updates[0] : { kind: "sequence", actions: updates }
+    }
+    default:
+      throw new SyntaxError(`Unsupported native collection operation '${method}'`)
+  }
+}
+
 function actionFromClosure(source: string, bindings: UiBindings = emptyBindings): MunUiAction {
   const body = source.trim().replace(/;$/, "").trim()
+  const statements = splitStatements(body)
+  if (statements.length > 1) {
+    return { kind: "sequence", actions: statements.map(statement => actionFromClosure(statement, bindings)) }
+  }
   const actionProgram = parseMunBuilder(body)
   if (actionProgram.statements.length === 1) {
     const statement = actionProgram.statements[0]
@@ -576,6 +780,24 @@ function actionFromClosure(source: string, bindings: UiBindings = emptyBindings)
       kind: "set-state",
       state: stateTarget(assignment[1], bindings),
       value: lowerValueExpression(assignment[2], bindings),
+    }
+  }
+
+  const collectionCall = /^([A-Za-z_$][\w$]*)\.(insert|append|remove|move|update)\s*\(([\s\S]*)\)$/.exec(body)
+  if (collectionCall) {
+    return collectionAction(stateTarget(collectionCall[1], bindings), collectionCall[2], collectionCall[3], bindings)
+  }
+
+  const plainAssignment = /^([A-Za-z_$][\w$]*)\s*(\+=|-=|\*=|\/=|%=|=)(?!=)\s*([\s\S]+)$/.exec(body)
+  if (plainAssignment && bindings.get(plainAssignment[1])?.kind === "state") {
+    const [, name, operator, valueSource] = plainAssignment
+    return {
+      kind: "set-state",
+      state: stateTarget(name, bindings),
+      value: lowerValueExpression(
+        operator === "=" ? valueSource : `${name} ${operator[0]} (${valueSource})`,
+        bindings,
+      ),
     }
   }
 
@@ -1337,6 +1559,10 @@ class UiLowerer {
   readonly #componentStack: string[] = []
   readonly #states: MunUiState[]
   readonly #stateTypes: Map<string, string>
+  /** Enclosing ForEach templates; View-local state inside them is item-scoped. */
+  readonly #forEachScopes: string[] = []
+  /** Key path per collection state, recorded by the ForEach that renders it. */
+  readonly #collectionKeyPaths = new Map<string, readonly string[]>()
 
   constructor(structs: readonly MunStructDeclaration[], states: readonly MunUiState[]) {
     const declarationIndex = collectStructDeclarations(structs)
@@ -1367,6 +1593,60 @@ class UiLowerer {
     return this.#states
   }
 
+  collectionKeyPath(state: string): readonly string[] {
+    return this.#collectionKeyPaths.get(state) ?? ["id"]
+  }
+
+  lowerForEach(
+    call: MunCallExpression,
+    bindings: UiBindings,
+    path: UiIdentityPath,
+    statePath: UiStateIdentityPath,
+  ): MunUiNode {
+    const collectionSource = rawArgument(call, "data", 0) ?? rawArgument(call, "collection", 0)
+    if (!collectionSource) throw new SyntaxError("ForEach requires a collection")
+    const closure = call.trailing
+    if (!closure?.parameter) {
+      throw new SyntaxError("ForEach requires a trailing closure with an item parameter: ForEach(items, id: \\.id) { item in ... }")
+    }
+    const keyPath = keyPathFromSource(rawArgument(call, "id", 1))
+    const id = this.id("forEach", path)
+    const collection = lowerValueExpression(collectionSource, bindings)
+    let source: MunUiExpression = collection
+    while (source.kind === "filter") source = source.collection
+    if (source.kind === "state") {
+      const existing = this.#collectionKeyPaths.get(source.state)
+      if (existing && existing.join(".") !== keyPath.join(".")) {
+        throw new SyntaxError(`Collection '${source.state}' is rendered with conflicting ForEach id key paths`)
+      }
+      this.#collectionKeyPaths.set(source.state, keyPath)
+    } else if (source.kind !== "item") {
+      throw new SyntaxError(`ForEach collection must be @State, an item field, or a filter of one: ${collectionSource}`)
+    }
+    const itemBindings = new Map(bindings)
+    itemBindings.set(closure.parameter, { kind: "item", forEach: id, path: [] })
+    // Template identities are static; the runtime composes each instance with
+    // its item key. Item-scoped View state therefore keeps a static template
+    // path here and is instantiated per key by the runtime.
+    this.#forEachScopes.push(id)
+    try {
+      return {
+        kind: "forEach",
+        id,
+        collection,
+        keyPath,
+        children: this.lowerProgram(
+          closure.body,
+          itemBindings,
+          [...path, "each"],
+          statePath ? [...statePath, "each"] : [...path, "each"],
+        ),
+      }
+    } finally {
+      this.#forEachScopes.pop()
+    }
+  }
+
   id(prefix: string, path: UiIdentityPath): string {
     return `@node/${identityPathKey([...path, "kind", prefix])}`
   }
@@ -1391,6 +1671,7 @@ class UiLowerer {
           `Native @State member '${declaration.name}.${field.name}' requires an initial value`,
         )
       }
+      assertWellFormedValueSource(field.initializer, `Native @State member '${declaration.name}.${field.name}'`)
       const initial = lowerValueExpression(field.initializer, bindings)
       if (initial.kind !== "literal") {
         throw new SyntaxError(
@@ -1398,8 +1679,12 @@ class UiLowerer {
         )
       }
       const stateName = `@component/${instanceId}/${field.name}`
-      this.#states.push({ name: stateName, initial: initial.value })
-      this.#stateTypes.set(stateName, initial.value === null ? "null" : typeof initial.value)
+      const scope = this.#forEachScopes.at(-1)
+      this.#states.push({ name: stateName, initial: initial.value, ...(scope ? { scope } : {}) })
+      this.#stateTypes.set(
+        stateName,
+        initial.value === null ? "null" : Array.isArray(initial.value) ? "array" : typeof initial.value,
+      )
       bindings.set(field.name, { kind: "state", state: stateName })
     }
   }
@@ -1588,7 +1873,7 @@ class UiLowerer {
             )
           }
           const expectedType = field.type?.trim()
-          if (expectedType && expectedType !== actualType) {
+          if (expectedType && !bindingTypeMatches(expectedType, actualType)) {
             throw new SyntaxError(
               `Native @Binding '${declaration.name}.${field.name}' expects ${expectedType} state, received ${actualType}`,
             )
@@ -1634,7 +1919,7 @@ class UiLowerer {
             throw new SyntaxError(`Native initializer binding '${name}' does not reference known state '${binding.state}'`)
           }
           const expectedType = parameter.type?.trim()
-          if (expectedType && expectedType !== actualType) {
+          if (expectedType && !bindingTypeMatches(expectedType, actualType)) {
             throw new SyntaxError(
               `Native initializer binding '${name}' expects ${expectedType} state, received ${actualType}`,
             )
@@ -1706,6 +1991,7 @@ class UiLowerer {
     path: UiIdentityPath,
     statePath: UiStateIdentityPath,
   ): MunUiNode {
+    if (call.callee === "ForEach") return this.lowerForEach(call, bindings, path, statePath)
     validateCanonicalBuiltinCall(call, bindings, this.#stateTypes)
     if (call.callee === "ScrollView") {
       const raw = rawArgument(call, "axis", 0)?.trim()
@@ -1873,6 +2159,37 @@ class UiLowerer {
   }
 }
 
+function stampAction(action: MunUiAction, lowerer: UiLowerer): MunUiAction {
+  if (action.kind === "collection") return { ...action, keyPath: lowerer.collectionKeyPath(action.state) }
+  if (action.kind === "sequence") {
+    return { ...action, actions: action.actions.map(item => stampAction(item, lowerer)) }
+  }
+  return action
+}
+
+/** Give every collection mutation the key path of the ForEach rendering it. */
+function withCollectionKeyPaths<T extends MunUiNode>(node: T, lowerer: UiLowerer): T {
+  const visit = (current: MunUiNode): MunUiNode => {
+    switch (current.kind) {
+      case "action":
+        return { ...current, action: stampAction(current.action, lowerer) }
+      case "window":
+        return { ...current, child: visit(current.child) }
+      case "conditional":
+        return { ...current, then: current.then.map(visit), otherwise: current.otherwise.map(visit) }
+      case "column":
+      case "row":
+      case "overlay":
+      case "scroll":
+      case "forEach":
+        return { ...current, children: current.children.map(visit) } as MunUiNode
+      default:
+        return current
+    }
+  }
+  return visit(node) as T
+}
+
 /**
  * Lower canonical Mün source into renderer-independent semantic UI IR.
  *
@@ -1892,7 +2209,7 @@ export function compileMunUiProgram(
   const entry = structs.find(structure => structure.name === requestedEntry) ?? structs[0]
   const states = stateDeclarations(source)
   const lowerer = new UiLowerer(structs, states)
-  const lowered = lowerer.lowerEntry(entry)
+  const lowered = withCollectionKeyPaths(lowerer.lowerEntry(entry), lowerer)
   const title = options.windowTitle ?? "Mün"
   const root: MunUiWindowNode = lowered.kind === "window"
     ? lowered

@@ -5,6 +5,7 @@
 //! window-system, and accessibility adapters live outside these semantics.
 
 pub mod accessibility;
+pub mod collection;
 pub mod gesture;
 pub mod input;
 pub mod ir;
@@ -36,7 +37,7 @@ pub use retained::{
     RetainedTree, RetainedTreeError,
 };
 pub use runtime::{
-    ImeRequest, PlatformConventions, Runtime, RuntimeFrame, RuntimeLoadError,
+    ImeRequest, PlatformConventions, Runtime, RuntimeDiagnostic, RuntimeFrame, RuntimeLoadError,
     SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,
 };
 pub use scene::{Color, Rect, Scene};

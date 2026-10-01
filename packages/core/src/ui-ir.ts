@@ -2,6 +2,12 @@
 
 export type MunUiScalar = string | number | boolean | null
 
+/**
+ * Structured state values. Collections are arrays of records (or scalars) whose
+ * items are addressed by a stable key path, never by array index.
+ */
+export type MunUiValue = MunUiScalar | readonly MunUiValue[] | { readonly [field: string]: MunUiValue }
+
 /** Stable program-local identity for semantic state storage. */
 export type MunUiStateId = string
 
@@ -24,7 +30,7 @@ export type MunUiBinaryOperator =
   | "or"
 
 export type MunUiExpression =
-  | { readonly kind: "literal"; readonly value: MunUiScalar }
+  | { readonly kind: "literal"; readonly value: MunUiValue }
   | { readonly kind: "state"; readonly state: MunUiStateId }
   | { readonly kind: "not"; readonly value: MunUiExpression }
   | { readonly kind: "stringify"; readonly value: MunUiExpression }
@@ -40,6 +46,20 @@ export type MunUiExpression =
       readonly then: MunUiExpression
       readonly otherwise: MunUiExpression
     }
+  /** The current item (or a field path inside it) of an enclosing `forEach`. */
+  | { readonly kind: "item"; readonly forEach: MunUiNodeId; readonly path: readonly string[] }
+  /** A record value built from field expressions. */
+  | { readonly kind: "record"; readonly fields: { readonly [field: string]: MunUiExpression } }
+  /** Number of items in a collection. */
+  | { readonly kind: "count"; readonly collection: MunUiExpression }
+  /** Items whose field at `path` compares to `value`; order is preserved. */
+  | {
+      readonly kind: "filter"
+      readonly collection: MunUiExpression
+      readonly path: readonly string[]
+      readonly operator: "equal" | "notEqual"
+      readonly value: MunUiExpression
+    }
 
 export interface MunUiState {
   /**
@@ -48,7 +68,14 @@ export interface MunUiState {
    * compiler encounter order.
    */
   readonly name: MunUiStateId
-  readonly initial: MunUiScalar
+  readonly initial: MunUiValue
+  /**
+   * Present for View-local state declared inside a `forEach` template. The
+   * runtime owns one instance of this state per stable item key of that
+   * `forEach` (and of every enclosing one), creates it on first appearance of
+   * the key and releases it when the key leaves the collection.
+   */
+  readonly scope?: MunUiNodeId
 }
 
 export type MunAccessibilityRole = "window" | "group" | "text" | "button" | "textField" | "radioGroup"
@@ -205,9 +232,31 @@ export interface MunUiTransaction {
   readonly isContinuous: boolean
 }
 
+/** Keyed collection mutation; items are always addressed by key, never index. */
+export type MunUiCollectionOperation =
+  | { readonly operation: "insert"; readonly index: MunUiExpression; readonly value: MunUiExpression }
+  | { readonly operation: "append"; readonly value: MunUiExpression }
+  | { readonly operation: "remove"; readonly key: MunUiExpression }
+  | { readonly operation: "move"; readonly key: MunUiExpression; readonly offset: MunUiExpression }
+  | {
+      readonly operation: "update"
+      readonly key: MunUiExpression
+      readonly path: readonly string[]
+      readonly value: MunUiExpression
+    }
+
 export type MunUiAction =
   | { readonly kind: "toggle-state"; readonly state: MunUiStateId; readonly transaction?: MunUiTransaction }
   | { readonly kind: "set-state"; readonly state: MunUiStateId; readonly value: MunUiExpression; readonly transaction?: MunUiTransaction }
+  | ({
+      readonly kind: "collection"
+      readonly state: MunUiStateId
+      /** Key path of the collection's item identity (same as its `forEach`). */
+      readonly keyPath: readonly string[]
+      readonly transaction?: MunUiTransaction
+    } & MunUiCollectionOperation)
+  /** Several mutations applied as one transaction, evaluated in order. */
+  | { readonly kind: "sequence"; readonly actions: readonly MunUiAction[]; readonly transaction?: MunUiTransaction }
 
 interface MunUiNodeBase {
   /**
@@ -263,6 +312,19 @@ export interface MunUiConditionalNode extends MunUiNodeBase {
   readonly otherwise: readonly MunUiNode[]
 }
 
+/**
+ * Keyed dynamic children. `children` is a template instantiated once per item
+ * of `collection`; each instance's identity is the template identity composed
+ * with the item's key at `keyPath`. Like `conditional`, it is a transparent
+ * fragment rather than a layout container. Duplicate keys are rejected.
+ */
+export interface MunUiForEachNode extends MunUiNodeBase {
+  readonly kind: "forEach"
+  readonly collection: MunUiExpression
+  readonly keyPath: readonly string[]
+  readonly children: readonly MunUiNode[]
+}
+
 export interface MunUiTextNode extends MunUiNodeBase {
   readonly kind: "text"
   readonly value: MunUiExpression
@@ -305,6 +367,7 @@ export type MunUiNode =
   | MunUiScrollNode
   | MunUiOverlayNode
   | MunUiConditionalNode
+  | MunUiForEachNode
   | MunUiTextNode
   | MunUiPanelNode
   | MunUiTextFieldNode

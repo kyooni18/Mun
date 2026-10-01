@@ -5,10 +5,49 @@ import type {
   MunUiPaint,
   MunUiProgram,
   MunUiScalar,
+  MunUiValue,
 } from "@mun/core"
 
 export interface MunWebIrRenderOptions {
-  readonly state?: Readonly<Record<string, MunUiScalar>>
+  readonly state?: Readonly<Record<string, MunUiValue>>
+}
+
+/** Evaluation scope: program state plus the items of enclosing `forEach`s. */
+interface WebScope {
+  readonly values: Readonly<Record<string, MunUiValue>>
+  readonly items: ReadonlyMap<string, MunUiValue>
+  /** Keyed instance suffix composed onto every node identity in an item. */
+  readonly suffix: string
+}
+
+function lookupState(scope: WebScope, name: string): MunUiValue {
+  // Item-scoped View state is keyed per instance; static rendering shows each
+  // instance's initial value (the template entry) unless the host supplied it.
+  return scope.values[`${name}${scope.suffix}`] ?? scope.values[name] ?? null
+}
+
+function asScalar(value: MunUiValue): MunUiScalar {
+  return value === null || typeof value !== "object" ? value : null
+}
+
+function valueAt(value: MunUiValue, path: readonly string[]): MunUiValue {
+  let current: MunUiValue = value
+  for (const field of path) {
+    if (current === null || typeof current !== "object" || Array.isArray(current)) return null
+    current = (current as Readonly<Record<string, MunUiValue>>)[field] ?? null
+  }
+  return current
+}
+
+function keySegment(value: MunUiValue): string | undefined {
+  if (typeof value === "string") {
+    return `s:${Array.from(new TextEncoder().encode(value), byte =>
+      /[A-Za-z0-9\-_.]/.test(String.fromCharCode(byte))
+        ? String.fromCharCode(byte)
+        : `%${byte.toString(16).toUpperCase().padStart(2, "0")}`).join("")}`
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return `n:${Object.is(value, -0) ? 0 : value}`
+  return undefined
 }
 
 function escapeText(value: string): string {
@@ -20,7 +59,7 @@ function escapeText(value: string): string {
     .replaceAll("'", "&#39;")
 }
 
-function stringifyScalar(value: MunUiScalar): string {
+function stringifyScalar(value: MunUiValue): string {
   return value === null ? "null" : String(value)
 }
 
@@ -68,13 +107,32 @@ function evaluateBinary(
 }
 function evaluate(
   expression: MunUiExpression,
-  state: Readonly<Record<string, MunUiScalar>>,
-): MunUiScalar {
+  state: WebScope,
+): MunUiValue {
   switch (expression.kind) {
     case "literal":
       return expression.value
     case "state":
-      return state[expression.state] ?? null
+      return lookupState(state, expression.state)
+    case "item":
+      return valueAt(state.items.get(expression.forEach) ?? null, expression.path)
+    case "record":
+      return Object.fromEntries(
+        Object.entries(expression.fields).map(([name, field]) => [name, evaluate(field, state)]),
+      )
+    case "count": {
+      const collection = evaluate(expression.collection, state)
+      return Array.isArray(collection) ? collection.length : 0
+    }
+    case "filter": {
+      const collection = evaluate(expression.collection, state)
+      const expected = evaluate(expression.value, state)
+      if (!Array.isArray(collection)) return []
+      return collection.filter(item => {
+        const matches = valueAt(item, expression.path) === expected
+        return expression.operator === "equal" ? matches : !matches
+      })
+    }
     case "not":
       return !Boolean(evaluate(expression.value, state))
     case "stringify":
@@ -82,8 +140,8 @@ function evaluate(
     case "binary":
       return evaluateBinary(
         expression.operator,
-        evaluate(expression.left, state),
-        evaluate(expression.right, state),
+        asScalar(evaluate(expression.left, state)),
+        asScalar(evaluate(expression.right, state)),
       )
     case "conditional":
       return Boolean(evaluate(expression.condition, state))
@@ -92,7 +150,7 @@ function evaluate(
   }
 }
 
-function cssValue(value: MunUiScalar): string | undefined {
+function cssValue(value: MunUiValue): string | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return `${value}px`
   if (typeof value === "string" && value.length > 0) return value
   return undefined
@@ -117,7 +175,7 @@ function paintCss(paint: MunUiPaint): string {
 
 function styleFor(
   node: MunUiNode,
-  state: Readonly<Record<string, MunUiScalar>>,
+  state: WebScope,
 ): string | undefined {
   const declarations: string[] = []
   const layout = node.layout
@@ -180,9 +238,9 @@ function styleFor(
 
 function attributesFor(
   node: MunUiNode,
-  state: Readonly<Record<string, MunUiScalar>>,
+  state: WebScope,
 ): string {
-  const attributes = [`data-mun-node="${escapeText(node.id)}"`]
+  const attributes = [`data-mun-node="${escapeText(`${node.id}${state.suffix}`)}"`]
   const style = styleFor(node, state)
   if (style) attributes.push(`style="${escapeText(style)}"`)
 
@@ -205,7 +263,7 @@ function attributesFor(
 
 function renderNode(
   node: MunUiNode,
-  state: Readonly<Record<string, MunUiScalar>>,
+  state: WebScope,
 ): string {
   const attributes = attributesFor(node, state)
 
@@ -222,17 +280,34 @@ function renderNode(
       const branch = evaluate(node.condition, state) ? node.then : node.otherwise
       return branch.map(child => renderNode(child, state)).join("")
     }
+    case "forEach": {
+      // Transparent keyed fragment: each instance composes the item key onto
+      // template identities, matching the native runtime's materialization.
+      const collection = evaluate(node.collection, state)
+      if (!Array.isArray(collection)) return ""
+      const seen = new Set<string>()
+      return collection.map(item => {
+        const segment = keySegment(valueAt(item, node.keyPath))
+        if (segment === undefined) throw new TypeError(`ForEach '${node.id}' item key must be a string or finite number`)
+        if (seen.has(segment)) throw new TypeError(`ForEach '${node.id}' has duplicate key ${segment}`)
+        seen.add(segment)
+        const items = new Map(state.items)
+        items.set(node.id, item)
+        const scope: WebScope = { values: state.values, items, suffix: `${state.suffix}[${segment}]` }
+        return node.children.map(child => renderNode(child, scope)).join("")
+      }).join("")
+    }
     case "text":
-      return `<span ${attributes}>${escapeText(String(evaluate(node.value, state) ?? ""))}</span>`
+      return `<span ${attributes}>${escapeText(String(asScalar(evaluate(node.value, state)) ?? ""))}</span>`
     case "panel":
       return `<div ${attributes}></div>`
     case "textField": {
-      const value = state[node.state]
+      const value = asScalar(lookupState(state, node.state))
       return `<input type="text" ${attributes} value="${escapeText(value == null ? "" : String(value))}"${node.placeholder ? ` placeholder="${escapeText(node.placeholder)}"` : ""}>`
     }
     case "radioGroup":
       return `<div ${attributes} role="radiogroup">${node.options.map((option, index) => {
-        const checked = state[node.state] === option.value ? " checked" : ""
+        const checked = lookupState(state, node.state) === option.value ? " checked" : ""
         const disabled = option.disabled ? " disabled" : ""
         return `<label><input type="radio" name="${escapeText(node.id)}" value="${escapeText(String(option.value))}"${checked}${disabled}>${escapeText(option.label)}</label>`
       }).join("")}</div>`
@@ -251,9 +326,9 @@ export function renderMunUiProgramToHTML(
   program: MunUiProgram,
   options: MunWebIrRenderOptions = {},
 ): string {
-  const state: Record<string, MunUiScalar> = Object.fromEntries(
+  const values: Record<string, MunUiValue> = Object.fromEntries(
     program.states.map(item => [item.name, item.initial]),
   )
-  Object.assign(state, options.state)
-  return renderNode(program.root.child, state)
+  Object.assign(values, options.state)
+  return renderNode(program.root.child, { values, items: new Map(), suffix: "" })
 }

@@ -238,6 +238,10 @@ function typeMatch(type: string | undefined, argument: SemanticArgument, generic
   const valueType = argument.underlyingType ?? actual
   const comparableType = argument.kind === "binding" && !/^Binding(?:Ref)?\s*</.test(expected) ? valueType : actual
   const value = argument.value
+  // "dynamic": a value typed only at runtime (a collection item field) is
+  // compatible with any parameter but never an exact match. Unlike "unknown"
+  // (no static information), it does not defer the call to runtime resolution.
+  if (comparableType === "dynamic" && value === undefined) return undefined
   if (expected === "null") return value === null || actual === "null"
   if (expected === "undefined" || expected === "void") return value === undefined || actual === "undefined"
 

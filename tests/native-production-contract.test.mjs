@@ -31,3 +31,35 @@ test('web compatibility adapter preserves semantic scroll axis', () => {
     assert(html.includes('height:60px'))
   }
 })
+
+test("keyed ForEach lowers item-scoped View state and key-path collection actions", () => {
+  const file = new URL("../examples/NativeProductionSmoke.mun", import.meta.url)
+  const program = compileMunUiProgram(readFileSync(file, "utf8"), file.pathname)
+  const tasks = program.states.find(state => state.name.endsWith("/tasks"))
+  // Multi-line initializers are read in full, never truncated to their first line.
+  assert.deepEqual(tasks?.initial.map(task => task.id), ["draft", "review", "ship"])
+  const serialized = JSON.stringify(program)
+  const forEach = /"kind":"forEach","id":"([^"]+)"/.exec(serialized)?.[1]
+  assert.ok(forEach)
+  const scoped = program.states.filter(state => state.scope === forEach).map(state => state.name.split("/").at(-1))
+  assert.deepEqual(scoped, ["note", "done"])
+  assert.match(serialized, /"kind":"collection","state":"[^"]+\/tasks","keyPath":\["id"\],"operation":"move"/)
+
+  assert.throws(
+    () => compileMunUiProgram(`struct Broken: View {
+  @State var rows: Row[] = [
+    1 2
+  ]
+  var body: some View { Text("x") }
+}`, "Broken.mun"),
+    /malformed initial value/,
+  )
+})
+
+test("web backend renders keyed rows with key-scoped identities from shared IR", () => {
+  const file = new URL("../examples/NativeProductionSmoke.mun", import.meta.url)
+  const program = compileMunUiProgram(readFileSync(file, "utf8"), file.pathname)
+  const html = renderMunUiProgramToHTML(program)
+  for (const key of ["draft", "review", "ship"]) assert.match(html, new RegExp(`data-mun-node="[^"]+\\[s:${key}\\]"`))
+  assert.ok(html.indexOf("[s:draft]") < html.indexOf("[s:ship]"))
+})

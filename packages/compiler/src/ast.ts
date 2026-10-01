@@ -494,6 +494,24 @@ function findInitializer(source: string, start: number): number {
   return -1
 }
 
+/** End of a stored-property initializer: the first top-level newline or `;`. */
+function initializerEnd(source: string, start: number): number {
+  let depth = 0
+  for (let cursor = start; cursor < source.length; cursor += 1) {
+    const character = source[cursor]
+    const next = source[cursor + 1]
+    if (character === "\"" || character === "'") { cursor = skipQuoted(source, cursor) - 1; continue }
+    if (character === "`") { cursor = skipTemplate(source, cursor) - 1; continue }
+    if (character === "/" && (next === "/" || next === "*")) { cursor = skipComment(source, cursor) - 1; continue }
+    if (character === "(" || character === "[" || character === "{") depth += 1
+    else if (character === ")" || character === "]" || character === "}") {
+      if (depth === 0) return cursor
+      depth -= 1
+    } else if (depth === 0 && (character === "\n" || character === ";")) return cursor
+  }
+  return source.length
+}
+
 function parseStructMembers(body: string, baseOffset: number): { fields: MunStructField[]; initializers: MunStructInitializer[] } {
   const fields: MunStructField[] = []
   const initializers: MunStructInitializer[] = []
@@ -507,7 +525,13 @@ function parseStructMembers(body: string, baseOffset: number): { fields: MunStru
   for (const match of maskedBody.matchAll(fieldPattern)) {
     if (match[2] === "body") continue
     const start = baseOffset + (match.index ?? 0) + match[0].indexOf(match[2])
-    fields.push({ name: match[2], kind: match[1] === "@State" ? "state" : match[1] === "@Binding" ? "binding" : "stored", type: match[3]?.trim(), initializer: match[4]?.trim(), range: { start, end: start + match[2].length } })
+    // An initializer may span lines inside brackets (`[\n { ... },\n]`); the
+    // regex only sees its first line, so read the balanced extent.
+    const initializerStart = match[4] === undefined ? undefined : (match.index ?? 0) + match[0].length - match[4].length
+    const initializer = initializerStart === undefined
+      ? undefined
+      : body.slice(initializerStart, initializerEnd(maskedBody, initializerStart)).trim()
+    fields.push({ name: match[2], kind: match[1] === "@State" ? "state" : match[1] === "@Binding" ? "binding" : "stored", type: match[3]?.trim(), initializer, range: { start, end: start + match[2].length } })
   }
   let cursor = 0
   while (true) {
