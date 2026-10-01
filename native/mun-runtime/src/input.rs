@@ -129,6 +129,15 @@ pub enum InputEvent {
         state: KeyState,
         repeat: bool,
     },
+    TextEdit(crate::text_edit::TextEdit),
+    ClipboardWriteCompleted {
+        request: u64,
+        success: bool,
+    },
+    ClipboardPaste {
+        target: String,
+        text: String,
+    },
     TextInput {
         text: String,
     },
@@ -141,6 +150,14 @@ pub enum InputEvent {
         pointer: Option<PointerId>,
     },
     WindowFocusChanged(bool),
+}
+
+/// Service requests are consumed by the platform host, not controls or rendering.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClipboardRequest {
+    Write(String),
+    Cut { request: u64, text: String },
+    Read { target: String },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

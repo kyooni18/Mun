@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
 };
 
@@ -266,6 +266,12 @@ pub struct Runtime {
     motion: MotionScheduler,
     revision: u64,
     focused_action: Option<String>,
+    reveal_focus: Cell<bool>,
+    scroll_views: RefCell<HashMap<String, crate::scroll_view::ScrollViewport>>,
+    text_editor: Option<(String, crate::text_edit::TextEditor)>,
+    clipboard_requests: Vec<crate::input::ClipboardRequest>,
+    pending_cut: Option<(u64, String, crate::text_edit::TextEditor)>,
+    clipboard_revision: u64,
     input: InputState,
     entering: HashMap<String, EnterPresence>,
     exiting: HashMap<String, ExitPresence>,
@@ -303,6 +309,12 @@ impl Runtime {
             motion: MotionScheduler::default(),
             revision: 0,
             focused_action: None,
+            reveal_focus: Cell::new(false),
+            scroll_views: RefCell::new(HashMap::new()),
+            text_editor: None,
+            clipboard_requests: Vec::new(),
+            pending_cut: None,
+            clipboard_revision: 0,
             input: InputState::default(),
             entering: HashMap::new(),
             exiting: HashMap::new(),
@@ -436,12 +448,87 @@ impl Runtime {
                 repeat,
                 ..
             } => match logical {
+                LogicalKey::ArrowLeft
+                | LogicalKey::ArrowRight
+                | LogicalKey::Home
+                | LogicalKey::End
+                | LogicalKey::Delete
+                    if self.focused_action.as_deref().is_some_and(|id| {
+                        find_text_field(&self.program.root.child, self, id).is_some()
+                    }) =>
+                {
+                    use crate::text_edit::TextEdit;
+                    let select = self.input.modifiers().shift;
+                    let edit = match logical {
+                        LogicalKey::ArrowLeft => TextEdit::Left { select },
+                        LogicalKey::ArrowRight => TextEdit::Right { select },
+                        LogicalKey::Home => TextEdit::Home { select },
+                        LogicalKey::End => TextEdit::End { select },
+                        _ => TextEdit::Delete,
+                    };
+                    outcome.handled = true;
+                    outcome.activated = self.edit_focused_text(edit).is_some();
+                }
+                LogicalKey::Character(ref key)
+                    if (self.input.modifiers().control || self.input.modifiers().meta)
+                        && key.eq_ignore_ascii_case("a") =>
+                {
+                    outcome.handled = self.focused_action.as_deref().is_some_and(|id| {
+                        find_text_field(&self.program.root.child, self, id).is_some()
+                    });
+                    self.edit_focused_text(crate::text_edit::TextEdit::SelectAll);
+                }
+                LogicalKey::Character(ref key)
+                    if (self.input.modifiers().control || self.input.modifiers().meta)
+                        && ["c", "x", "v"]
+                            .iter()
+                            .any(|shortcut| key.eq_ignore_ascii_case(shortcut)) =>
+                {
+                    if let Some(id) = self
+                        .focused_action
+                        .clone()
+                        .filter(|id| find_text_field(&self.program.root.child, self, id).is_some())
+                    {
+                        outcome.handled = true;
+                        // Initialize/synchronize the semantic editor without changing text.
+                        self.edit_focused_text(crate::text_edit::TextEdit::CompositionCancel);
+                        if key.eq_ignore_ascii_case("v") {
+                            self.clipboard_requests
+                                .push(crate::input::ClipboardRequest::Read { target: id });
+                        } else if let Some(editor) = self.focused_text_editor() {
+                            let selected = editor.selected_text().to_owned();
+                            if !selected.is_empty() {
+                                if key.eq_ignore_ascii_case("x") {
+                                    self.clipboard_revision += 1;
+                                    let request = self.clipboard_revision;
+                                    let editor =
+                                        self.focused_text_editor().expect("active editor").clone();
+                                    self.pending_cut = Some((request, id, editor));
+                                    self.clipboard_requests.push(
+                                        crate::input::ClipboardRequest::Cut {
+                                            request,
+                                            text: selected,
+                                        },
+                                    );
+                                } else {
+                                    self.clipboard_requests
+                                        .push(crate::input::ClipboardRequest::Write(selected));
+                                }
+                            }
+                        }
+                    }
+                }
                 LogicalKey::Tab => {
                     outcome.handled = self
                         .focus_next_action(self.input.modifiers().shift)
                         .is_some();
                 }
-                LogicalKey::Enter if !repeat => {
+                LogicalKey::Enter
+                    if !repeat
+                        && !self.focused_action.as_deref().is_some_and(|id| {
+                            find_text_field(&self.program.root.child, self, id).is_some()
+                        }) =>
+                {
                     if self.focused_action().is_none() {
                         self.focus_next_action(false);
                     }
@@ -473,11 +560,16 @@ impl Runtime {
                     if focused_is_text {
                         outcome.handled = true;
                         outcome.activated = self
-                            .edit_focused_text(|value| {
-                                value.pop();
-                            })
+                            .edit_focused_text(crate::text_edit::TextEdit::Backspace)
                             .is_some();
                     }
+                }
+                LogicalKey::Space | LogicalKey::Enter
+                    if self.focused_action.as_deref().is_some_and(|id| {
+                        find_text_field(&self.program.root.child, self, id).is_some()
+                    }) =>
+                {
+                    outcome.handled = true;
                 }
                 LogicalKey::Space if !repeat => {
                     if self.focused_action().is_none() {
@@ -513,6 +605,44 @@ impl Runtime {
                     outcome.activated = self.activate_interactive(&captured).is_some();
                 }
             }
+            InputEvent::ClipboardWriteCompleted { request, success } => {
+                if self
+                    .pending_cut
+                    .as_ref()
+                    .is_some_and(|(id, _, _)| *id == request)
+                {
+                    let (_, target, editor) = self.pending_cut.take().expect("pending cut");
+                    let binding_unchanged =
+                        find_text_field(&self.program.root.child, self, &target)
+                            .and_then(|(state, _)| self.state.get(state))
+                            .and_then(Value::as_str)
+                            == Some(editor.text());
+                    if success
+                        && binding_unchanged
+                        && self.focused_action.as_ref() == Some(&target)
+                        && self.focused_text_editor() == Some(&editor)
+                    {
+                        outcome.handled = true;
+                        outcome.activated = self
+                            .edit_focused_text(crate::text_edit::TextEdit::Delete)
+                            .is_some();
+                    }
+                }
+            }
+            InputEvent::ClipboardPaste { target, text } => {
+                if self.focused_action.as_ref() == Some(&target) {
+                    outcome.handled = true;
+                    outcome.activated = self
+                        .edit_focused_text(crate::text_edit::TextEdit::Insert(text))
+                        .is_some();
+                }
+            }
+            InputEvent::TextEdit(edit) => {
+                outcome.handled = self.focused_action.as_deref().is_some_and(|id| {
+                    find_text_field(&self.program.root.child, self, id).is_some()
+                });
+                outcome.activated = self.edit_focused_text(edit).is_some();
+            }
             InputEvent::TextInput { text } => {
                 let focused_is_text = self.focused_action.as_deref().is_some_and(|id| {
                     find_text_field(&self.program.root.child, self, id).is_some()
@@ -520,16 +650,69 @@ impl Runtime {
                 if focused_is_text {
                     outcome.handled = true;
                     outcome.activated = self
-                        .edit_focused_text(|value| value.push_str(&text))
+                        .edit_focused_text(crate::text_edit::TextEdit::Insert(text))
                         .is_some();
                 }
             }
-            InputEvent::Key { .. } | InputEvent::Scroll { .. } => {}
+            InputEvent::Scroll { pointer, delta, .. } => {
+                self.build_frame(width, height)?;
+                let position = pointer.and_then(|pointer| self.input.pointer_position(pointer));
+                if let Some(position) = position {
+                    let mut route = Vec::new();
+                    fn visit(
+                        runtime: &Runtime,
+                        node: &UiNode,
+                        position: crate::input::InputPoint,
+                        clip: Option<SceneBounds>,
+                        route: &mut Vec<String>,
+                    ) {
+                        let viewport = runtime.scroll_views.borrow().get(&node.base().id).cloned();
+                        let clip = viewport
+                            .as_ref()
+                            .map(|view| {
+                                clip.map(|clip| clip.intersection(view.bounds))
+                                    .unwrap_or(view.bounds)
+                            })
+                            .or(clip);
+                        if clip.is_some_and(|clip| {
+                            clip.width <= 0.0
+                                || clip.height <= 0.0
+                                || !clip.contains(position.x, position.y)
+                        }) {
+                            return;
+                        }
+                        for child in runtime.active_children(node) {
+                            visit(runtime, child, position, clip, route);
+                        }
+                        if viewport.is_some() {
+                            route.push(node.base().id.clone());
+                        }
+                    }
+                    visit(self, &self.program.root.child, position, None, &mut route);
+                    let mut delta = match delta {
+                        crate::input::ScrollDelta::Lines { x, y } => [x * 32.0, y * 32.0],
+                        crate::input::ScrollDelta::Pixels { x, y } => [x, y],
+                    };
+                    for id in route {
+                        let mut views = self.scroll_views.borrow_mut();
+                        let view = views.get_mut(&id).expect("active viewport");
+                        let before = view.offset;
+                        delta = view.scroll(delta);
+                        outcome.handled |= view.offset != before;
+                    }
+                    outcome.needs_redraw |= outcome.handled;
+                }
+            }
+            InputEvent::Key { .. } => {}
             InputEvent::Cancel { pointer } => {
                 outcome.pressed_changed = self.input.cancel_pointer(pointer);
                 outcome.handled = outcome.pressed_changed;
             }
             InputEvent::WindowFocusChanged(false) => {
+                if let Some((_, editor)) = &mut self.text_editor {
+                    editor.cancel_composition();
+                }
+                self.input.set_modifiers(Default::default());
                 let pointer_changed = self.input.cancel_pointer(None);
                 let keyboard_changed = self.input.clear_keyboard_capture();
                 outcome.pressed_changed = pointer_changed || keyboard_changed;
@@ -538,8 +721,15 @@ impl Runtime {
             InputEvent::WindowFocusChanged(true) => {}
         }
 
+        if self
+            .text_editor
+            .as_ref()
+            .is_some_and(|(id, _)| self.focused_action.as_ref() != Some(id))
+        {
+            self.text_editor = None;
+        }
         outcome.focus_changed = self.focused_action != focus_before;
-        outcome.needs_redraw = outcome.focus_changed
+        outcome.needs_redraw |= outcome.focus_changed
             || outcome.pressed_changed
             || outcome.activated
             || (outcome.handled && focus_before.is_some());
@@ -564,6 +754,7 @@ impl Runtime {
 
     pub fn clear_focus(&mut self) {
         self.focused_action = None;
+        self.text_editor = None;
         self.input.clear_keyboard_capture();
     }
 
@@ -587,6 +778,7 @@ impl Runtime {
 
         let mut motion_nodes = replaced.clone();
         for id in &replaced {
+            self.scroll_views.borrow_mut().remove(id);
             if let Some(presence) = self.entering.remove(id) {
                 motion_nodes.insert(presence.progress.node_id);
             }
@@ -652,6 +844,8 @@ impl Runtime {
             return false;
         }
         if self.focused_action.as_deref() != Some(focus_id) {
+            self.text_editor = None;
+            self.reveal_focus.set(true);
             self.input.clear_keyboard_capture();
         }
         self.focused_action = Some(focus_id.to_owned());
@@ -684,6 +878,8 @@ impl Runtime {
         };
         let id = actions[next].clone();
         if self.focused_action.as_deref() != Some(id.as_str()) {
+            self.text_editor = None;
+            self.reveal_focus.set(true);
             self.input.clear_keyboard_capture();
         }
         self.focused_action = Some(id.clone());
@@ -738,20 +934,35 @@ impl Runtime {
         None
     }
 
-    fn edit_focused_text(&mut self, edit: impl FnOnce(&mut String)) -> Option<Transaction> {
+    pub fn take_clipboard_requests(&mut self) -> Vec<crate::input::ClipboardRequest> {
+        std::mem::take(&mut self.clipboard_requests)
+    }
+
+    /// Editing state belongs to the authoritative focused semantic identity.
+    pub fn focused_text_editor(&self) -> Option<&crate::text_edit::TextEditor> {
+        self.text_editor
+            .as_ref()
+            .filter(|(id, _)| self.focused_action.as_ref() == Some(id))
+            .map(|(_, editor)| editor)
+    }
+
+    fn edit_focused_text(&mut self, edit: crate::text_edit::TextEdit) -> Option<Transaction> {
         let focused = self.focused_action.clone()?;
         let (state, base) = find_text_field(&self.program.root.child, self, &focused)?;
         if !self.node_enabled(base) {
             return None;
         }
         let state = state.to_owned();
-        let mut value = self
-            .state
-            .get(&state)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned();
-        edit(&mut value);
+        let value = self.state.get(&state).and_then(Value::as_str).unwrap_or("");
+        if self.text_editor.as_ref().map(|(id, _)| id) != Some(&focused) {
+            self.text_editor = Some((focused, crate::text_edit::TextEditor::new(value.to_owned())));
+        }
+        let editor = &mut self.text_editor.as_mut()?.1;
+        editor.synchronize(value);
+        if !editor.apply(edit) {
+            return None;
+        }
+        let value = editor.text().to_owned();
         self.set_control_state(state, Value::String(value))
     }
 
@@ -934,6 +1145,8 @@ impl Runtime {
         measurer: &dyn IntrinsicMeasurer,
     ) -> Result<RuntimeFrame, taffy::TaffyError> {
         let (taffy, nodes) = self.build_layout_tree_with_measurer(width, height, measurer)?;
+        self.reconcile_scroll_layout(&taffy, &nodes)?;
+        self.reveal_focused_layout(&taffy, &nodes)?;
         let mut scene = Scene::default();
         self.collect_scene(
             &taffy,
@@ -985,6 +1198,8 @@ impl Runtime {
         measurer: &dyn IntrinsicMeasurer,
     ) -> Result<AccessibilityTree, taffy::TaffyError> {
         let (taffy, nodes) = self.build_layout_tree_with_measurer(width, height, measurer)?;
+        self.reconcile_scroll_layout(&taffy, &nodes)?;
+        self.reveal_focused_layout(&taffy, &nodes)?;
         let mut accessibility = self.accessibility_from_layout(&taffy, &nodes, width, height)?;
         let mut empty_scene = Scene::default();
         self.apply_enter_presence(&mut empty_scene, &mut accessibility);
@@ -1015,6 +1230,7 @@ impl Runtime {
             label: root_semantics
                 .and_then(|semantics| semantics.label.clone())
                 .or_else(|| Some(self.program.root.title.clone())),
+            value: None,
             enabled: root_semantics
                 .and_then(|semantics| semantics.enabled.as_ref())
                 .map(|value| self.eval_bool(value))
@@ -1133,7 +1349,8 @@ impl Runtime {
         match node {
             UiNode::Column { children, .. }
             | UiNode::Row { children, .. }
-            | UiNode::Overlay { children, .. } => children,
+            | UiNode::Overlay { children, .. }
+            | UiNode::Scroll { children, .. } => children,
             UiNode::Conditional {
                 condition,
                 then_nodes,
@@ -1179,6 +1396,7 @@ impl Runtime {
             UiNode::Column { .. } => RetainedNodeKind::Column,
             UiNode::Row { .. } => RetainedNodeKind::Row,
             UiNode::Overlay { .. } => RetainedNodeKind::Overlay,
+            UiNode::Scroll { .. } => RetainedNodeKind::Scroll,
             UiNode::Conditional { .. } => RetainedNodeKind::Conditional,
             UiNode::Text { .. } => RetainedNodeKind::Text,
             UiNode::Panel { .. } => RetainedNodeKind::Panel,
@@ -1233,7 +1451,7 @@ impl Runtime {
                     self.collect_layout_neighborhoods(child, output);
                 }
             }
-            UiNode::Overlay { .. } | UiNode::Conditional { .. } => {
+            UiNode::Overlay { .. } | UiNode::Scroll { .. } | UiNode::Conditional { .. } => {
                 for child in self.active_children(node) {
                     self.collect_layout_neighborhoods(child, output);
                 }
@@ -1578,6 +1796,17 @@ impl Runtime {
             let mut overlay = presence.scene.clone();
             let values = self.presence_values(&presence.effects, &presence.progress);
             apply_scene_presence_all(&mut overlay, presence.root_bounds, values);
+            for id in overlay
+                .rects
+                .iter()
+                .map(|item| &item.id)
+                .chain(overlay.texts.iter().map(|item| &item.id))
+            {
+                if let Some(clip) = overlay.presentation.clip_for(id) {
+                    let clip = scene.presentation.push_clip(None, clip, None);
+                    scene.presentation.bind_clip(id.clone(), clip);
+                }
+            }
             scene.rects.extend(overlay.rects);
             scene.texts.extend(overlay.texts);
         }
@@ -1682,6 +1911,32 @@ impl Runtime {
         };
 
         match node {
+            UiNode::Scroll { axis, .. } => {
+                let horizontal = matches!(axis, crate::ir::UiScrollAxis::Horizontal);
+                style.display = Display::Flex;
+                style.flex_direction = if horizontal {
+                    FlexDirection::Row
+                } else {
+                    FlexDirection::Column
+                };
+                style.overflow = taffy::geometry::Point {
+                    x: if horizontal {
+                        taffy::style::Overflow::Scroll
+                    } else {
+                        taffy::style::Overflow::Hidden
+                    },
+                    y: if horizontal {
+                        taffy::style::Overflow::Hidden
+                    } else {
+                        taffy::style::Overflow::Scroll
+                    },
+                };
+                style.min_size = Size {
+                    width: LengthPercentageAuto::length(0.0),
+                    height: LengthPercentageAuto::length(0.0),
+                };
+                style.align_items = Some(AlignItems::FLEX_START);
+            }
             UiNode::Column { .. } | UiNode::Row { .. } => {
                 style.display = Display::Flex;
                 style.flex_direction = if matches!(node, UiNode::Column { .. }) {
@@ -1757,6 +2012,13 @@ impl Runtime {
         let mut children = Vec::new();
         for child in self.active_children(node) {
             let child_nodes = self.build_layout_nodes(taffy, child, nodes, measurer)?;
+            if matches!(node, UiNode::Scroll { .. }) {
+                for child_id in &child_nodes {
+                    let mut child_style = taffy.style(*child_id)?.clone();
+                    child_style.flex_shrink = 0.0;
+                    taffy.set_style(*child_id, child_style)?;
+                }
+            }
             if matches!(node, UiNode::Overlay { .. }) {
                 for child_id in &child_nodes {
                     let mut child_style = taffy.style(*child_id)?.clone();
@@ -1783,6 +2045,147 @@ impl Runtime {
         };
         nodes.insert(base.id.clone(), id);
         Ok(vec![id])
+    }
+
+    pub fn scroll_view(&self, id: &str) -> Option<crate::scroll_view::ScrollViewport> {
+        self.scroll_views.borrow().get(id).cloned()
+    }
+
+    fn reveal_focused_layout(
+        &self,
+        taffy: &LayoutTree,
+        nodes: &HashMap<String, NodeId>,
+    ) -> Result<(), taffy::TaffyError> {
+        if !self.reveal_focus.replace(false) {
+            return Ok(());
+        }
+        let Some(focused) = &self.focused_action else {
+            return Ok(());
+        };
+        fn visit(
+            runtime: &Runtime,
+            node: &UiNode,
+            focused: &str,
+            taffy: &LayoutTree,
+            nodes: &HashMap<String, NodeId>,
+            x: f32,
+            y: f32,
+        ) -> Result<Option<SceneBounds>, taffy::TaffyError> {
+            let layout = nodes
+                .get(&node.base().id)
+                .map(|id| taffy.layout(*id))
+                .transpose()?;
+            let x = x + layout.map_or(0.0, |layout| layout.location.x);
+            let y = y + layout.map_or(0.0, |layout| layout.location.y);
+            if node.base().id == focused {
+                return Ok(layout.map(|layout| SceneBounds {
+                    x,
+                    y,
+                    width: layout.size.width,
+                    height: layout.size.height,
+                }));
+            }
+            let offset = runtime
+                .scroll_views
+                .borrow()
+                .get(&node.base().id)
+                .map(|view| view.offset)
+                .unwrap_or([0.0; 2]);
+            for child in runtime.active_children(node) {
+                if let Some(mut target) = visit(
+                    runtime,
+                    child,
+                    focused,
+                    taffy,
+                    nodes,
+                    x - offset[0],
+                    y - offset[1],
+                )? {
+                    if let Some(view) = runtime.scroll_views.borrow_mut().get_mut(&node.base().id) {
+                        let layout = layout.expect("scroll layout");
+                        let axis = usize::from(!view.horizontal);
+                        let (start, end, origin, viewport) = if axis == 0 {
+                            (target.x, target.x + target.width, x, layout.size.width)
+                        } else {
+                            (target.y, target.y + target.height, y, layout.size.height)
+                        };
+                        let movement = if start < origin {
+                            origin - start
+                        } else if end > origin + viewport {
+                            origin + viewport - end
+                        } else {
+                            0.0
+                        };
+                        let before = view.offset;
+                        let mut delta = [0.0; 2];
+                        delta[axis] = movement;
+                        view.scroll(delta);
+                        target.x -= view.offset[0] - before[0];
+                        target.y -= view.offset[1] - before[1];
+                    }
+                    return Ok(Some(target));
+                }
+            }
+            Ok(None)
+        }
+        visit(
+            self,
+            &self.program.root.child,
+            focused,
+            taffy,
+            nodes,
+            0.0,
+            0.0,
+        )?;
+        Ok(())
+    }
+
+    fn reconcile_scroll_layout(
+        &self,
+        taffy: &LayoutTree,
+        nodes: &HashMap<String, NodeId>,
+    ) -> Result<(), taffy::TaffyError> {
+        fn visit(
+            runtime: &Runtime,
+            node: &UiNode,
+            taffy: &LayoutTree,
+            nodes: &HashMap<String, NodeId>,
+            active: &mut HashSet<String>,
+        ) -> Result<(), taffy::TaffyError> {
+            if let UiNode::Scroll { base, axis, .. } = node {
+                let layout = taffy.layout(nodes[&base.id])?;
+                let overflow = layout.scrollable_overflow_rect;
+                active.insert(base.id.clone());
+                runtime
+                    .scroll_views
+                    .borrow_mut()
+                    .entry(base.id.clone())
+                    .or_default()
+                    .reconcile(
+                        SceneBounds {
+                            x: 0.0,
+                            y: 0.0,
+                            width: layout.size.width,
+                            height: layout.size.height,
+                        },
+                        [
+                            overflow.right.max(layout.size.width),
+                            overflow.bottom.max(layout.size.height),
+                        ],
+                        matches!(axis, crate::ir::UiScrollAxis::Horizontal),
+                    );
+            }
+            for child in runtime.active_children(node) {
+                visit(runtime, child, taffy, nodes, active)?;
+            }
+            Ok(())
+        }
+        let mut active = HashSet::new();
+        visit(self, &self.program.root.child, taffy, nodes, &mut active)?;
+        self.scroll_views
+            .borrow_mut()
+            .retain(|id, _| active.contains(id));
+        Ok(())
     }
 
     fn collect_scene(
@@ -1945,6 +2348,12 @@ impl Runtime {
                     opacity,
                 );
                 let value = self.state.get(state).and_then(Value::as_str).unwrap_or("");
+                let presentation = self
+                    .focused_text_editor()
+                    .filter(|_| self.focused_action.as_deref() == Some(base.id.as_str()))
+                    .filter(|editor| editor.text() == value)
+                    .map(|editor| editor.presentation_text());
+                let value = presentation.as_deref().unwrap_or(value);
                 let (text, text_opacity) = if value.is_empty() {
                     (placeholder.as_deref().unwrap_or(""), 0.55)
                 } else {
@@ -2046,8 +2455,49 @@ impl Runtime {
             _ => {}
         }
 
+        let start = (scene.rects.len(), scene.texts.len(), scene.actions.len());
+        let offset = self
+            .scroll_views
+            .borrow()
+            .get(&node.base().id)
+            .map(|view| view.offset)
+            .unwrap_or([0.0; 2]);
         for child in self.active_children(node) {
-            self.collect_scene(taffy, child, nodes, x, y, opacity, scene)?;
+            self.collect_scene(
+                taffy,
+                child,
+                nodes,
+                x - offset[0],
+                y - offset[1],
+                opacity,
+                scene,
+            )?;
+        }
+        if matches!(node, UiNode::Scroll { .. }) {
+            let viewport = SceneBounds {
+                x,
+                y,
+                width: layout.size.width,
+                height: layout.size.height,
+            };
+            if let Some(view) = self.scroll_views.borrow_mut().get_mut(&node.base().id) {
+                view.bounds = viewport;
+            }
+            let ids = scene.rects[start.0..]
+                .iter()
+                .map(|item| item.id.clone())
+                .chain(scene.texts[start.1..].iter().map(|item| item.id.clone()))
+                .chain(scene.actions[start.2..].iter().map(|item| item.id.clone()))
+                .collect::<Vec<_>>();
+            for id in ids {
+                let clip = scene
+                    .presentation
+                    .clip_for(&id)
+                    .map(|clip| clip.intersection(viewport))
+                    .unwrap_or(viewport);
+                let clip = scene.presentation.push_clip(None, clip, None);
+                scene.presentation.bind_clip(id, clip);
+            }
         }
         Ok(())
     }
@@ -2095,17 +2545,7 @@ impl Runtime {
             .or_else(|| match node {
                 UiNode::Text { value, .. } => Some(self.eval_text(value)),
                 UiNode::Action { label, .. } => Some(label.clone()),
-                UiNode::TextField {
-                    state, placeholder, ..
-                } => Some(
-                    self.state
-                        .get(state)
-                        .and_then(Value::as_str)
-                        .filter(|value| !value.is_empty())
-                        .map(str::to_owned)
-                        .or_else(|| placeholder.clone())
-                        .unwrap_or_default(),
-                ),
+                UiNode::TextField { placeholder, .. } => placeholder.clone(),
                 _ => None,
             });
         let enabled = self.node_enabled(base);
@@ -2123,6 +2563,16 @@ impl Runtime {
             id: base.id.clone(),
             role,
             label,
+            value: match node {
+                UiNode::TextField { state, .. } => Some(
+                    self.state
+                        .get(state)
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned(),
+                ),
+                _ => None,
+            },
             enabled,
             focused: self.focused_action.as_deref() == Some(base.id.as_str()),
             bounds: AccessibilityBounds {
@@ -2135,8 +2585,39 @@ impl Runtime {
             action_id,
         });
 
+        let start = output.len();
+        let offset = self
+            .scroll_views
+            .borrow()
+            .get(&base.id)
+            .map(|view| view.offset)
+            .unwrap_or([0.0; 2]);
         for child in self.active_children(node) {
-            self.collect_accessibility(taffy, child, nodes, x, y, output)?;
+            self.collect_accessibility(taffy, child, nodes, x - offset[0], y - offset[1], output)?;
+        }
+        if matches!(node, UiNode::Scroll { .. }) {
+            let clip = SceneBounds {
+                x,
+                y,
+                width: layout.size.width,
+                height: layout.size.height,
+            };
+            for child in &mut output[start..] {
+                let bounds = child.bounds;
+                let visible = SceneBounds {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width,
+                    height: bounds.height,
+                }
+                .intersection(clip);
+                child.bounds = AccessibilityBounds {
+                    x: visible.x,
+                    y: visible.y,
+                    width: visible.width,
+                    height: visible.height,
+                };
+            }
         }
         Ok(())
     }
@@ -2521,6 +3002,7 @@ fn snapshot_scene_subtree(scene: &Scene, descendants: &HashSet<String>) -> Scene
             .cloned()
             .collect(),
         actions: Vec::new(),
+        presentation: scene.presentation.clone(),
     }
 }
 
@@ -2546,7 +3028,8 @@ fn validate_node_identity(
     match node {
         UiNode::Column { children, .. }
         | UiNode::Row { children, .. }
-        | UiNode::Overlay { children, .. } => {
+        | UiNode::Overlay { children, .. }
+        | UiNode::Scroll { children, .. } => {
             for child in children {
                 validate_node_identity(child, identities)?;
             }
@@ -2569,7 +3052,8 @@ fn validate_native_transitions(node: &UiNode) -> Result<(), RuntimeLoadError> {
     match node {
         UiNode::Column { children, .. }
         | UiNode::Row { children, .. }
-        | UiNode::Overlay { children, .. } => {
+        | UiNode::Overlay { children, .. }
+        | UiNode::Scroll { children, .. } => {
             for child in children {
                 validate_native_transitions(child)?;
             }

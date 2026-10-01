@@ -128,6 +128,10 @@ function styleFor(
     declarations.push(`flex-direction:${node.kind === "column" ? "column" : "row"}`)
   }
 
+  if (node.kind === "scroll") {
+    declarations.push(node.axis === "horizontal" ? "overflow-x:auto;overflow-y:hidden" : "overflow-y:auto;overflow-x:hidden")
+  }
+
   if (node.kind === "overlay") {
     const [alignItems, justifyItems] = {
       center: ["center", "center"],
@@ -208,6 +212,7 @@ function renderNode(
   switch (node.kind) {
     case "window":
       return renderNode(node.child, state)
+    case "scroll":
     case "column":
     case "row":
       return `<div ${attributes}>${node.children.map(child => renderNode(child, state)).join("")}</div>`

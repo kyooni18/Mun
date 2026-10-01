@@ -10,6 +10,7 @@ pub enum RetainedNodeKind {
     Column,
     Row,
     Overlay,
+    Scroll,
     Conditional,
     Text,
     Panel,

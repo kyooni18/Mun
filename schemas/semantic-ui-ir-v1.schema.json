@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:mun:semantic-ui-ir:v1",
-  "title": "Mün Semantic UI IR v1",
-  "description": "Canonical backend-neutral wire format emitted by the Mün compiler and consumed by native/web backends. A program has exactly one root Window; descendant UI nodes are content nodes.",
+  "title": "M\u00fcn Semantic UI IR v1",
+  "description": "Canonical backend-neutral wire format emitted by the M\u00fcn compiler and consumed by native/web backends. A program has exactly one root Window; descendant UI nodes are content nodes.",
   "type": "object",
   "properties": {
     "version": {
@@ -783,6 +783,9 @@
         },
         {
           "$ref": "#/$defs/actionNode"
+        },
+        {
+          "$ref": "#/$defs/scroll"
         }
       ]
     },
@@ -992,6 +995,52 @@
         "id",
         "state",
         "options"
+      ],
+      "additionalProperties": false
+    },
+    "scroll": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "scroll"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "axis": {
+          "enum": [
+            "vertical",
+            "horizontal"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "children",
+        "axis"
       ],
       "additionalProperties": false
     }

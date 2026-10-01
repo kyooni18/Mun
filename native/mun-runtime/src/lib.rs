@@ -14,6 +14,8 @@ pub mod retained;
 pub mod runtime;
 pub mod scene;
 pub mod scroll;
+pub mod scroll_view;
+pub mod text_edit;
 pub mod timeline;
 
 pub use accessibility::{AccessibilityBounds, AccessibilityNode, AccessibilityTree};

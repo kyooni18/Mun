@@ -380,7 +380,7 @@ impl GpuRenderer {
     }
 
     fn render(&mut self, scene: &Scene, scale_factor: f32) {
-        self.render_presented(scene, &ScenePresentation::default(), scale_factor);
+        self.render_presented(scene, &scene.presentation, scale_factor);
     }
 
     fn render_presented(
@@ -1329,6 +1329,9 @@ struct WindowState {
     renderer: GpuRenderer,
     accessibility: AccessibilityHost,
     last_frame: Instant,
+    clipboard: Option<arboard::Clipboard>,
+    modifiers: Modifiers,
+    ime_composing: bool,
     window: Arc<Window>,
 }
 
@@ -1347,6 +1350,7 @@ impl WindowState {
             .build_accessibility_tree(logical_width, logical_height)
             .expect("build initial Mün accessibility tree");
         let accessibility = AccessibilityHost::new(event_loop, &window, tree, scale_factor, proxy);
+        window.set_ime_allowed(true);
         window.set_visible(true);
         let renderer = GpuRenderer::new(window.clone(), event_loop).await;
         Self {
@@ -1354,6 +1358,9 @@ impl WindowState {
             renderer,
             accessibility,
             last_frame: Instant::now(),
+            clipboard: None,
+            modifiers: Modifiers::default(),
+            ime_composing: false,
             window,
         }
     }
@@ -1372,6 +1379,69 @@ impl WindowState {
             .runtime
             .handle_input(event, width, height)
             .expect("route Mün semantic input");
+        for request in self.runtime.take_clipboard_requests() {
+            if self.clipboard.is_none() {
+                match arboard::Clipboard::new() {
+                    Ok(clipboard) => self.clipboard = Some(clipboard),
+                    Err(error) => {
+                        eprintln!("Mün clipboard unavailable: {error}");
+                        if let mun_runtime::input::ClipboardRequest::Cut { request, .. } = request {
+                            self.runtime
+                                .handle_input(
+                                    InputEvent::ClipboardWriteCompleted {
+                                        request,
+                                        success: false,
+                                    },
+                                    width,
+                                    height,
+                                )
+                                .expect("clipboard failure");
+                        }
+                        continue;
+                    }
+                }
+            }
+            let clipboard = self.clipboard.as_mut().expect("initialized clipboard");
+            match request {
+                mun_runtime::input::ClipboardRequest::Write(text) => {
+                    if let Err(error) = clipboard.set_text(text) {
+                        eprintln!("Mün clipboard write failed: {error}");
+                    }
+                }
+                mun_runtime::input::ClipboardRequest::Cut { request, text } => {
+                    let result = clipboard.set_text(text);
+                    let success = result.is_ok();
+                    if let Err(error) = result {
+                        eprintln!("Mün clipboard cut failed: {error}");
+                    }
+                    let outcome = self
+                        .runtime
+                        .handle_input(
+                            InputEvent::ClipboardWriteCompleted { request, success },
+                            width,
+                            height,
+                        )
+                        .expect("acknowledge clipboard cut");
+                    if outcome.needs_redraw {
+                        self.window.request_redraw();
+                    }
+                }
+                mun_runtime::input::ClipboardRequest::Read { target } => match clipboard.get_text()
+                {
+                    Ok(text) => {
+                        self.runtime
+                            .handle_input(
+                                InputEvent::ClipboardPaste { target, text },
+                                width,
+                                height,
+                            )
+                            .expect("paste semantic text");
+                        self.window.request_redraw();
+                    }
+                    Err(error) => eprintln!("Mün clipboard read failed: {error}"),
+                },
+            }
+        }
         if outcome.needs_redraw {
             self.window.request_redraw();
         }
@@ -1394,6 +1464,10 @@ impl WindowState {
     }
 
     fn redraw(&mut self) {
+        let size = self.window.inner_size();
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f32().min(0.05);
         self.last_frame = now;
@@ -1418,6 +1492,7 @@ struct Application {
     state: Option<WindowState>,
     proxy: EventLoopProxy<NativeEvent>,
     runtime: Option<Runtime>,
+    smoke_frames: Option<u32>,
 }
 
 impl Application {
@@ -1426,6 +1501,7 @@ impl Application {
             state: None,
             proxy,
             runtime: Some(runtime),
+            smoke_frames: None,
         }
     }
 }
@@ -1473,8 +1549,13 @@ impl ApplicationHandler<NativeEvent> for Application {
                 state.renderer.resize(size.width, size.height);
                 state.window.request_redraw();
             }
-            WindowEvent::ScaleFactorChanged { .. } => state.window.request_redraw(),
+            WindowEvent::ScaleFactorChanged { .. } => {
+                let size = state.window.inner_size();
+                state.renderer.resize(size.width, size.height);
+                state.window.request_redraw();
+            }
             WindowEvent::ModifiersChanged(modifiers) => {
+                state.modifiers = input_modifiers(modifiers.state());
                 state.dispatch_input(InputEvent::ModifiersChanged(input_modifiers(
                     modifiers.state(),
                 )));
@@ -1523,6 +1604,23 @@ impl ApplicationHandler<NativeEvent> for Application {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                let text = if event.state == ElementState::Pressed
+                    && !state.ime_composing
+                    && !state.modifiers.control
+                    && !state.modifiers.meta
+                {
+                    event
+                        .text
+                        .as_ref()
+                        .map(|text| {
+                            text.chars()
+                                .filter(|ch| !ch.is_control())
+                                .collect::<String>()
+                        })
+                        .filter(|text| !text.is_empty())
+                } else {
+                    None
+                };
                 state.dispatch_input(InputEvent::Key {
                     logical: input_logical_key(&event.logical_key),
                     physical: input_physical_key(event.physical_key),
@@ -1532,14 +1630,60 @@ impl ApplicationHandler<NativeEvent> for Application {
                     },
                     repeat: event.repeat,
                 });
+                if let Some(text) = text {
+                    state.dispatch_input(InputEvent::TextInput { text });
+                }
             }
-            WindowEvent::Ime(Ime::Commit(text)) => {
-                state.dispatch_input(InputEvent::TextInput { text });
+            WindowEvent::Ime(event) => {
+                use mun_runtime::text_edit::{Composition, TextEdit};
+                let edit = match event {
+                    Ime::Enabled => None,
+                    Ime::Preedit(text, selection) => {
+                        state.ime_composing = !text.is_empty();
+                        if text.is_empty() {
+                            Some(TextEdit::CompositionCancel)
+                        } else {
+                            // winit preedit offsets are UTF-8 bytes. Normalize at the adapter.
+                            let scalar = |byte: usize| {
+                                text.char_indices()
+                                    .take_while(|(index, _)| *index < byte)
+                                    .count()
+                            };
+                            let selection = selection.map(|(a, b)| (scalar(a), scalar(b)));
+                            Some(TextEdit::CompositionUpdate(Composition { text, selection }))
+                        }
+                    }
+                    Ime::Commit(text) => {
+                        state.ime_composing = false;
+                        Some(TextEdit::CompositionCommit(text))
+                    }
+                    Ime::Disabled => {
+                        state.ime_composing = false;
+                        Some(TextEdit::CompositionCancel)
+                    }
+                };
+                if let Some(edit) = edit {
+                    state.dispatch_input(InputEvent::TextEdit(edit));
+                }
             }
             WindowEvent::Focused(focused) => {
+                if !focused {
+                    state.modifiers = Modifiers::default();
+                    state.ime_composing = false;
+                }
                 state.dispatch_input(InputEvent::WindowFocusChanged(focused));
             }
-            WindowEvent::RedrawRequested => state.redraw(),
+            WindowEvent::RedrawRequested => {
+                state.redraw();
+                if let Some(frames) = &mut self.smoke_frames {
+                    *frames = frames.saturating_sub(1);
+                    if *frames == 0 {
+                        event_loop.exit();
+                    } else {
+                        state.window.request_redraw();
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1559,6 +1703,16 @@ pub fn run_runtime(runtime: Runtime) -> Result<(), NativeBackendError> {
     let event_loop = EventLoop::<NativeEvent>::with_user_event().build()?;
     let proxy = event_loop.create_proxy();
     event_loop.run_app(&mut Application::new(proxy, runtime))?;
+    Ok(())
+}
+
+/// Bounded real-window/GPU/accesskit smoke path; failures remain fatal.
+pub fn smoke_program(program: &str) -> Result<(), NativeBackendError> {
+    let runtime = Runtime::from_json(program)?;
+    let event_loop = EventLoop::<NativeEvent>::with_user_event().build()?;
+    let mut application = Application::new(event_loop.create_proxy(), runtime);
+    application.smoke_frames = Some(3);
+    event_loop.run_app(&mut application)?;
     Ok(())
 }
 

@@ -13,6 +13,8 @@ pub struct AccessibilityNode {
     pub id: String,
     pub role: AccessibilityRole,
     pub label: Option<String>,
+    /// Committed semantic value, separate from accessible name and preedit.
+    pub value: Option<String>,
     pub enabled: bool,
     pub focused: bool,
     pub bounds: AccessibilityBounds,

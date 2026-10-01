@@ -1444,6 +1444,9 @@ class UiLowerer {
   ): MunUiNode {
     if (node.kind === "raw") {
       const chain = splitViewChain(node.source)
+      if (chain.base.kind === "raw") {
+        throw new SyntaxError(`Unsupported native view expression: ${chain.base.source}`)
+      }
       const scopedPath = nodeIdentityPathForModifiers(path, chain.modifiers, bindings)
       const scopedStatePath = stateIdentityPathForModifiers(statePath, chain.modifiers, bindings)
       return applyModifiers(this.lower(chain.base, bindings, scopedPath, scopedStatePath), chain.modifiers, bindings)
@@ -1704,6 +1707,19 @@ class UiLowerer {
     statePath: UiStateIdentityPath,
   ): MunUiNode {
     validateCanonicalBuiltinCall(call, bindings, this.#stateTypes)
+    if (call.callee === "ScrollView") {
+      const raw = rawArgument(call, "axis", 0)?.trim()
+      if (raw && raw !== ".vertical" && raw !== ".horizontal") {
+        throw new Error(`ScrollView axis must be .vertical or .horizontal: ${raw}`)
+      }
+      return {
+        kind: "scroll", id: this.id("scroll", path),
+        axis: raw === ".horizontal" ? "horizontal" : "vertical",
+        accessibility: { role: "group" },
+        children: this.children(call, bindings, path, statePath),
+      }
+    }
+
     if (call.callee === "VStack" || call.callee === "Column") {
       const spacing = numberValue(rawArgument(call, "spacing", 0), 0, bindings)
       const alignment = normalizedVStackAlignment(rawArgument(call, "alignment", 1))

@@ -1,0 +1,52 @@
+struct NativeProductionSmoke: View {
+  @State var name: string = "한글 / 日本語 / 中文"
+  @State var choice: string = "work"
+  @State var details: boolean = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Mün desktop workbench")
+        .padding(8)
+        .background(LinearGradient("#294578", "#592C68"))
+      HStack(spacing: 8) {
+        TextField($name, "Project name")
+          .frame(width: 280, height: 40)
+          .background(Color("#202030"))
+        Button("Details") { details.toggle() }
+          .frame(width: 100, height: 40)
+      }
+      RadioGroup($choice, [
+        { label: "Work", value: "work" },
+        { label: "Personal", value: "personal" },
+        { label: "Unavailable", value: "none", disabled: true }
+      ])
+        .frame(width: 280, height: 90)
+      ScrollView() {
+        VStack(alignment: .leading, spacing: 10) {
+          Text("Keyboard: Tab, Shift-Tab; select, copy, cut, paste. Try a Korean IME.")
+          Text(name)
+          HStack(spacing: 8) {
+            Circle().frame(width: 30, height: 30).foregroundStyle(Color("#63C8A2"))
+            Capsule().frame(width: 100, height: 30).foregroundStyle(LinearGradient("#FFA050", "#E05899"))
+          }
+          if details {
+            VStack(spacing: 8) {
+              Text("Details are live semantic content")
+              TextField($name, "Alternate project name").frame(width: 280, height: 40)
+            }
+            .transition(Transition.opacity.animation(Animation.linear(0.2)))
+          }
+          Text("Section one").frame(height: 70)
+          Button("Toggle inside scroll") { details.toggle() }.frame(width: 220, height: 40)
+          Text("Section two").frame(height: 70)
+          Text("Section three").frame(height: 70)
+          TextField($name, "Off-screen editable field").frame(width: 280, height: 40)
+        }
+      }
+      .frame(width: 430, height: 190)
+      .background(Color("#171722"))
+    }
+    .padding(16)
+    .background(Color("#101018"))
+  }
+}

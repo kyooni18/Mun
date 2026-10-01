@@ -238,6 +238,12 @@ export interface MunUiWindowNode extends MunUiNodeBase {
   readonly child: MunUiNode
 }
 
+export interface MunUiScrollNode extends MunUiNodeBase {
+  readonly kind: "scroll"
+  readonly axis: "vertical" | "horizontal"
+  readonly children: readonly MunUiNode[]
+}
+
 export interface MunUiStackNode extends MunUiNodeBase {
   readonly kind: "column" | "row"
   readonly children: readonly MunUiNode[]
@@ -296,6 +302,7 @@ export interface MunUiActionNode extends MunUiNodeBase {
 export type MunUiNode =
   | MunUiWindowNode
   | MunUiStackNode
+  | MunUiScrollNode
   | MunUiOverlayNode
   | MunUiConditionalNode
   | MunUiTextNode

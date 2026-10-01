@@ -368,6 +368,7 @@ pub struct ActionHit {
 
 #[derive(Clone, Debug, Default)]
 pub struct Scene {
+    pub presentation: ScenePresentation,
     pub rects: Vec<SceneRect>,
     pub gradients: Vec<SceneGradient>,
     pub texts: Vec<SceneText>,
@@ -376,11 +377,7 @@ pub struct Scene {
 
 impl Scene {
     pub fn action_at(&self, x: f32, y: f32) -> Option<&str> {
-        self.actions
-            .iter()
-            .rev()
-            .find(|action| action.rect.contains(x, y))
-            .map(|action| action.id.as_str())
+        self.presentation.action_at(self, x, y)
     }
 
     pub fn gradient_for(&self, id: &str) -> Option<&LinearGradient> {

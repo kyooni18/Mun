@@ -2,7 +2,7 @@
 
 `semantic-ui-ir-v1.schema.json` defines the serialized v1 contract between the Mün compiler and backend consumers. It is a wire-format contract, not a platform-specific rendering model.
 
-A v1 program has exactly one root `Window`. Descendants are content nodes (`column`, `row`, `conditional`, `text`, `panel`, and `action`). Platform windows are not ordinary child views, so a nested `Window` is invalid v1 IR.
+A v1 program has exactly one root `Window`. Descendants are content nodes (`column`, `row`, `overlay`, `scroll`, `conditional`, `text`, `panel`, `textField`, `radioGroup`, and `action`). Platform windows are not ordinary child views, so a nested `Window` is invalid v1 IR.
 
 The compiler must emit `version: 1` and `sourceLanguage: "mun"`. Consumers must reject unsupported versions or source languages before evaluating state, layout, actions, or motion.
 
@@ -11,3 +11,5 @@ The motion property list is also an ABI. `propertyMask` uses the bit position as
 Within one IR version, producers must not start emitting a field or node kind until all supported consumers can interpret it consistently. Renaming or removing fields, changing value representations, changing node meaning, or reassigning motion bits requires a new IR version.
 
 The TypeScript semantic types, this schema, and native runtime deserialization must stay in lockstep. The schema is intentionally strict so drift is discovered during development instead of being silently ignored by a backend.
+
+Scroll nodes own an explicit vertical/horizontal viewport. Offsets are runtime-owned, not serialized state or renderer commands. Content extent comes from layout; presentation clips, input hit testing, and accessibility geometry share that viewport.

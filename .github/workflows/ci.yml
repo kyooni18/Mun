@@ -46,6 +46,15 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -53,12 +62,28 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libx11-dev libxcb1-dev xvfb mesa-vulkan-drivers
       - name: Check native Rust formatting
         if: runner.os == 'Linux'
         run: cargo fmt --manifest-path native/Cargo.toml --all -- --check
       - name: Test native workspace
         run: cargo test --manifest-path native/Cargo.toml --workspace --locked
+      - name: Compile fresh source and run native integration contracts
+        run: node scripts/verify-native-contracts.mjs
+      - name: Compile native executable
+        run: cargo build --manifest-path native/Cargo.toml -p mun-native --locked
+      - name: Native window, GPU, text and accessibility smoke (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node scripts/native-smoke.mjs
+      - name: Native window, GPU, text and accessibility smoke
+        if: runner.os != 'Linux'
+        run: node scripts/native-smoke.mjs
+      - name: Verify packaged native host from clean consumer (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node scripts/verify-native-package.mjs
+      - name: Verify packaged native host from clean consumer
+        if: runner.os != 'Linux'
+        run: node scripts/verify-native-package.mjs
 
   browser:
     name: Browser interaction

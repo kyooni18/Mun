@@ -119,6 +119,9 @@ fn build_update(tree: &AccessibilityTree, scale_factor: f32, include_tree: bool)
                 node.set_label(label.clone());
             }
         }
+        if let Some(value) = &item.value {
+            node.set_value(value.clone());
+        }
         let scale = scale_factor as f64;
         node.set_bounds(Rect {
             x0: item.bounds.x as f64 * scale,
@@ -188,6 +191,25 @@ mod tests {
     use super::*;
     use mun_runtime::{AccessibilityBounds, AccessibilityNode};
 
+    #[test]
+    fn text_input_name_and_committed_value_are_distinct() {
+        let mut tree = semantic_tree();
+        let field = &mut tree.nodes[1];
+        field.role = MunAccessibilityRole::TextField;
+        field.label = Some("Name".into());
+        field.value = Some("한글".into());
+        let update = build_update(&tree, 2.0, true);
+        let node = &update
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == node_id("primary"))
+            .unwrap()
+            .1;
+        assert_eq!(node.role(), Role::TextInput);
+        assert_eq!(node.label(), Some("Name"));
+        assert_eq!(node.value(), Some("한글"));
+    }
+
     fn semantic_tree() -> AccessibilityTree {
         AccessibilityTree {
             root_id: "root".into(),
@@ -197,6 +219,7 @@ mod tests {
                     id: "root".into(),
                     role: MunAccessibilityRole::Window,
                     label: Some("Window".into()),
+                    value: None,
                     enabled: true,
                     focused: false,
                     bounds: AccessibilityBounds {
@@ -212,6 +235,7 @@ mod tests {
                     id: "primary".into(),
                     role: MunAccessibilityRole::Button,
                     label: Some("Primary".into()),
+                    value: None,
                     enabled: true,
                     focused: true,
                     bounds: AccessibilityBounds {
@@ -227,6 +251,7 @@ mod tests {
                     id: "disabled".into(),
                     role: MunAccessibilityRole::Button,
                     label: Some("Disabled".into()),
+                    value: None,
                     enabled: false,
                     focused: false,
                     bounds: AccessibilityBounds {
@@ -242,6 +267,7 @@ mod tests {
                     id: "label".into(),
                     role: MunAccessibilityRole::Text,
                     label: Some("Status".into()),
+                    value: None,
                     enabled: true,
                     focused: false,
                     bounds: AccessibilityBounds {

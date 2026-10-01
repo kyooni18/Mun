@@ -368,9 +368,23 @@ pub struct NodeBase {
     pub transition: Option<UiTransition>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiScrollAxis {
+    Vertical,
+    Horizontal,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind")]
 pub enum UiNode {
+    #[serde(rename = "scroll")]
+    Scroll {
+        #[serde(flatten)]
+        base: NodeBase,
+        axis: UiScrollAxis,
+        children: Vec<UiNode>,
+    },
     #[serde(rename = "column")]
     Column {
         #[serde(flatten)]
@@ -447,6 +461,7 @@ impl UiNode {
             | Self::Conditional { base, .. }
             | Self::Text { base, .. }
             | Self::Panel { base, .. }
+            | Self::Scroll { base, .. }
             | Self::TextField { base, .. }
             | Self::RadioGroup { base, .. }
             | Self::Action { base, .. } => base,
@@ -457,7 +472,8 @@ impl UiNode {
         match self {
             Self::Column { children, .. }
             | Self::Row { children, .. }
-            | Self::Overlay { children, .. } => children,
+            | Self::Overlay { children, .. }
+            | Self::Scroll { children, .. } => children,
             _ => &[],
         }
     }

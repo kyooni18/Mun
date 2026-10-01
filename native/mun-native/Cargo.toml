@@ -13,3 +13,5 @@ mun-runtime = { path = "../mun-runtime" }
 pollster.workspace = true
 wgpu.workspace = true
 winit.workspace = true
+
+arboard = { version = "3.6", default-features = false }
