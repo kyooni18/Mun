@@ -1321,7 +1321,11 @@ dependencies = [
  "bytemuck",
  "glyphon",
  "mun-runtime",
+ "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
  "pollster",
+ "serde_json",
+ "unicode-segmentation",
  "wgpu",
  "winit",
 ]
@@ -1334,6 +1338,7 @@ dependencies = [
  "serde_json",
  "taffy",
  "thiserror 2.0.21",
+ "unicode-segmentation",
 ]
 
 [[package]]

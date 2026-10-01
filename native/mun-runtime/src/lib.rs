@@ -30,13 +30,14 @@ pub use input::{
     ButtonState, InputEvent, InputOutcome, InputPoint, KeyState, LogicalKey, Modifiers,
     PhysicalKey, PointerButton, PointerId, ScrollDelta, ScrollPhase,
 };
-pub use layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize};
+pub use layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize, TextLineLayout};
 pub use retained::{
     RetainedIdentityKey, RetainedNode, RetainedNodeKind, RetainedNumberKey, RetainedReconciliation,
     RetainedTree, RetainedTreeError,
 };
 pub use runtime::{
-    Runtime, RuntimeFrame, RuntimeLoadError, SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,
+    ImeRequest, PlatformConventions, Runtime, RuntimeFrame, RuntimeLoadError,
+    SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,
 };
 pub use scene::{Color, Rect, Scene};
 pub use scroll::{

@@ -11,7 +11,13 @@ bytemuck.workspace = true
 glyphon.workspace = true
 mun-runtime = { path = "../mun-runtime" }
 pollster.workspace = true
+serde_json.workspace = true
 wgpu.workspace = true
 winit.workspace = true
 
 arboard = { version = "3.6", default-features = false }
+unicode-segmentation = "1.13"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.2.2", default-features = false, features = ["std", "NSResponder", "NSTextInputContext"] }
+objc2-foundation = { version = "0.2.2", default-features = false, features = ["std"] }

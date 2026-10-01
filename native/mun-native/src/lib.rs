@@ -1,24 +1,30 @@
 mod accessibility;
+pub mod offscreen;
+mod text;
 
-use std::{collections::HashMap, error::Error, fmt, sync::Arc, time::Instant};
+pub use offscreen::{FrameTiming, OffscreenSession, encode_png};
+
+use std::{collections::HashMap, error::Error, fmt, rc::Rc, sync::Arc, time::Instant};
 
 use accessibility::{AccessibilityHost, NativeEvent};
 use accesskit::{Action, ActionRequest};
 use bytemuck::{Pod, Zeroable};
 use glyphon::{
-    Attrs, Buffer, Cache, Color as GlyphColor, Family, FontSystem, Metrics, Resolution, Shaping,
-    SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
+    Buffer, Cache, Color as GlyphColor, FontSystem, Metrics, Resolution, Shaping, SwashCache,
+    TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
 use mun_runtime::accessibility::AccessibilityAction as MunAccessibilityAction;
 use mun_runtime::scene::{Rect, ScenePresentation, SceneTransform};
 use mun_runtime::{
-    ButtonState as MunButtonState, Color, InputEvent, InputPoint, KeyState as MunKeyState,
-    LogicalKey, Modifiers, PhysicalKey as MunPhysicalKey, PointerButton as MunPointerButton,
-    PointerId, Runtime, RuntimeLoadError, Scene, ScrollDelta, ScrollPhase,
+    ButtonState as MunButtonState, Color, ImeRequest, InputEvent, InputPoint,
+    KeyState as MunKeyState, LogicalKey, Modifiers, PhysicalKey as MunPhysicalKey,
+    PlatformConventions, PointerButton as MunPointerButton, PointerId, Runtime, RuntimeLoadError,
+    Scene, ScrollDelta, ScrollPhase,
 };
+use text::{LINE_HEIGHT_FACTOR, TextShaping, text_attrs};
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalSize, PhysicalPosition},
+    dpi::{LogicalPosition, LogicalSize, PhysicalPosition},
     event::{ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey as WinitPhysicalKey},
@@ -30,6 +36,10 @@ use winit::{
 pub enum NativeBackendError {
     Program(RuntimeLoadError),
     EventLoop(winit::error::EventLoopError),
+    /// Native window creation failed.
+    Window(winit::error::OsError),
+    /// GPU initialization failed or the device was lost; names the subsystem.
+    Gpu(GpuError),
 }
 
 impl fmt::Display for NativeBackendError {
@@ -37,6 +47,8 @@ impl fmt::Display for NativeBackendError {
         match self {
             Self::Program(error) => write!(formatter, "{error}"),
             Self::EventLoop(error) => write!(formatter, "{error}"),
+            Self::Window(error) => write!(formatter, "Mün window creation failed: {error}"),
+            Self::Gpu(error) => write!(formatter, "{error}"),
         }
     }
 }
@@ -46,6 +58,8 @@ impl Error for NativeBackendError {
         match self {
             Self::Program(error) => Some(error),
             Self::EventLoop(error) => Some(error),
+            Self::Window(error) => Some(error),
+            Self::Gpu(error) => Some(error),
         }
     }
 }
@@ -136,14 +150,15 @@ impl CachedTextBuffer {
         logical_width: f32,
         logical_height: f32,
     ) -> Self {
-        let mut buffer = Buffer::new(font_system, Metrics::new(font_size, font_size * 1.25));
-        buffer.set_size(Some(logical_width), Some(logical_height));
-        buffer.set_text(
-            text,
-            &Attrs::new().family(Family::SansSerif),
-            Shaping::Advanced,
-            None,
+        let mut buffer = Buffer::new(
+            font_system,
+            Metrics::new(font_size, font_size * LINE_HEIGHT_FACTOR),
         );
+        // Scene text is single-line in the runtime layout model; wrapping here
+        // would desynchronize drawn glyphs from layout and caret geometry.
+        buffer.set_wrap(Wrap::None);
+        buffer.set_size(Some(logical_width), Some(logical_height));
+        buffer.set_text(text, &text_attrs(), Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
         Self {
             buffer,
@@ -165,7 +180,7 @@ impl CachedTextBuffer {
         let mut dirty = false;
         if self.font_size.to_bits() != font_size.to_bits() {
             self.buffer
-                .set_metrics(Metrics::new(font_size, font_size * 1.25));
+                .set_metrics(Metrics::new(font_size, font_size * LINE_HEIGHT_FACTOR));
             self.font_size = font_size;
             dirty = true;
         }
@@ -179,12 +194,8 @@ impl CachedTextBuffer {
             dirty = true;
         }
         if self.text != text {
-            self.buffer.set_text(
-                text,
-                &Attrs::new().family(Family::SansSerif),
-                Shaping::Advanced,
-                None,
-            );
+            self.buffer
+                .set_text(text, &text_attrs(), Shaping::Advanced, None);
             self.text.clear();
             self.text.push_str(text);
             dirty = true;
@@ -234,46 +245,162 @@ struct PreparedTextBatch {
     scissor: ScissorRect,
 }
 
+/// Where a frame is realized: a window surface or an offscreen texture used for
+/// pixel-level verification and headless measurement.
+enum RenderTarget {
+    Surface(wgpu::Surface<'static>),
+    Offscreen(wgpu::Texture),
+}
+
+/// GPU realization counters for resource-growth measurement.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RendererStats {
+    pub text_buffers: usize,
+    pub text_batch_renderers: usize,
+    pub rect_vertex_capacity_bytes: u64,
+    pub frames: u64,
+    pub skipped_frames: u64,
+    pub surface_reconfigurations: u64,
+    pub text_reshapes: u64,
+}
+
 struct GpuRenderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    surface: wgpu::Surface<'static>,
+    target: RenderTarget,
     config: wgpu::SurfaceConfiguration,
     rect_pipeline: wgpu::RenderPipeline,
     rect_vertex_buffer: wgpu::Buffer,
     rect_vertex_capacity: u64,
-    font_system: FontSystem,
+    shaping: Rc<TextShaping>,
     swash_cache: SwashCache,
     cache: Cache,
     atlas: TextAtlas,
     text_batches: Vec<TextBatchRenderer>,
     text_buffers: HashMap<String, CachedTextBuffer>,
+    device_lost: Arc<std::sync::Mutex<Option<String>>>,
+    stats: RendererStats,
+    mirrored_text_reported: bool,
+}
+
+/// Outcome of one frame realization. Recoverable surface states never panic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FrameStatus {
+    Presented,
+    /// Surface temporarily unavailable (occluded, timeout, zero-sized); retry later.
+    Skipped,
+    /// Surface was reconfigured or recreated; a redraw should follow.
+    Reconfigured,
 }
 
 impl GpuRenderer {
-    async fn new(window: Arc<Window>, event_loop: &ActiveEventLoop) -> Self {
+    async fn new(
+        window: Arc<Window>,
+        event_loop: &ActiveEventLoop,
+        shaping: Rc<TextShaping>,
+    ) -> Result<Self, GpuError> {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(
             Box::new(event_loop.owned_display_handle()),
         ));
-        let surface = instance.create_surface(window).expect("create Mün surface");
+        let surface = instance
+            .create_surface(window)
+            .map_err(|error| GpuError::new("surface", error))?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),
                 ..Default::default()
             })
             .await
-            .expect("find GPU adapter");
+            .map_err(|error| GpuError::new("adapter", error))?;
+        let mut config = surface
+            .get_default_config(&adapter, size.width.max(1), size.height.max(1))
+            .ok_or_else(|| GpuError::new("surface", "adapter cannot present to this window"))?;
+        config.present_mode = wgpu::PresentMode::Fifo;
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
-            .expect("create GPU device");
-        let mut config = surface
-            .get_default_config(&adapter, size.width.max(1), size.height.max(1))
-            .expect("surface configuration");
-        config.present_mode = wgpu::PresentMode::Fifo;
+            .map_err(|error| GpuError::new("device", error))?;
         surface.configure(&device, &config);
+        Ok(Self::with_device(
+            device,
+            queue,
+            RenderTarget::Surface(surface),
+            config,
+            shaping,
+        ))
+    }
 
+    /// Offscreen renderer with the same pipelines, for pixel verification.
+    async fn new_offscreen(
+        width: u32,
+        height: u32,
+        shaping: Rc<TextShaping>,
+    ) -> Result<Self, GpuError> {
+        let instance = wgpu::Instance::default();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .map_err(|error| GpuError::new("adapter", error))?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await
+            .map_err(|error| GpuError::new("device", error))?;
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            width: width.max(1),
+            height: height.max(1),
+            present_mode: wgpu::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            view_formats: Vec::new(),
+            color_space: Default::default(),
+        };
+        let texture = Self::offscreen_texture(&device, &config);
+        Ok(Self::with_device(
+            device,
+            queue,
+            RenderTarget::Offscreen(texture),
+            config,
+            shaping,
+        ))
+    }
+
+    fn offscreen_texture(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Mün offscreen target"),
+            size: wgpu::Extent3d {
+                width: config.width,
+                height: config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format,
+            usage: config.usage,
+            view_formats: &[],
+        })
+    }
+
+    fn with_device(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        target: RenderTarget,
+        config: wgpu::SurfaceConfiguration,
+        shaping: Rc<TextShaping>,
+    ) -> Self {
+        let device_lost = Arc::new(std::sync::Mutex::new(None));
+        let lost = device_lost.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            if let Ok(mut slot) = lost.lock() {
+                *slot = Some(format!("{reason:?}: {message}"));
+            }
+        });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Mün retained-scene shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("rect.wgsl").into()),
@@ -295,7 +422,13 @@ impl GpuRenderer {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[(
+                        "SRGB_TARGET",
+                        if config.format.is_srgb() { 1.0 } else { 0.0 },
+                    )],
+                    ..Default::default()
+                },
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -317,7 +450,6 @@ impl GpuRenderer {
             mapped_at_creation: false,
         });
 
-        let font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&device);
         let atlas = TextAtlas::new(&device, &queue, &cache, config.format);
@@ -325,27 +457,59 @@ impl GpuRenderer {
         Self {
             device,
             queue,
-            surface,
+            target,
             config,
             rect_pipeline,
             rect_vertex_buffer,
             rect_vertex_capacity,
-            font_system,
+            shaping,
             swash_cache,
             cache,
             atlas,
             text_batches: Vec::new(),
             text_buffers: HashMap::new(),
+            device_lost,
+            stats: RendererStats {
+                rect_vertex_capacity_bytes: rect_vertex_capacity,
+                ..Default::default()
+            },
+            mirrored_text_reported: false,
         }
     }
 
+    /// Device loss is unrecoverable for this renderer instance; the host reports
+    /// it as a structured GPU diagnostic.
+    fn device_lost(&self) -> Option<String> {
+        self.device_lost.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    fn stats(&self) -> RendererStats {
+        RendererStats {
+            text_buffers: self.text_buffers.len(),
+            text_batch_renderers: self.text_batches.len(),
+            rect_vertex_capacity_bytes: self.rect_vertex_capacity,
+            ..self.stats
+        }
+    }
+
+    /// Zero-sized (minimized) surfaces keep their previous configuration; the
+    /// next non-zero size reconfigures. Safe before and after initialization.
     fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
         }
+        if self.config.width == width && self.config.height == height {
+            return;
+        }
         self.config.width = width;
         self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
+        match &mut self.target {
+            RenderTarget::Surface(surface) => surface.configure(&self.device, &self.config),
+            RenderTarget::Offscreen(texture) => {
+                *texture = Self::offscreen_texture(&self.device, &self.config)
+            }
+        }
+        self.stats.surface_reconfigurations += 1;
     }
 
     fn ensure_rect_vertex_capacity(&mut self, required_bytes: u64) {
@@ -379,8 +543,8 @@ impl GpuRenderer {
         }
     }
 
-    fn render(&mut self, scene: &Scene, scale_factor: f32) {
-        self.render_presented(scene, &scene.presentation, scale_factor);
+    fn render(&mut self, scene: &Scene, scale_factor: f32) -> FrameStatus {
+        self.render_presented(scene, &scene.presentation, scale_factor)
     }
 
     fn render_presented(
@@ -388,7 +552,11 @@ impl GpuRenderer {
         scene: &Scene,
         presentation: &ScenePresentation,
         scale_factor: f32,
-    ) {
+    ) -> FrameStatus {
+        if !scale_factor.is_finite() || scale_factor <= 0.0 {
+            self.stats.skipped_frames += 1;
+            return FrameStatus::Skipped;
+        }
         let surface_width = self.config.width.max(1);
         let surface_height = self.config.height.max(1);
         let physical_width = surface_width as f32;
@@ -409,22 +577,37 @@ impl GpuRenderer {
 
         let logical_width = physical_width / scale_factor;
         let logical_height = physical_height / scale_factor;
+        let shaping = self.shaping.clone();
+        let mut font_system = shaping.font_system();
+        // Retained buffers for primitives that left the scene are released so
+        // repeated insertion/removal cannot grow shaping memory without bound.
+        if self.text_buffers.len() > scene.texts.len() {
+            let live = scene
+                .texts
+                .iter()
+                .map(|text| text.id.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            self.text_buffers.retain(|id, _| live.contains(id.as_str()));
+        }
         for text in &scene.texts {
             match self.text_buffers.get_mut(&text.id) {
                 Some(cached) => {
-                    cached.update(
-                        &mut self.font_system,
+                    if cached.update(
+                        &mut font_system,
                         &text.text,
                         text.font_size,
                         logical_width,
                         logical_height,
-                    );
+                    ) {
+                        self.stats.text_reshapes += 1;
+                    }
                 }
                 None => {
+                    self.stats.text_reshapes += 1;
                     self.text_buffers.insert(
                         text.id.clone(),
                         CachedTextBuffer::new(
-                            &mut self.font_system,
+                            &mut font_system,
                             &text.text,
                             text.font_size,
                             logical_width,
@@ -470,11 +653,26 @@ impl GpuRenderer {
 
         let mut prepared_batches = Vec::with_capacity(groups.len());
         for (start, end, transform, scissor) in groups {
-            let Some(plan) =
-                text_transform_plan(transform, physical_width, physical_height, scale_factor)
-                    .expect("Mün text transforms require finite, non-negative scales")
-            else {
-                continue;
+            let plan = match text_transform_plan(
+                transform,
+                physical_width,
+                physical_height,
+                scale_factor,
+            ) {
+                Ok(Some(plan)) => plan,
+                // Collapsed (zero-scale) text has no visible extent.
+                Ok(None) => continue,
+                Err(reason) => {
+                    // Supported-contract diagnostic: glyph rasterization here is
+                    // axis-aligned and non-mirrored. Report once, never draw wrongly.
+                    if !self.mirrored_text_reported {
+                        eprintln!(
+                            "Mün renderer: skipped text with unsupported transform ({reason}): {transform:?}"
+                        );
+                        self.mirrored_text_reported = true;
+                    }
+                    continue;
+                }
             };
 
             let slot = prepared_batches.len();
@@ -482,7 +680,7 @@ impl GpuRenderer {
 
             let device = &self.device;
             let queue = &self.queue;
-            let font_system = &mut self.font_system;
+            let font_system = &mut *font_system;
             let atlas = &mut self.atlas;
             let swash_cache = &mut self.swash_cache;
             let batch = &mut self.text_batches[slot];
@@ -496,15 +694,13 @@ impl GpuRenderer {
             );
 
             let text_buffers = &self.text_buffers;
-            let text_areas = scene.texts[start..end].iter().map(|text| {
-                let cached = text_buffers
-                    .get(&text.id)
-                    .expect("Mün retained text buffer must exist before preparation");
+            let text_areas = scene.texts[start..end].iter().filter_map(|text| {
+                let cached = text_buffers.get(&text.id)?;
                 let rgba = text
                     .color
                     .0
                     .map(|value| (value.clamp(0.0, 1.0) * 255.0).round() as u8);
-                TextArea {
+                Some(TextArea {
                     buffer: &cached.buffer,
                     left: text.x * plan.raster_scale,
                     top: text.y * plan.raster_scale,
@@ -517,44 +713,61 @@ impl GpuRenderer {
                     },
                     default_color: GlyphColor::rgba(rgba[0], rgba[1], rgba[2], rgba[3]),
                     custom_glyphs: &[],
-                }
+                })
             });
 
-            batch
-                .renderer
-                .prepare(
-                    device,
-                    queue,
-                    font_system,
-                    atlas,
-                    &batch.viewport,
-                    text_areas,
-                    swash_cache,
-                )
-                .expect("prepare Mün text");
+            if let Err(error) = batch.renderer.prepare(
+                device,
+                queue,
+                font_system,
+                atlas,
+                &batch.viewport,
+                text_areas,
+                swash_cache,
+            ) {
+                // Atlas exhaustion is recoverable: drop this batch for the frame;
+                // trimming below frees unused glyphs for the next one.
+                eprintln!("Mün renderer: text preparation failed: {error}");
+                continue;
+            }
             prepared_batches.push(PreparedTextBatch {
                 slot,
                 plan,
                 scissor,
             });
         }
+        drop(font_system);
 
-        let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => return,
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Suboptimal(_) => {
-                self.surface.configure(&self.device, &self.config);
-                return;
+        let (frame, view) = match &self.target {
+            RenderTarget::Surface(surface) => {
+                let frame = match surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+                    wgpu::CurrentSurfaceTexture::Timeout
+                    | wgpu::CurrentSurfaceTexture::Occluded => {
+                        self.stats.skipped_frames += 1;
+                        return FrameStatus::Skipped;
+                    }
+                    wgpu::CurrentSurfaceTexture::Suboptimal(_)
+                    | wgpu::CurrentSurfaceTexture::Outdated
+                    | wgpu::CurrentSurfaceTexture::Lost
+                    | wgpu::CurrentSurfaceTexture::Validation => {
+                        // Reconfigure and redraw; a persistently lost device is
+                        // reported through the device-lost diagnostic instead.
+                        surface.configure(&self.device, &self.config);
+                        self.stats.surface_reconfigurations += 1;
+                        return FrameStatus::Reconfigured;
+                    }
+                };
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                (Some(frame), view)
             }
-            wgpu::CurrentSurfaceTexture::Lost => {
-                self.surface.configure(&self.device, &self.config);
-                return;
-            }
-            wgpu::CurrentSurfaceTexture::Validation => panic!("wgpu surface validation error"),
+            RenderTarget::Offscreen(texture) => (
+                None,
+                texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            ),
         };
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -563,6 +776,17 @@ impl GpuRenderer {
 
         {
             let clear = Color::WINDOW.0;
+            let srgb = self.config.format.is_srgb();
+            let channel = |value: f32| -> f64 {
+                let value = value as f64;
+                if !srgb {
+                    value
+                } else if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Mün retained scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -571,9 +795,9 @@ impl GpuRenderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: clear[0] as f64,
-                            g: clear[1] as f64,
-                            b: clear[2] as f64,
+                            r: channel(clear[0]),
+                            g: channel(clear[1]),
+                            b: channel(clear[2]),
                             a: clear[3] as f64,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -615,18 +839,100 @@ impl GpuRenderer {
                     0.0,
                     1.0,
                 );
-                batch
+                if let Err(error) = batch
                     .renderer
                     .render(&self.atlas, &batch.viewport, &mut pass)
-                    .expect("render Mün text");
+                {
+                    eprintln!("Mün renderer: text realization failed: {error}");
+                }
             }
         }
 
         self.queue.submit(Some(encoder.finish()));
-        self.queue.present(frame);
+        if let Some(frame) = frame {
+            self.queue.present(frame);
+        }
         self.atlas.trim();
+        self.stats.frames += 1;
+        FrameStatus::Presented
+    }
+
+    /// Read back the offscreen target as tightly packed RGBA8 rows.
+    fn read_offscreen_rgba(&self) -> Option<Vec<u8>> {
+        let RenderTarget::Offscreen(texture) = &self.target else {
+            return None;
+        };
+        let width = self.config.width;
+        let height = self.config.height;
+        let padded_row = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Mün offscreen readback"),
+            size: u64::from(padded_row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Mün offscreen readback"),
+            });
+        encoder.copy_texture_to_buffer(
+            texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(Some(encoder.finish()));
+        let slice = buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
+        self.device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+        let data = slice.get_mapped_range().ok()?;
+        let mut output = Vec::with_capacity((width * height * 4) as usize);
+        for row in data.chunks(padded_row as usize) {
+            output.extend_from_slice(&row[..(width * 4) as usize]);
+        }
+        Some(output)
     }
 }
+
+/// Structured GPU diagnostic naming the failing subsystem.
+#[derive(Debug)]
+pub struct GpuError {
+    pub subsystem: &'static str,
+    pub message: String,
+}
+
+impl GpuError {
+    fn new(subsystem: &'static str, error: impl fmt::Display) -> Self {
+        Self {
+            subsystem,
+            message: error.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for GpuError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "Mün GPU {} initialization failed: {}",
+            self.subsystem, self.message
+        )
+    }
+}
+
+impl Error for GpuError {}
 
 fn text_transform_plan(
     transform: SceneTransform,
@@ -1230,6 +1536,8 @@ fn input_logical_key(key: &Key) -> LogicalKey {
         Key::Named(NamedKey::ArrowRight) => LogicalKey::ArrowRight,
         Key::Named(NamedKey::Home) => LogicalKey::Home,
         Key::Named(NamedKey::End) => LogicalKey::End,
+        Key::Named(NamedKey::PageUp) => LogicalKey::PageUp,
+        Key::Named(NamedKey::PageDown) => LogicalKey::PageDown,
         Key::Named(NamedKey::Backspace) => LogicalKey::Backspace,
         Key::Named(NamedKey::Delete) => LogicalKey::Delete,
         Key::Character(value) => LogicalKey::Character(value.to_string()),
@@ -1249,6 +1557,8 @@ fn input_physical_key(key: WinitPhysicalKey) -> MunPhysicalKey {
         WinitPhysicalKey::Code(KeyCode::ArrowRight) => MunPhysicalKey::ArrowRight,
         WinitPhysicalKey::Code(KeyCode::Home) => MunPhysicalKey::Home,
         WinitPhysicalKey::Code(KeyCode::End) => MunPhysicalKey::End,
+        WinitPhysicalKey::Code(KeyCode::PageUp) => MunPhysicalKey::PageUp,
+        WinitPhysicalKey::Code(KeyCode::PageDown) => MunPhysicalKey::PageDown,
         WinitPhysicalKey::Code(KeyCode::Backspace) => MunPhysicalKey::Backspace,
         WinitPhysicalKey::Code(KeyCode::Delete) => MunPhysicalKey::Delete,
         WinitPhysicalKey::Code(_) => MunPhysicalKey::Other,
@@ -1332,16 +1642,43 @@ struct WindowState {
     clipboard: Option<arboard::Clipboard>,
     modifiers: Modifiers,
     ime_composing: bool,
+    ime_allowed: bool,
+    ime_cursor_area: Option<mun_runtime::Rect>,
     window: Arc<Window>,
+}
+
+/// Drop the platform input method's marked text after the runtime deliberately
+/// committed or cancelled a composition (pointer relocation, focus change).
+/// winit's `set_ime_allowed(false)` only clears its own copy on macOS; the
+/// system input context must be told explicitly or the IME keeps composing.
+#[cfg(target_os = "macos")]
+fn discard_platform_marked_text() {
+    if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+        // SAFETY: called on the main thread (checked by `MainThreadMarker`).
+        if let Some(context) =
+            unsafe { objc2_app_kit::NSTextInputContext::currentInputContext(mtm) }
+        {
+            context.discardMarkedText();
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn discard_platform_marked_text() {
+    // Windows (IMM/TSF) and X11/Wayland input methods are reset by the
+    // allowed-state toggle performed in `sync_text_input`.
 }
 
 impl WindowState {
     async fn new(
         window: Arc<Window>,
         event_loop: &ActiveEventLoop,
-        runtime: Runtime,
+        mut runtime: Runtime,
         proxy: EventLoopProxy<NativeEvent>,
-    ) -> Self {
+    ) -> Result<Self, GpuError> {
+        let shaping = Rc::new(TextShaping::new(FontSystem::new()));
+        runtime.set_intrinsic_measurer(shaping.clone());
+        runtime.set_platform_conventions(PlatformConventions::native());
         let scale_factor = window.scale_factor() as f32;
         let size = window.inner_size();
         let logical_width = size.width.max(1) as f32 / scale_factor;
@@ -1350,10 +1687,11 @@ impl WindowState {
             .build_accessibility_tree(logical_width, logical_height)
             .expect("build initial Mün accessibility tree");
         let accessibility = AccessibilityHost::new(event_loop, &window, tree, scale_factor, proxy);
-        window.set_ime_allowed(true);
+        // The platform IME is routed only while an editable field owns focus.
+        window.set_ime_allowed(false);
         window.set_visible(true);
-        let renderer = GpuRenderer::new(window.clone(), event_loop).await;
-        Self {
+        let renderer = GpuRenderer::new(window.clone(), event_loop, shaping).await?;
+        Ok(Self {
             runtime,
             renderer,
             accessibility,
@@ -1361,8 +1699,10 @@ impl WindowState {
             clipboard: None,
             modifiers: Modifiers::default(),
             ime_composing: false,
+            ime_allowed: false,
+            ime_cursor_area: None,
             window,
-        }
+        })
     }
 
     fn logical_size(&self) -> (f32, f32) {
@@ -1379,71 +1719,113 @@ impl WindowState {
             .runtime
             .handle_input(event, width, height)
             .expect("route Mün semantic input");
-        for request in self.runtime.take_clipboard_requests() {
-            if self.clipboard.is_none() {
-                match arboard::Clipboard::new() {
-                    Ok(clipboard) => self.clipboard = Some(clipboard),
-                    Err(error) => {
-                        eprintln!("Mün clipboard unavailable: {error}");
-                        if let mun_runtime::input::ClipboardRequest::Cut { request, .. } = request {
-                            self.runtime
-                                .handle_input(
-                                    InputEvent::ClipboardWriteCompleted {
-                                        request,
-                                        success: false,
-                                    },
-                                    width,
-                                    height,
-                                )
-                                .expect("clipboard failure");
-                        }
-                        continue;
-                    }
-                }
-            }
-            let clipboard = self.clipboard.as_mut().expect("initialized clipboard");
-            match request {
-                mun_runtime::input::ClipboardRequest::Write(text) => {
-                    if let Err(error) = clipboard.set_text(text) {
-                        eprintln!("Mün clipboard write failed: {error}");
-                    }
-                }
-                mun_runtime::input::ClipboardRequest::Cut { request, text } => {
-                    let result = clipboard.set_text(text);
-                    let success = result.is_ok();
-                    if let Err(error) = result {
-                        eprintln!("Mün clipboard cut failed: {error}");
-                    }
-                    let outcome = self
-                        .runtime
-                        .handle_input(
-                            InputEvent::ClipboardWriteCompleted { request, success },
-                            width,
-                            height,
-                        )
-                        .expect("acknowledge clipboard cut");
-                    if outcome.needs_redraw {
-                        self.window.request_redraw();
-                    }
-                }
-                mun_runtime::input::ClipboardRequest::Read { target } => match clipboard.get_text()
-                {
-                    Ok(text) => {
-                        self.runtime
-                            .handle_input(
-                                InputEvent::ClipboardPaste { target, text },
-                                width,
-                                height,
-                            )
-                            .expect("paste semantic text");
-                        self.window.request_redraw();
-                    }
-                    Err(error) => eprintln!("Mün clipboard read failed: {error}"),
-                },
-            }
-        }
         if outcome.needs_redraw {
             self.window.request_redraw();
+        }
+        self.service_clipboard();
+        self.sync_text_input();
+    }
+
+    /// Service runtime clipboard requests through the OS clipboard. Every cut and
+    /// read is acknowledged, including failures, so the runtime never guesses.
+    fn service_clipboard(&mut self) {
+        use mun_runtime::input::ClipboardRequest;
+        let (width, height) = self.logical_size();
+        loop {
+            let requests = self.runtime.take_clipboard_requests();
+            if requests.is_empty() {
+                return;
+            }
+            for request in requests {
+                if self.clipboard.is_none() {
+                    match arboard::Clipboard::new() {
+                        Ok(clipboard) => self.clipboard = Some(clipboard),
+                        Err(error) => eprintln!("Mün clipboard unavailable: {error}"),
+                    }
+                }
+                let response = match (request, self.clipboard.as_mut()) {
+                    (ClipboardRequest::Write(text), Some(clipboard)) => {
+                        if let Err(error) = clipboard.set_text(text) {
+                            eprintln!("Mün clipboard write failed: {error}");
+                        }
+                        None
+                    }
+                    (ClipboardRequest::Write(_), None) => None,
+                    (ClipboardRequest::Cut { request, text }, clipboard) => {
+                        let success = match clipboard.map(|clipboard| clipboard.set_text(text)) {
+                            Some(Ok(())) => true,
+                            Some(Err(error)) => {
+                                eprintln!("Mün clipboard cut failed: {error}");
+                                false
+                            }
+                            None => false,
+                        };
+                        Some(InputEvent::ClipboardWriteCompleted { request, success })
+                    }
+                    (ClipboardRequest::Read { request, .. }, clipboard) => {
+                        let text = match clipboard.map(|clipboard| clipboard.get_text()) {
+                            Some(Ok(text)) => Some(text),
+                            Some(Err(error)) => {
+                                eprintln!("Mün clipboard read unavailable: {error}");
+                                None
+                            }
+                            None => None,
+                        };
+                        Some(InputEvent::ClipboardReadCompleted { request, text })
+                    }
+                };
+                if let Some(response) = response {
+                    let outcome = self
+                        .runtime
+                        .handle_input(response, width, height)
+                        .expect("acknowledge Mün clipboard service");
+                    if outcome.needs_redraw || outcome.activated {
+                        self.window.request_redraw();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Keep the platform input method aligned with runtime-owned editing state.
+    fn sync_text_input(&mut self) {
+        let mut reset = false;
+        for request in self.runtime.take_ime_requests() {
+            match request {
+                ImeRequest::DiscardComposition => {
+                    discard_platform_marked_text();
+                    self.ime_composing = false;
+                    reset = true;
+                }
+            }
+        }
+        let wants = self.runtime.wants_text_input();
+        if reset && self.ime_allowed {
+            // Clears winit's preedit copy (and on Windows/X11 ends the platform
+            // composition); re-enabled below when an editable field keeps focus.
+            self.window.set_ime_allowed(false);
+            self.ime_allowed = false;
+        }
+        if wants != self.ime_allowed {
+            self.window.set_ime_allowed(wants);
+            self.ime_allowed = wants;
+            if !wants {
+                self.ime_composing = false;
+                self.ime_cursor_area = None;
+            }
+        }
+    }
+
+    fn update_ime_cursor_area(&mut self, area: Option<mun_runtime::Rect>) {
+        if !self.ime_allowed || area == self.ime_cursor_area {
+            return;
+        }
+        self.ime_cursor_area = area;
+        if let Some(area) = area {
+            self.window.set_ime_cursor_area(
+                LogicalPosition::new(area.x as f64, area.y as f64),
+                LogicalSize::new(area.width.max(1.0) as f64, area.height.max(1.0) as f64),
+            );
         }
     }
 
@@ -1461,6 +1843,7 @@ impl WindowState {
         if outcome.needs_redraw {
             self.window.request_redraw();
         }
+        self.sync_text_input();
     }
 
     fn redraw(&mut self) {
@@ -1478,11 +1861,13 @@ impl WindowState {
             .runtime
             .build_frame(width, height)
             .expect("build Mün native frame");
+        self.update_ime_cursor_area(frame.ime_cursor_area);
         self.accessibility
             .update(frame.accessibility, self.window.scale_factor() as f32);
-        self.renderer
+        let status = self
+            .renderer
             .render(&frame.scene, self.window.scale_factor() as f32);
-        if self.runtime.has_active_motion() {
+        if status == FrameStatus::Reconfigured || self.runtime.has_active_motion() {
             self.window.request_redraw();
         }
     }
@@ -1490,6 +1875,7 @@ impl WindowState {
 
 struct Application {
     state: Option<WindowState>,
+    failure: Option<NativeBackendError>,
     proxy: EventLoopProxy<NativeEvent>,
     runtime: Option<Runtime>,
     smoke_frames: Option<u32>,
@@ -1499,6 +1885,7 @@ impl Application {
     fn new(proxy: EventLoopProxy<NativeEvent>, runtime: Runtime) -> Self {
         Self {
             state: None,
+            failure: None,
             proxy,
             runtime: Some(runtime),
             smoke_frames: None,
@@ -1517,22 +1904,31 @@ impl ApplicationHandler<NativeEvent> for Application {
             .take()
             .expect("Mün runtime must be available before the native window is created");
         let (width, height) = runtime.initial_window_size();
-        let window = Arc::new(
-            event_loop
-                .create_window(
-                    Window::default_attributes()
-                        .with_title(runtime.title())
-                        .with_visible(false)
-                        .with_inner_size(LogicalSize::new(width as f64, height as f64)),
-                )
-                .expect("create native Mün window"),
-        );
-        self.state = Some(pollster::block_on(WindowState::new(
+        let window = match event_loop.create_window(
+            Window::default_attributes()
+                .with_title(runtime.title())
+                .with_visible(false)
+                .with_inner_size(LogicalSize::new(width as f64, height as f64)),
+        ) {
+            Ok(window) => Arc::new(window),
+            Err(error) => {
+                self.failure = Some(NativeBackendError::Window(error));
+                event_loop.exit();
+                return;
+            }
+        };
+        match pollster::block_on(WindowState::new(
             window,
             event_loop,
             runtime,
             self.proxy.clone(),
-        )));
+        )) {
+            Ok(state) => self.state = Some(state),
+            Err(error) => {
+                self.failure = Some(NativeBackendError::Gpu(error));
+                event_loop.exit();
+            }
+        }
     }
 
     fn window_event(
@@ -1675,6 +2071,14 @@ impl ApplicationHandler<NativeEvent> for Application {
             }
             WindowEvent::RedrawRequested => {
                 state.redraw();
+                if let Some(reason) = state.renderer.device_lost() {
+                    self.failure = Some(NativeBackendError::Gpu(GpuError {
+                        subsystem: "device",
+                        message: format!("GPU device lost: {reason}"),
+                    }));
+                    event_loop.exit();
+                    return;
+                }
                 if let Some(frames) = &mut self.smoke_frames {
                     *frames = frames.saturating_sub(1);
                     if *frames == 0 {
@@ -1702,8 +2106,60 @@ impl ApplicationHandler<NativeEvent> for Application {
 pub fn run_runtime(runtime: Runtime) -> Result<(), NativeBackendError> {
     let event_loop = EventLoop::<NativeEvent>::with_user_event().build()?;
     let proxy = event_loop.create_proxy();
-    event_loop.run_app(&mut Application::new(proxy, runtime))?;
-    Ok(())
+    let mut application = Application::new(proxy, runtime);
+    event_loop.run_app(&mut application)?;
+    application.failure.map_or(Ok(()), Err)
+}
+
+/// Render compiler-produced IR offscreen through the production renderer after
+/// applying a semantic input script; returns PNG bytes and a JSON report.
+pub fn render_program_png(
+    program: &str,
+    script: &serde_json::Value,
+    logical_width: f32,
+    logical_height: f32,
+    scale_factor: f32,
+) -> Result<(Vec<u8>, serde_json::Value), NativeBackendError> {
+    let mut session = OffscreenSession::new(program, logical_width, logical_height, scale_factor)?;
+    session.render().map_err(NativeBackendError::Gpu)?;
+    session.apply_script(script).map_err(|message| {
+        NativeBackendError::Gpu(GpuError {
+            subsystem: "script",
+            message,
+        })
+    })?;
+    let timing = session.render().map_err(NativeBackendError::Gpu)?;
+    let (width, height) = session.size();
+    let rgba = session.rgba().ok_or_else(|| {
+        NativeBackendError::Gpu(GpuError {
+            subsystem: "readback",
+            message: "offscreen target could not be read".into(),
+        })
+    })?;
+    let frame = session
+        .runtime()
+        .build_frame(logical_width, logical_height)
+        .map_err(|error| NativeBackendError::Gpu(GpuError::new("layout", error)))?;
+    let stats = session.renderer_stats();
+    let report = serde_json::json!({
+        "width": width,
+        "height": height,
+        "focused": session.runtime().focused_action(),
+        "imeCursorArea": frame.ime_cursor_area.map(|area| [area.x, area.y, area.width, area.height]),
+        "rects": frame.scene.rects.iter().map(|item| serde_json::json!({
+            "id": item.id,
+            "rect": [item.rect.x, item.rect.y, item.rect.width, item.rect.height],
+        })).collect::<Vec<_>>(),
+        "texts": frame.scene.texts.iter().map(|item| serde_json::json!({
+            "id": item.id, "text": item.text, "x": item.x, "y": item.y,
+        })).collect::<Vec<_>>(),
+        "retainedNodes": session.runtime().retained_tree().len(),
+        "textBuffers": stats.text_buffers,
+        "textReshapes": stats.text_reshapes,
+        "buildMicros": timing.build_micros,
+        "renderMicros": timing.render_micros,
+    });
+    Ok((encode_png(width, height, &rgba), report))
 }
 
 /// Bounded real-window/GPU/accesskit smoke path; failures remain fatal.
@@ -1713,7 +2169,7 @@ pub fn smoke_program(program: &str) -> Result<(), NativeBackendError> {
     let mut application = Application::new(event_loop.create_proxy(), runtime);
     application.smoke_frames = Some(3);
     event_loop.run_app(&mut application)?;
-    Ok(())
+    application.failure.map_or(Ok(()), Err)
 }
 
 /// Parse compiler-produced Mün Semantic UI IR and run it in the desktop native backend.

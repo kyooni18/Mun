@@ -1,31 +1,57 @@
 use std::{env, error::Error, fs, io, path::PathBuf};
 
-fn program_path() -> Result<(PathBuf, bool), io::Error> {
-    let mut arguments = env::args_os();
-    let _executable = arguments.next();
-    let Some(mut path) = arguments.next() else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "usage: mun-native <semantic-ui-ir.json>",
+enum Mode {
+    Run,
+    Smoke,
+    /// Offscreen realization: `--render <ir> <out.png> [script.json]`.
+    Render {
+        output: PathBuf,
+        script: Option<PathBuf>,
+    },
+}
+
+fn usage(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, message.to_owned())
+}
+
+fn program_path() -> Result<(PathBuf, Mode), io::Error> {
+    let mut arguments = env::args_os().skip(1).collect::<Vec<_>>().into_iter();
+    let Some(first) = arguments.next() else {
+        return Err(usage(
+            "usage: mun-native [--smoke | --render <out.png> [script.json]] <semantic-ui-ir.json>",
         ));
     };
-    let smoke = path == "--smoke";
-    if smoke {
-        path = arguments.next().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "--smoke requires an IR path")
-        })?;
-    }
+    let (path, mode) = if first == "--smoke" {
+        let path = arguments
+            .next()
+            .ok_or_else(|| usage("--smoke requires an IR path"))?;
+        (path, Mode::Smoke)
+    } else if first == "--render" {
+        let path = arguments
+            .next()
+            .ok_or_else(|| usage("--render requires an IR path"))?;
+        let output = arguments
+            .next()
+            .ok_or_else(|| usage("--render requires an output PNG path"))?;
+        let script = arguments.next().map(PathBuf::from);
+        (
+            path,
+            Mode::Render {
+                output: PathBuf::from(output),
+                script,
+            },
+        )
+    } else {
+        (first, Mode::Run)
+    };
     if arguments.next().is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "mun-native accepts exactly one Semantic UI IR path",
-        ));
+        return Err(usage("mun-native accepts exactly one Semantic UI IR path"));
     }
-    Ok((PathBuf::from(path), smoke))
+    Ok((PathBuf::from(path), mode))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let (path, smoke) = program_path()?;
+    let (path, mode) = program_path()?;
     let source = fs::read_to_string(&path).map_err(|error| {
         io::Error::new(
             error.kind(),
@@ -35,12 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let result = if smoke {
-        mun_native::smoke_program(&source)
-    } else {
-        mun_native::run_program(&source)
-    };
-    result.map_err(|error| {
+    let failed = |error: mun_native::NativeBackendError| -> Box<dyn Error> {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
@@ -49,5 +70,32 @@ fn main() -> Result<(), Box<dyn Error>> {
             ),
         )
         .into()
-    })
+    };
+    match mode {
+        Mode::Run => mun_native::run_program(&source).map_err(failed),
+        Mode::Smoke => mun_native::smoke_program(&source).map_err(failed),
+        Mode::Render { output, script } => {
+            let script = match script {
+                Some(script) => serde_json::from_str(&fs::read_to_string(script)?)?,
+                None => serde_json::Value::Array(Vec::new()),
+            };
+            let size = |name: &str, fallback: f32| {
+                env::var(name)
+                    .ok()
+                    .and_then(|value| value.parse::<f32>().ok())
+                    .unwrap_or(fallback)
+            };
+            let (png, report) = mun_native::render_program_png(
+                &source,
+                &script,
+                size("MUN_RENDER_WIDTH", 640.0),
+                size("MUN_RENDER_HEIGHT", 420.0),
+                size("MUN_RENDER_SCALE", 2.0),
+            )
+            .map_err(failed)?;
+            fs::write(&output, png)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+    }
 }

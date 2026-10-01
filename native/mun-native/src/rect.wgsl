@@ -23,6 +23,23 @@ fn vs_main(
     return out;
 }
 
+// Scene colors are authored in sRGB and interpolated in sRGB (matching the web
+// adapter). An sRGB render target encodes on write, so decode to linear first.
+override SRGB_TARGET: bool = true;
+
+fn srgb_to_linear(value: vec3<f32>) -> vec3<f32> {
+    let low = value / 12.92;
+    let high = pow((value + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(high, low, value <= vec3<f32>(0.04045));
+}
+
+fn output_color(color: vec4<f32>) -> vec3<f32> {
+    if (SRGB_TARGET) {
+        return srgb_to_linear(color.rgb);
+    }
+    return color.rgb;
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let radius = clamp(
@@ -31,7 +48,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         max(0.0, min(in.rect_size.x, in.rect_size.y) * 0.5),
     );
     if (radius <= 0.0) {
-        return in.color;
+        return vec4<f32>(output_color(in.color), in.color.a);
     }
 
     let half_size = in.rect_size * 0.5;
@@ -42,5 +59,5 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         - radius;
     let antialias = max(fwidth(distance), 0.5);
     let coverage = 1.0 - smoothstep(-antialias, antialias, distance);
-    return vec4<f32>(in.color.rgb, in.color.a * coverage);
+    return vec4<f32>(output_color(in.color), in.color.a * coverage);
 }

@@ -62,6 +62,8 @@ pub enum LogicalKey {
     ArrowRight,
     Home,
     End,
+    PageUp,
+    PageDown,
     Backspace,
     Delete,
     Character(String),
@@ -80,6 +82,8 @@ pub enum PhysicalKey {
     ArrowRight,
     Home,
     End,
+    PageUp,
+    PageDown,
     Backspace,
     Delete,
     Other,
@@ -134,9 +138,11 @@ pub enum InputEvent {
         request: u64,
         success: bool,
     },
-    ClipboardPaste {
-        target: String,
-        text: String,
+    /// Host response to `ClipboardRequest::Read`. `None` means the clipboard was
+    /// unavailable, empty, or held no text representation.
+    ClipboardReadCompleted {
+        request: u64,
+        text: Option<String>,
     },
     TextInput {
         text: String,
@@ -153,11 +159,17 @@ pub enum InputEvent {
 }
 
 /// Service requests are consumed by the platform host, not controls or rendering.
+///
+/// Host contract: `Write` is fire-and-forget (copy never mutates text). `Cut`
+/// must be acknowledged with `InputEvent::ClipboardWriteCompleted`; the runtime
+/// deletes the selection only for a successful acknowledgement of the latest
+/// cut while the field, binding and selection are unchanged. `Read` must be
+/// answered with `InputEvent::ClipboardReadCompleted`, possibly asynchronously.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClipboardRequest {
     Write(String),
     Cut { request: u64, text: String },
-    Read { target: String },
+    Read { request: u64, target: String },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

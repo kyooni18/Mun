@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
+    rc::Rc,
 };
 
 use serde_json::Value;
@@ -30,6 +31,11 @@ use crate::{
 };
 
 pub const SEMANTIC_UI_IR_VERSION: u32 = 1;
+
+const TEXT_FIELD_FONT_SIZE: f32 = 16.0;
+const TEXT_FIELD_INSET_X: f32 = 12.0;
+const TEXT_FIELD_INSET_Y: f32 = 7.0;
+const TEXT_CARET_WIDTH: f32 = 1.5;
 
 #[derive(Debug, Error)]
 pub enum RuntimeLoadError {
@@ -63,6 +69,45 @@ pub struct Transaction {
 pub struct RuntimeFrame {
     pub scene: Scene,
     pub accessibility: AccessibilityTree,
+    /// Caret rectangle of the focused editable field in window logical
+    /// coordinates, for platform IME candidate/preedit placement.
+    pub ime_cursor_area: Option<SceneBounds>,
+}
+
+/// Platform-adapter requests about text input services.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ImeRequest {
+    /// The runtime deliberately finished (committed or cancelled) the active
+    /// composition, e.g. on pointer relocation or focus change. The platform
+    /// input context must discard its own marked text so the IME does not keep
+    /// composing a syllable that no longer exists in the application.
+    DiscardComposition,
+}
+
+/// Editing key conventions supplied by the platform adapter. Semantics stay in
+/// the runtime; only the modifier that selects word/line granularity differs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlatformConventions {
+    /// macOS: Option+Arrow moves by word, Command+Arrow to line edges.
+    /// Windows/Linux: Control+Arrow moves by word.
+    pub apple_text_navigation: bool,
+}
+
+impl PlatformConventions {
+    /// Conventions of the platform this binary was compiled for.
+    pub fn native() -> Self {
+        Self {
+            apple_text_navigation: cfg!(target_os = "macos"),
+        }
+    }
+}
+
+impl Default for PlatformConventions {
+    fn default() -> Self {
+        Self {
+            apple_text_navigation: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -269,8 +314,13 @@ pub struct Runtime {
     reveal_focus: Cell<bool>,
     scroll_views: RefCell<HashMap<String, crate::scroll_view::ScrollViewport>>,
     text_editor: Option<(String, crate::text_edit::TextEditor)>,
+    text_scroll: RefCell<HashMap<String, f32>>,
+    ime_requests: Vec<ImeRequest>,
+    conventions: PlatformConventions,
+    measurer: Rc<dyn IntrinsicMeasurer>,
     clipboard_requests: Vec<crate::input::ClipboardRequest>,
     pending_cut: Option<(u64, String, crate::text_edit::TextEditor)>,
+    pending_paste: Option<(u64, String)>,
     clipboard_revision: u64,
     input: InputState,
     entering: HashMap<String, EnterPresence>,
@@ -312,8 +362,13 @@ impl Runtime {
             reveal_focus: Cell::new(false),
             scroll_views: RefCell::new(HashMap::new()),
             text_editor: None,
+            text_scroll: RefCell::new(HashMap::new()),
+            ime_requests: Vec::new(),
+            conventions: PlatformConventions::default(),
+            measurer: Rc::new(FallbackIntrinsicMeasurer),
             clipboard_requests: Vec::new(),
             pending_cut: None,
+            pending_paste: None,
             clipboard_revision: 0,
             input: InputState::default(),
             entering: HashMap::new(),
@@ -326,6 +381,30 @@ impl Runtime {
         };
         runtime.reconcile_retained_tree();
         Ok(runtime)
+    }
+
+    /// Install backend-derived text/control metrics (shaped glyph geometry).
+    /// Layout, scene construction, pointer-to-text mapping and accessibility all
+    /// use the same measurer so their coordinates stay coherent.
+    pub fn set_intrinsic_measurer(&mut self, measurer: Rc<dyn IntrinsicMeasurer>) {
+        self.measurer = measurer;
+    }
+
+    pub fn set_platform_conventions(&mut self, conventions: PlatformConventions) {
+        self.conventions = conventions;
+    }
+
+    pub fn take_ime_requests(&mut self) -> Vec<ImeRequest> {
+        std::mem::take(&mut self.ime_requests)
+    }
+
+    /// Whether the platform should route text through its input method: true
+    /// only while an enabled editable field owns semantic focus.
+    pub fn wants_text_input(&self) -> bool {
+        self.focused_action.as_deref().is_some_and(|id| {
+            find_text_field(&self.program.root.child, self, id)
+                .is_some_and(|(_, base)| self.node_enabled(base))
+        })
     }
 
     pub fn title(&self) -> &str {
@@ -390,6 +469,26 @@ impl Runtime {
         match event {
             InputEvent::PointerMoved { pointer, position } => {
                 self.input.set_pointer_position(pointer, position);
+                let dragging_text = self
+                    .input
+                    .primary_capture(pointer)
+                    .filter(|captured| self.focused_action.as_deref() == Some(*captured))
+                    .filter(|captured| {
+                        find_text_field(&self.program.root.child, self, captured).is_some()
+                    })
+                    .map(str::to_owned);
+                if let Some(field) = dragging_text {
+                    let scene = self.build_scene(width, height)?;
+                    if let Some(offset) = self.text_offset_at(&scene, &field, position) {
+                        outcome.handled = true;
+                        let before = self.focused_text_editor().cloned();
+                        self.edit_focused_text(crate::text_edit::TextEdit::PlaceCursor {
+                            offset,
+                            select: true,
+                        });
+                        outcome.needs_redraw |= self.focused_text_editor() != before.as_ref();
+                    }
+                }
             }
             InputEvent::PointerButton {
                 pointer,
@@ -407,9 +506,25 @@ impl Runtime {
                     };
                     let scene = self.build_scene(width, height)?;
                     let target = scene.action_at(position.x, position.y).map(str::to_owned);
+                    // Any primary press deliberately ends an active composition: the
+                    // preedit is committed where it is displayed before the caret or
+                    // focus moves, matching native text-view behavior.
+                    if self.finish_composition() {
+                        outcome.needs_redraw = true;
+                    }
                     if let Some(id) = target {
+                        let text_offset = self.text_offset_at(&scene, &id, position);
+                        let extend = self.input.modifiers().shift
+                            && self.focused_action.as_deref() == Some(id.as_str());
                         if self.focus_action(&id) {
                             outcome.handled = true;
+                            if let Some(offset) = text_offset {
+                                self.edit_focused_text(crate::text_edit::TextEdit::PlaceCursor {
+                                    offset,
+                                    select: extend,
+                                });
+                                outcome.needs_redraw = true;
+                            }
                             outcome.pressed_changed = self.input.capture_primary(pointer, id);
                         }
                     } else if self.focused_action.is_some() {
@@ -450,36 +565,29 @@ impl Runtime {
             } => match logical {
                 LogicalKey::ArrowLeft
                 | LogicalKey::ArrowRight
+                | LogicalKey::ArrowUp
+                | LogicalKey::ArrowDown
                 | LogicalKey::Home
                 | LogicalKey::End
                 | LogicalKey::Delete
-                    if self.focused_action.as_deref().is_some_and(|id| {
-                        find_text_field(&self.program.root.child, self, id).is_some()
-                    }) =>
+                | LogicalKey::Backspace
+                    if self.focused_is_text_field() =>
                 {
-                    use crate::text_edit::TextEdit;
-                    let select = self.input.modifiers().shift;
-                    let edit = match logical {
-                        LogicalKey::ArrowLeft => TextEdit::Left { select },
-                        LogicalKey::ArrowRight => TextEdit::Right { select },
-                        LogicalKey::Home => TextEdit::Home { select },
-                        LogicalKey::End => TextEdit::End { select },
-                        _ => TextEdit::Delete,
-                    };
-                    outcome.handled = true;
-                    outcome.activated = self.edit_focused_text(edit).is_some();
+                    if let Some(edit) = self.text_key_edit(&logical) {
+                        outcome.handled = true;
+                        let before = self.focused_text_editor().cloned();
+                        outcome.activated = self.edit_focused_text(edit).is_some();
+                        outcome.needs_redraw |= self.focused_text_editor() != before.as_ref();
+                    }
                 }
                 LogicalKey::Character(ref key)
-                    if (self.input.modifiers().control || self.input.modifiers().meta)
-                        && key.eq_ignore_ascii_case("a") =>
+                    if self.shortcut_modifier() && key.eq_ignore_ascii_case("a") =>
                 {
-                    outcome.handled = self.focused_action.as_deref().is_some_and(|id| {
-                        find_text_field(&self.program.root.child, self, id).is_some()
-                    });
+                    outcome.handled = self.focused_is_text_field();
                     self.edit_focused_text(crate::text_edit::TextEdit::SelectAll);
                 }
                 LogicalKey::Character(ref key)
-                    if (self.input.modifiers().control || self.input.modifiers().meta)
+                    if self.shortcut_modifier()
                         && ["c", "x", "v"]
                             .iter()
                             .any(|shortcut| key.eq_ignore_ascii_case(shortcut)) =>
@@ -490,11 +598,19 @@ impl Runtime {
                         .filter(|id| find_text_field(&self.program.root.child, self, id).is_some())
                     {
                         outcome.handled = true;
-                        // Initialize/synchronize the semantic editor without changing text.
-                        self.edit_focused_text(crate::text_edit::TextEdit::CompositionCancel);
+                        // A clipboard command finalizes composition like a native text
+                        // view, then acts on the committed text and selection.
+                        self.finish_composition();
+                        self.ensure_focused_text_editor();
                         if key.eq_ignore_ascii_case("v") {
+                            self.clipboard_revision += 1;
+                            let request = self.clipboard_revision;
+                            self.pending_paste = Some((request, id.clone()));
                             self.clipboard_requests
-                                .push(crate::input::ClipboardRequest::Read { target: id });
+                                .push(crate::input::ClipboardRequest::Read {
+                                    request,
+                                    target: id,
+                                });
                         } else if let Some(editor) = self.focused_text_editor() {
                             let selected = editor.selected_text().to_owned();
                             if !selected.is_empty() {
@@ -551,17 +667,6 @@ impl Runtime {
                     if focused_is_radio {
                         outcome.handled = true;
                         outcome.activated = self.select_adjacent_radio(false).is_some();
-                    }
-                }
-                LogicalKey::Backspace => {
-                    let focused_is_text = self.focused_action.as_deref().is_some_and(|id| {
-                        find_text_field(&self.program.root.child, self, id).is_some()
-                    });
-                    if focused_is_text {
-                        outcome.handled = true;
-                        outcome.activated = self
-                            .edit_focused_text(crate::text_edit::TextEdit::Backspace)
-                            .is_some();
                     }
                 }
                 LogicalKey::Space | LogicalKey::Enter
@@ -629,12 +734,28 @@ impl Runtime {
                     }
                 }
             }
-            InputEvent::ClipboardPaste { target, text } => {
-                if self.focused_action.as_ref() == Some(&target) {
-                    outcome.handled = true;
-                    outcome.activated = self
-                        .edit_focused_text(crate::text_edit::TextEdit::Insert(text))
-                        .is_some();
+            InputEvent::ClipboardReadCompleted { request, text } => {
+                // Only the latest paste request for the still-focused field applies.
+                // Unavailable/non-text content, stale requests, focus changes and an
+                // active composition all leave committed text untouched.
+                let Some((pending, target)) = self.pending_paste.take() else {
+                    return Ok(outcome);
+                };
+                if pending != request {
+                    self.pending_paste = Some((pending, target));
+                    return Ok(outcome);
+                }
+                let text = text.map(|text| sanitize_single_line(&text));
+                let composing = self
+                    .focused_text_editor()
+                    .is_some_and(|editor| editor.composition().is_some());
+                if let Some(text) = text.filter(|text| !text.is_empty()) {
+                    if self.focused_action.as_ref() == Some(&target) && !composing {
+                        outcome.handled = true;
+                        outcome.activated = self
+                            .edit_focused_text(crate::text_edit::TextEdit::Insert(text))
+                            .is_some();
+                    }
                 }
             }
             InputEvent::TextEdit(edit) => {
@@ -753,6 +874,7 @@ impl Runtime {
     }
 
     pub fn clear_focus(&mut self) {
+        self.finish_composition();
         self.focused_action = None;
         self.text_editor = None;
         self.input.clear_keyboard_capture();
@@ -844,6 +966,7 @@ impl Runtime {
             return false;
         }
         if self.focused_action.as_deref() != Some(focus_id) {
+            self.finish_composition();
             self.text_editor = None;
             self.reveal_focus.set(true);
             self.input.clear_keyboard_capture();
@@ -878,6 +1001,7 @@ impl Runtime {
         };
         let id = actions[next].clone();
         if self.focused_action.as_deref() != Some(id.as_str()) {
+            self.finish_composition();
             self.text_editor = None;
             self.reveal_focus.set(true);
             self.input.clear_keyboard_capture();
@@ -932,6 +1056,146 @@ impl Runtime {
             }
         }
         None
+    }
+
+    fn focused_is_text_field(&self) -> bool {
+        self.focused_action
+            .as_deref()
+            .is_some_and(|id| find_text_field(&self.program.root.child, self, id).is_some())
+    }
+
+    fn shortcut_modifier(&self) -> bool {
+        let modifiers = self.input.modifiers();
+        if self.conventions.apple_text_navigation {
+            modifiers.meta
+        } else {
+            modifiers.control
+        }
+    }
+
+    /// Platform-convention key to semantic edit. Granularity (grapheme, word,
+    /// line) is chosen here; the editor never interprets modifiers itself.
+    fn text_key_edit(&self, key: &LogicalKey) -> Option<crate::text_edit::TextEdit> {
+        use crate::text_edit::TextEdit;
+        let modifiers = self.input.modifiers();
+        let select = modifiers.shift;
+        let apple = self.conventions.apple_text_navigation;
+        let word = if apple {
+            modifiers.alt
+        } else {
+            modifiers.control
+        };
+        let line = apple && modifiers.meta;
+        Some(match key {
+            LogicalKey::ArrowLeft if line => TextEdit::Home { select },
+            LogicalKey::ArrowRight if line => TextEdit::End { select },
+            LogicalKey::ArrowLeft if word => TextEdit::WordLeft { select },
+            LogicalKey::ArrowRight if word => TextEdit::WordRight { select },
+            LogicalKey::ArrowLeft => TextEdit::Left { select },
+            LogicalKey::ArrowRight => TextEdit::Right { select },
+            // Single-line Apple fields move to the edges on vertical arrows.
+            LogicalKey::ArrowUp if apple => TextEdit::Home { select },
+            LogicalKey::ArrowDown if apple => TextEdit::End { select },
+            LogicalKey::Home => TextEdit::Home { select },
+            LogicalKey::End => TextEdit::End { select },
+            LogicalKey::Backspace if line => TextEdit::DeleteToStart,
+            LogicalKey::Backspace if word => TextEdit::DeleteWordBackward,
+            LogicalKey::Backspace => TextEdit::Backspace,
+            LogicalKey::Delete if word => TextEdit::DeleteWordForward,
+            LogicalKey::Delete => TextEdit::Delete,
+            _ => return None,
+        })
+    }
+
+    /// Create/synchronize the focused field's editor without editing it.
+    fn ensure_focused_text_editor(&mut self) {
+        let Some(focused) = self.focused_action.clone() else {
+            return;
+        };
+        let Some((state, _)) = find_text_field(&self.program.root.child, self, &focused) else {
+            return;
+        };
+        let value = self
+            .state
+            .get(state)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        match &mut self.text_editor {
+            Some((id, editor)) if *id == focused => editor.synchronize(&value),
+            _ => {
+                self.text_editor = Some((focused, crate::text_edit::TextEditor::new(value)));
+            }
+        }
+    }
+
+    /// Deliberately end the active composition: a non-empty preedit is committed
+    /// into the field that owns it, an empty one is cancelled, and the platform is
+    /// asked to discard its marked text. Returns whether a composition existed.
+    fn finish_composition(&mut self) -> bool {
+        let Some((owner, composition)) = self
+            .text_editor
+            .as_ref()
+            .and_then(|(id, editor)| Some((id.clone(), editor.composition()?.clone())))
+        else {
+            return false;
+        };
+        self.ime_requests.push(ImeRequest::DiscardComposition);
+        let field = find_text_field(&self.program.root.child, self, &owner)
+            .filter(|(_, base)| self.node_enabled(base))
+            .map(|(state, _)| state.to_owned());
+        let (_, editor) = self.text_editor.as_mut().expect("composition editor");
+        let Some(state) = field.filter(|_| !composition.text.is_empty()) else {
+            editor.cancel_composition();
+            return true;
+        };
+        let binding = self.state.get(&state).and_then(Value::as_str).unwrap_or("");
+        if editor.text() != binding {
+            // The binding changed underneath the preedit; its anchor is stale.
+            editor.synchronize(binding);
+            return true;
+        }
+        editor.apply(crate::text_edit::TextEdit::CompositionCommit(
+            composition.text,
+        ));
+        let value = editor.text().to_owned();
+        self.set_control_state(state, Value::String(value));
+        true
+    }
+
+    /// Map a window point to the nearest grapheme boundary of a text field using
+    /// the presented scene geometry and the backend's shaped line layout.
+    fn text_offset_at(
+        &self,
+        scene: &Scene,
+        field: &str,
+        position: crate::input::InputPoint,
+    ) -> Option<usize> {
+        let (state, _) = find_text_field(&self.program.root.child, self, field)?;
+        let text_id = format!("{field}:text");
+        let text = scene.texts.iter().find(|text| text.id == text_id)?;
+        let value = self
+            .focused_text_editor()
+            .filter(|_| self.focused_action.as_deref() == Some(field))
+            .map(|editor| editor.presentation_text())
+            .unwrap_or_else(|| {
+                self.state
+                    .get(state)
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned()
+            });
+        if value.is_empty() {
+            return Some(0);
+        }
+        let inverse = scene.presentation.transform_for(&text_id).inverse()?;
+        let (local_x, _) = inverse.transform_point(position.x, position.y);
+        let scale = text.font_size / TEXT_FIELD_FONT_SIZE;
+        if !scale.is_finite() || scale <= f32::EPSILON {
+            return None;
+        }
+        let line = self.measurer.text_line(&value, TEXT_FIELD_FONT_SIZE);
+        Some(line.offset_for_x((local_x - text.x) / scale))
     }
 
     pub fn take_clipboard_requests(&mut self) -> Vec<crate::input::ClipboardRequest> {
@@ -1135,7 +1399,8 @@ impl Runtime {
     }
 
     pub fn build_frame(&self, width: f32, height: f32) -> Result<RuntimeFrame, taffy::TaffyError> {
-        self.build_frame_with_measurer(width, height, &FallbackIntrinsicMeasurer)
+        let measurer = self.measurer.clone();
+        self.build_frame_with_measurer(width, height, measurer.as_ref())
     }
 
     pub fn build_frame_with_measurer(
@@ -1155,17 +1420,36 @@ impl Runtime {
             0.0,
             0.0,
             1.0,
+            measurer,
             &mut scene,
         )?;
-        let mut accessibility = self.accessibility_from_layout(&taffy, &nodes, width, height)?;
+        let mut accessibility =
+            self.accessibility_from_layout(&taffy, &nodes, width, height, measurer)?;
         self.apply_enter_presence(&mut scene, &mut accessibility);
         self.apply_layout_flips(&mut scene, &mut accessibility);
         *self.last_live_scene.borrow_mut() = Some(scene.clone());
         *self.last_live_accessibility.borrow_mut() = Some(accessibility.clone());
         self.append_exit_overlays(&mut scene);
+        let ime_cursor_area = self.focused_action.as_ref().and_then(|id| {
+            let caret = format!("{id}:caret");
+            let item = scene.rects.iter().find(|item| item.id == caret)?;
+            let rect = scene.presentation.transformed_rect(&caret, item.rect);
+            Some(match scene.presentation.clip_for(&caret) {
+                // Keep the candidate window anchored inside the visible field even
+                // when the caret itself is scrolled out of a clipped container.
+                Some(clip) if clip.width > 0.0 && clip.height > 0.0 => SceneBounds {
+                    x: rect.x.clamp(clip.x, clip.x + clip.width),
+                    y: rect.y.clamp(clip.y, clip.y + clip.height),
+                    width: rect.width,
+                    height: rect.height,
+                },
+                _ => rect,
+            })
+        });
         Ok(RuntimeFrame {
             scene,
             accessibility,
+            ime_cursor_area,
         })
     }
 
@@ -1188,7 +1472,8 @@ impl Runtime {
         width: f32,
         height: f32,
     ) -> Result<AccessibilityTree, taffy::TaffyError> {
-        self.build_accessibility_tree_with_measurer(width, height, &FallbackIntrinsicMeasurer)
+        let measurer = self.measurer.clone();
+        self.build_accessibility_tree_with_measurer(width, height, measurer.as_ref())
     }
 
     pub fn build_accessibility_tree_with_measurer(
@@ -1200,7 +1485,8 @@ impl Runtime {
         let (taffy, nodes) = self.build_layout_tree_with_measurer(width, height, measurer)?;
         self.reconcile_scroll_layout(&taffy, &nodes)?;
         self.reveal_focused_layout(&taffy, &nodes)?;
-        let mut accessibility = self.accessibility_from_layout(&taffy, &nodes, width, height)?;
+        let mut accessibility =
+            self.accessibility_from_layout(&taffy, &nodes, width, height, measurer)?;
         let mut empty_scene = Scene::default();
         self.apply_enter_presence(&mut empty_scene, &mut accessibility);
         self.apply_layout_flips(&mut empty_scene, &mut accessibility);
@@ -1213,6 +1499,7 @@ impl Runtime {
         nodes: &HashMap<String, NodeId>,
         width: f32,
         height: f32,
+        measurer: &dyn IntrinsicMeasurer,
     ) -> Result<AccessibilityTree, taffy::TaffyError> {
         let root_semantics = self.program.root.accessibility.as_ref();
         let root_id = self.program.root.id.clone();
@@ -1246,7 +1533,7 @@ impl Runtime {
             action_id: None,
         }];
         for child in root_children {
-            self.collect_accessibility(taffy, child, nodes, 0.0, 0.0, &mut output)?;
+            self.collect_accessibility(taffy, child, nodes, 0.0, 0.0, measurer, &mut output)?;
         }
         let focus_id = self
             .focused_action
@@ -1265,7 +1552,8 @@ impl Runtime {
         width: f32,
         height: f32,
     ) -> Result<(LayoutTree, HashMap<String, NodeId>), taffy::TaffyError> {
-        self.build_layout_tree_with_measurer(width, height, &FallbackIntrinsicMeasurer)
+        let measurer = self.measurer.clone();
+        self.build_layout_tree_with_measurer(width, height, measurer.as_ref())
     }
 
     fn build_layout_tree_with_measurer(
@@ -1529,9 +1817,14 @@ impl Runtime {
         else {
             return;
         };
-        let Ok(after_geometry) =
-            self.accessibility_from_layout(&taffy, &nodes, root.bounds.width, root.bounds.height)
-        else {
+        let measurer = self.measurer.clone();
+        let Ok(after_geometry) = self.accessibility_from_layout(
+            &taffy,
+            &nodes,
+            root.bounds.width,
+            root.bounds.height,
+            measurer.as_ref(),
+        ) else {
             return;
         };
 
@@ -2196,6 +2489,7 @@ impl Runtime {
         parent_x: f32,
         parent_y: f32,
         inherited_opacity: f32,
+        measurer: &dyn IntrinsicMeasurer,
         scene: &mut Scene,
     ) -> Result<(), taffy::TaffyError> {
         if matches!(node, UiNode::Conditional { .. }) {
@@ -2207,6 +2501,7 @@ impl Runtime {
                     parent_x,
                     parent_y,
                     inherited_opacity,
+                    measurer,
                     scene,
                 )?;
             }
@@ -2348,30 +2643,136 @@ impl Runtime {
                     opacity,
                 );
                 let value = self.state.get(state).and_then(Value::as_str).unwrap_or("");
-                let presentation = self
+                let editor = self
                     .focused_text_editor()
                     .filter(|_| self.focused_action.as_deref() == Some(base.id.as_str()))
-                    .filter(|editor| editor.text() == value)
-                    .map(|editor| editor.presentation_text());
+                    .filter(|editor| editor.text() == value);
+                let presentation = editor.map(|editor| editor.presentation_text());
                 let value = presentation.as_deref().unwrap_or(value);
                 let (text, text_opacity) = if value.is_empty() {
                     (placeholder.as_deref().unwrap_or(""), 0.55)
                 } else {
                     (value, 1.0)
                 };
+                let foreground = base
+                    .visual
+                    .as_ref()
+                    .and_then(|visual| visual.foreground.as_ref())
+                    .and_then(paint_start_color)
+                    .unwrap_or(Color::TEXT);
+                let origin_x = x + TEXT_FIELD_INSET_X;
+                let origin_y = y + TEXT_FIELD_INSET_Y;
+                let visible_width = (rect.width - TEXT_FIELD_INSET_X * 2.0).max(0.0);
+                let line = measurer.text_line(value, TEXT_FIELD_FONT_SIZE);
+                let ranges = editor.map(|editor| editor.presentation_ranges());
+
+                // Runtime-owned horizontal text scroll keeps the caret visible in
+                // a fixed-width field; it is presentation state, not editing state.
+                let scroll = match &ranges {
+                    Some(ranges) => {
+                        let caret = line.x_for_offset(ranges.caret);
+                        let mut scroll = self
+                            .text_scroll
+                            .borrow()
+                            .get(&base.id)
+                            .copied()
+                            .unwrap_or(0.0);
+                        if caret - scroll > visible_width {
+                            scroll = caret - visible_width;
+                        }
+                        if caret < scroll {
+                            scroll = caret;
+                        }
+                        let scroll = scroll.clamp(0.0, (line.width - visible_width).max(0.0));
+                        self.text_scroll
+                            .borrow_mut()
+                            .insert(base.id.clone(), scroll);
+                        scroll
+                    }
+                    None => {
+                        self.text_scroll.borrow_mut().remove(&base.id);
+                        0.0
+                    }
+                };
+                let text_x = origin_x - scroll;
+                let mut decorations = Vec::new();
+                if let Some(ranges) = &ranges {
+                    if let Some((start, end)) = line.span(ranges.selection.clone()) {
+                        decorations.push(SceneRect {
+                            id: format!("{}:selection", base.id),
+                            rect: SceneBounds {
+                                x: text_x + start,
+                                y: origin_y,
+                                width: end - start,
+                                height: line.line_height,
+                            },
+                            color: Color::SELECTION.with_opacity(opacity),
+                            corner_radius: 0.0,
+                        });
+                    }
+                    if let Some((start, end)) = ranges.preedit.clone().and_then(|r| line.span(r)) {
+                        decorations.push(SceneRect {
+                            id: format!("{}:preedit", base.id),
+                            rect: SceneBounds {
+                                x: text_x + start,
+                                y: origin_y + line.line_height - 1.0,
+                                width: end - start,
+                                height: 1.0,
+                            },
+                            color: foreground.with_opacity(opacity * 0.8),
+                            corner_radius: 0.0,
+                        });
+                    }
+                    if let Some((start, end)) =
+                        ranges.preedit_selection.clone().and_then(|r| line.span(r))
+                    {
+                        decorations.push(SceneRect {
+                            id: format!("{}:preedit-selection", base.id),
+                            rect: SceneBounds {
+                                x: text_x + start,
+                                y: origin_y + line.line_height - 2.0,
+                                width: end - start,
+                                height: 2.0,
+                            },
+                            color: foreground.with_opacity(opacity),
+                            corner_radius: 0.0,
+                        });
+                    }
+                    decorations.push(SceneRect {
+                        id: format!("{}:caret", base.id),
+                        rect: SceneBounds {
+                            x: text_x + line.x_for_offset(ranges.caret) - TEXT_CARET_WIDTH * 0.5,
+                            y: origin_y,
+                            width: TEXT_CARET_WIDTH,
+                            height: line.line_height,
+                        },
+                        color: foreground.with_opacity(opacity),
+                        corner_radius: 0.0,
+                    });
+                }
+                let text_id = format!("{}:text", base.id);
+                let clip = scene.presentation.push_clip(
+                    None,
+                    SceneBounds {
+                        x: x + TEXT_FIELD_INSET_X * 0.5,
+                        y,
+                        width: (rect.width - TEXT_FIELD_INSET_X).max(0.0),
+                        height: rect.height,
+                    },
+                    None,
+                );
+                for decoration in decorations {
+                    scene.presentation.bind_clip(decoration.id.clone(), clip);
+                    scene.rects.push(decoration);
+                }
+                scene.presentation.bind_clip(text_id.clone(), clip);
                 scene.texts.push(SceneText {
-                    id: format!("{}:text", base.id),
+                    id: text_id,
                     text: text.to_owned(),
-                    x: x + 12.0,
-                    y: y + 7.0,
-                    font_size: 16.0,
-                    color: base
-                        .visual
-                        .as_ref()
-                        .and_then(|visual| visual.foreground.as_ref())
-                        .and_then(paint_start_color)
-                        .unwrap_or(Color::TEXT)
-                        .with_opacity(opacity * text_opacity),
+                    x: text_x,
+                    y: origin_y,
+                    font_size: TEXT_FIELD_FONT_SIZE,
+                    color: foreground.with_opacity(opacity * text_opacity),
                 });
                 scene.actions.push(ActionHit {
                     id: base.id.clone(),
@@ -2470,6 +2871,7 @@ impl Runtime {
                 x - offset[0],
                 y - offset[1],
                 opacity,
+                measurer,
                 scene,
             )?;
         }
@@ -2509,11 +2911,14 @@ impl Runtime {
         nodes: &HashMap<String, NodeId>,
         parent_x: f32,
         parent_y: f32,
+        measurer: &dyn IntrinsicMeasurer,
         output: &mut Vec<AccessibilityNode>,
     ) -> Result<(), taffy::TaffyError> {
         if matches!(node, UiNode::Conditional { .. }) {
             for child in self.active_children(node) {
-                self.collect_accessibility(taffy, child, nodes, parent_x, parent_y, output)?;
+                self.collect_accessibility(
+                    taffy, child, nodes, parent_x, parent_y, measurer, output,
+                )?;
             }
             return Ok(());
         }
@@ -2593,7 +2998,15 @@ impl Runtime {
             .map(|view| view.offset)
             .unwrap_or([0.0; 2]);
         for child in self.active_children(node) {
-            self.collect_accessibility(taffy, child, nodes, x - offset[0], y - offset[1], output)?;
+            self.collect_accessibility(
+                taffy,
+                child,
+                nodes,
+                x - offset[0],
+                y - offset[1],
+                measurer,
+                output,
+            )?;
         }
         if matches!(node, UiNode::Scroll { .. }) {
             let clip = SceneBounds {
@@ -2621,6 +3034,20 @@ impl Runtime {
         }
         Ok(())
     }
+}
+
+/// Single-line fields keep pasted line breaks/tabs as spaces and drop other
+/// control characters instead of inserting invisible or layout-breaking text.
+fn sanitize_single_line(text: &str) -> String {
+    let normalized = text.replace("\r\n", "\n");
+    normalized
+        .chars()
+        .filter_map(|ch| match ch {
+            '\n' | '\r' | '\t' => Some(' '),
+            ch if ch.is_control() => None,
+            ch => Some(ch),
+        })
+        .collect()
 }
 
 fn collect_focusable_actions(node: &UiNode, runtime: &Runtime, output: &mut Vec<String>) {

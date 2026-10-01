@@ -16,6 +16,55 @@ impl IntrinsicSize {
     }
 }
 
+/// Shaped geometry of one single-line text run, exposed by a text backend.
+///
+/// `carets` holds one `(scalar offset, x)` stop for every extended grapheme
+/// boundary of the shaped text, sorted by offset, with `x` in unscaled logical
+/// points from the run's origin. The runtime derives caret, selection, preedit
+/// and pointer-to-offset mapping from these stops; backends never own editing state.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TextLineLayout {
+    pub carets: Vec<(usize, f32)>,
+    pub width: f32,
+    pub line_height: f32,
+}
+
+impl TextLineLayout {
+    /// Caret x for a scalar offset, using the nearest stop at or before it.
+    pub fn x_for_offset(&self, offset: usize) -> f32 {
+        self.carets
+            .iter()
+            .rev()
+            .find(|(stop, _)| *stop <= offset)
+            .or(self.carets.first())
+            .map_or(0.0, |(_, x)| *x)
+    }
+
+    /// The grapheme boundary whose caret position is visually nearest to `x`.
+    pub fn offset_for_x(&self, x: f32) -> usize {
+        self.carets
+            .iter()
+            .min_by(|(_, a), (_, b)| (a - x).abs().total_cmp(&(b - x).abs()))
+            .map_or(0, |(offset, _)| *offset)
+    }
+
+    /// Visual horizontal extent covering every boundary inside `range`.
+    pub fn span(&self, range: std::ops::Range<usize>) -> Option<(f32, f32)> {
+        if range.is_empty() {
+            return None;
+        }
+        let xs = self
+            .carets
+            .iter()
+            .filter(|(offset, _)| range.contains(offset) || *offset == range.end)
+            .map(|(_, x)| *x);
+        let (min, max) = xs.fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), x| {
+            (lo.min(x), hi.max(x))
+        });
+        (min.is_finite() && max > min).then_some((min, max))
+    }
+}
+
 /// Supplies backend-derived intrinsic sizes for semantic leaf content.
 ///
 /// Measurements are intentionally unconstrained content sizes. Explicit Mün
@@ -34,6 +83,25 @@ pub trait IntrinsicMeasurer {
         };
         let measured = self.measure_action(text);
         IntrinsicSize::new(measured.width.max(180.0), measured.height)
+    }
+
+    /// Single-line shaped geometry for editing presentation and pointer mapping.
+    ///
+    /// The default is a deterministic headless model (uniform advance per
+    /// grapheme cluster) for tests and IR tooling without a font backend. Native
+    /// renderers must override it with real shaping data.
+    fn text_line(&self, text: &str, font_size: f32) -> TextLineLayout {
+        let advance = font_size * 0.6;
+        let carets = crate::text_edit::grapheme_boundaries(text)
+            .into_iter()
+            .enumerate()
+            .map(|(index, offset)| (offset, index as f32 * advance))
+            .collect::<Vec<_>>();
+        TextLineLayout {
+            width: carets.last().map_or(0.0, |(_, x)| *x),
+            carets,
+            line_height: font_size * 1.25,
+        }
     }
 
     fn measure_radio_group(&self, labels: &[String]) -> IntrinsicSize {
