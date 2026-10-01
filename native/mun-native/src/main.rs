@@ -59,12 +59,19 @@ fn host_info() -> String {
         mun_runtime::SEMANTIC_UI_IR_VERSION,
         env::consts::OS,
         env::consts::ARCH,
-        if cfg!(debug_assertions) { "debug" } else { "release" },
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
     )
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    if env::args_os().nth(1).is_some_and(|argument| argument == "--host-info") {
+    if env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument == "--host-info")
+    {
         println!("{}", host_info());
         return Ok(());
     }

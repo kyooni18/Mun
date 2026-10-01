@@ -143,6 +143,7 @@ impl OffscreenSession {
             .map_err(|error| GpuError::new("layout", error))?;
         let built = Instant::now();
         let status = self.renderer.render(&frame.scene, self.scale_factor);
+        self.shaping.end_frame();
         let done = Instant::now();
         if status != FrameStatus::Presented {
             return Err(GpuError::new(

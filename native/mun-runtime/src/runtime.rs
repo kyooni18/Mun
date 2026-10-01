@@ -53,6 +53,14 @@ pub enum RuntimeLoadError {
     Invalid(#[from] crate::validate::IrValidationError),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GeometryStamp {
+    revision: u64,
+    width: u32,
+    height: u32,
+    offsets: u64,
+}
+
 /// Runtime-detected contract violations that were rejected without effect.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeDiagnostic {
@@ -356,6 +364,8 @@ pub struct Runtime {
     /// Explicit reveal request (assistive technology ScrollIntoView); takes
     /// precedence over focus reveal on the next layout.
     reveal_request: RefCell<Option<String>>,
+    /// Inputs of the last layout that refreshed scroll viewport geometry.
+    geometry_stamp: Cell<Option<GeometryStamp>>,
     scroll_views: RefCell<HashMap<String, crate::scroll_view::ScrollViewport>>,
     text_editor: Option<(String, crate::text_edit::TextEditor)>,
     text_scroll: RefCell<HashMap<String, f32>>,
@@ -375,7 +385,8 @@ pub struct Runtime {
     retained: RetainedTree,
     last_reconciliation: RetainedReconciliation,
     last_live_scene: RefCell<Option<Scene>>,
-    last_live_accessibility: RefCell<Option<AccessibilityTree>>,
+    /// Shared so transactions can keep the pre-mutation geometry without a deep copy.
+    last_live_accessibility: RefCell<Option<Rc<AccessibilityTree>>>,
 }
 
 impl Runtime {
@@ -402,7 +413,11 @@ impl Runtime {
         let program: UiProgram = serde_json::from_value(raw)?;
         validate_native_transitions(&program.root.child)?;
         validate_node_identities(&program)?;
-        let scope_model = crate::collection::ScopeModel::new(&program.states, &program.root.child);
+        let mut scope_model =
+            crate::collection::ScopeModel::new(&program.states, &program.root.child);
+        if let Some(key) = &program.root.identity_key {
+            scope_model.add_structure_expression(key);
+        }
         // Item-scoped state has no global instance; materialization creates one
         // per live key.
         let state = program
@@ -423,6 +438,7 @@ impl Runtime {
             focused_action: None,
             reveal_focus: Cell::new(false),
             reveal_request: RefCell::new(None),
+            geometry_stamp: Cell::new(None),
             scroll_views: RefCell::new(HashMap::new()),
             text_editor: None,
             text_scroll: RefCell::new(HashMap::new()),
@@ -939,7 +955,7 @@ impl Runtime {
                 }
             }
             InputEvent::Scroll { pointer, delta, .. } => {
-                self.build_frame(width, height)?;
+                self.ensure_scroll_geometry(width, height)?;
                 let position = pointer.and_then(|pointer| self.input.pointer_position(pointer));
                 if let Some(position) = position {
                     let mut route = Vec::new();
@@ -1259,6 +1275,46 @@ impl Runtime {
     }
 
     /// Scroll views under a window point, innermost first.
+    fn current_geometry_stamp(&self, width: f32, height: f32) -> GeometryStamp {
+        use std::hash::{Hash, Hasher};
+        // Order-independent digest of every viewport offset: a parent's offset
+        // moves its nested viewports' window-space bounds.
+        let offsets = self
+            .scroll_views
+            .borrow()
+            .iter()
+            .fold(0u64, |digest, (id, view)| {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                id.hash(&mut hasher);
+                view.offset[0].to_bits().hash(&mut hasher);
+                view.offset[1].to_bits().hash(&mut hasher);
+                digest ^ hasher.finish()
+            });
+        GeometryStamp {
+            revision: self.revision,
+            width: width.to_bits(),
+            height: height.to_bits(),
+            offsets,
+        }
+    }
+
+    /// Scroll routing needs current viewport geometry. Rebuild the frame only
+    /// when something that moves geometry changed since the last layout: state,
+    /// window size, any scroll offset, active motion/transitions or a reveal.
+    fn ensure_scroll_geometry(&self, width: f32, height: f32) -> Result<(), taffy::TaffyError> {
+        let fresh = self.geometry_stamp.get() == Some(self.current_geometry_stamp(width, height))
+            && !self.has_active_motion()
+            && self.entering.is_empty()
+            && self.exiting.is_empty()
+            && self.layout_flips.is_empty()
+            && !self.reveal_focus.get()
+            && self.reveal_request.borrow().is_none();
+        if !fresh {
+            self.build_frame(width, height)?;
+        }
+        Ok(())
+    }
+
     fn scroll_views_at(&self, position: crate::input::InputPoint) -> Vec<String> {
         let views = self.scroll_views.borrow();
         let mut hits = views
@@ -1280,7 +1336,7 @@ impl Runtime {
         width: f32,
         height: f32,
     ) -> Result<bool, taffy::TaffyError> {
-        self.build_frame(width, height)?;
+        self.ensure_scroll_geometry(width, height)?;
         let chain = match self.focused_action.clone() {
             Some(focused) => self.scroll_ancestors(&focused),
             None => self
@@ -1618,6 +1674,19 @@ impl Runtime {
         self.set_control_state(state, Value::String(value))
     }
 
+    fn may_reject(&self, action: &crate::ir::UiAction) -> bool {
+        use crate::ir::UiAction;
+        match action {
+            UiAction::Collection { .. } => true,
+            UiAction::ToggleState { state, .. } | UiAction::SetState { state, .. } => {
+                self.scope_model.structural_states.contains(state)
+            }
+            UiAction::Sequence { actions, .. } => {
+                actions.iter().any(|action| self.may_reject(action))
+            }
+        }
+    }
+
     pub fn activate_action(&mut self, id: &str) -> Option<Transaction> {
         let (action, base) = find_action(&self.program.root.child, self, id)?;
         if !self.node_enabled(base) {
@@ -1639,7 +1708,9 @@ impl Runtime {
             is_continuous: action_transaction.is_continuous,
         };
 
-        let snapshot = self.state.clone();
+        // Only collection operations and structural states can be rejected;
+        // other actions skip the full-state snapshot.
+        let snapshot = self.may_reject(&action).then(|| self.state.clone());
         let applied =
             self.apply_action_mutations(&action, &mut transaction.mutations)
                 .and_then(|()| {
@@ -1655,7 +1726,10 @@ impl Runtime {
         if let Err(error) = applied {
             // Reject the whole transaction: no partial, aliased or index-shifted
             // state survives. The previous materialization is still current.
-            self.state = snapshot;
+            debug_assert!(snapshot.is_some(), "unexpected rejection of {id}");
+            if let Some(snapshot) = snapshot {
+                self.state = snapshot;
+            }
             self.diagnostics
                 .push(RuntimeDiagnostic::RejectedTransaction {
                     action: Some(id.to_owned()),
@@ -1664,7 +1738,15 @@ impl Runtime {
             return None;
         }
 
-        self.reconcile_retained_tree();
+        if transaction
+            .mutations
+            .iter()
+            .any(|mutation| self.scope_model.affects_structure(&mutation.state))
+        {
+            self.reconcile_retained_tree();
+        } else {
+            self.last_reconciliation = RetainedReconciliation::default();
+        }
         let replaced_nodes = self.reset_replaced_runtime_state();
 
         // State mutations can remove or disable the focused semantic node.
@@ -1722,7 +1804,7 @@ impl Runtime {
         self.reconcile_layout_flips(
             before_layout_neighborhoods,
             after_layout_neighborhoods,
-            before_layout_geometry.as_ref(),
+            before_layout_geometry.as_deref(),
             &replaced_nodes,
             &transaction,
         );
@@ -1823,9 +1905,14 @@ impl Runtime {
             }],
             ..Default::default()
         };
+        let structural = self.scope_model.affects_structure(&state);
         self.state.insert(state, new);
 
-        self.reconcile_retained_tree();
+        if structural {
+            self.reconcile_retained_tree();
+        } else {
+            self.last_reconciliation = RetainedReconciliation::default();
+        }
         let replaced_nodes = self.reset_replaced_runtime_state();
         self.reconcile_focus(&focus_order_before);
         self.reconcile_pointer_captures();
@@ -1851,7 +1938,7 @@ impl Runtime {
         self.reconcile_layout_flips(
             before_layout_neighborhoods,
             after_layout_neighborhoods,
-            before_layout_geometry.as_ref(),
+            before_layout_geometry.as_deref(),
             &replaced_nodes,
             &transaction,
         );
@@ -1889,7 +1976,9 @@ impl Runtime {
         self.apply_enter_presence(&mut scene, &mut accessibility);
         self.apply_layout_flips(&mut scene, &mut accessibility);
         *self.last_live_scene.borrow_mut() = Some(scene.clone());
-        *self.last_live_accessibility.borrow_mut() = Some(accessibility.clone());
+        *self.last_live_accessibility.borrow_mut() = Some(Rc::new(accessibility.clone()));
+        self.geometry_stamp
+            .set(Some(self.current_geometry_stamp(width, height)));
         self.append_exit_overlays(&mut scene);
         let ime_cursor_area = self.focused_action.as_ref().and_then(|id| {
             let caret = format!("{id}:caret");

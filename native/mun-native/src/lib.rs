@@ -137,59 +137,35 @@ struct CachedTextBuffer {
     buffer: Buffer,
     text: String,
     font_size: f32,
-    logical_width: f32,
-    logical_height: f32,
 }
 
 impl CachedTextBuffer {
-    fn new(
-        font_system: &mut FontSystem,
-        text: &str,
-        font_size: f32,
-        logical_width: f32,
-        logical_height: f32,
-    ) -> Self {
+    fn new(font_system: &mut FontSystem, text: &str, font_size: f32) -> Self {
         let mut buffer = Buffer::new(
             font_system,
             Metrics::new(font_size, font_size * LINE_HEIGHT_FACTOR),
         );
         // Scene text is single-line in the runtime layout model; wrapping here
-        // would desynchronize drawn glyphs from layout and caret geometry.
+        // would desynchronize drawn glyphs from layout and caret geometry. The
+        // buffer is unbounded: clipping belongs to text-area bounds and
+        // scissors, so window resizes never reshape text.
         buffer.set_wrap(Wrap::None);
-        buffer.set_size(Some(logical_width), Some(logical_height));
+        buffer.set_size(None, None);
         buffer.set_text(text, &text_attrs(), Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
         Self {
             buffer,
             text: text.to_owned(),
             font_size,
-            logical_width,
-            logical_height,
         }
     }
 
-    fn update(
-        &mut self,
-        font_system: &mut FontSystem,
-        text: &str,
-        font_size: f32,
-        logical_width: f32,
-        logical_height: f32,
-    ) -> bool {
+    fn update(&mut self, font_system: &mut FontSystem, text: &str, font_size: f32) -> bool {
         let mut dirty = false;
         if self.font_size.to_bits() != font_size.to_bits() {
             self.buffer
                 .set_metrics(Metrics::new(font_size, font_size * LINE_HEIGHT_FACTOR));
             self.font_size = font_size;
-            dirty = true;
-        }
-        if self.logical_width.to_bits() != logical_width.to_bits()
-            || self.logical_height.to_bits() != logical_height.to_bits()
-        {
-            self.buffer
-                .set_size(Some(logical_width), Some(logical_height));
-            self.logical_width = logical_width;
-            self.logical_height = logical_height;
             dirty = true;
         }
         if self.text != text {
@@ -574,8 +550,6 @@ impl GpuRenderer {
             self.queue.write_buffer(&self.rect_vertex_buffer, 0, bytes);
         }
 
-        let logical_width = physical_width / scale_factor;
-        let logical_height = physical_height / scale_factor;
         let shaping = self.shaping.clone();
         let mut font_system = shaping.font_system();
         // Retained buffers for primitives that left the scene are released so
@@ -591,13 +565,7 @@ impl GpuRenderer {
         for text in &scene.texts {
             match self.text_buffers.get_mut(&text.id) {
                 Some(cached) => {
-                    if cached.update(
-                        &mut font_system,
-                        &text.text,
-                        text.font_size,
-                        logical_width,
-                        logical_height,
-                    ) {
+                    if cached.update(&mut font_system, &text.text, text.font_size) {
                         self.stats.text_reshapes += 1;
                     }
                 }
@@ -605,13 +573,7 @@ impl GpuRenderer {
                     self.stats.text_reshapes += 1;
                     self.text_buffers.insert(
                         text.id.clone(),
-                        CachedTextBuffer::new(
-                            &mut font_system,
-                            &text.text,
-                            text.font_size,
-                            logical_width,
-                            logical_height,
-                        ),
+                        CachedTextBuffer::new(&mut font_system, &text.text, text.font_size),
                     );
                 }
             }
@@ -1357,15 +1319,15 @@ mod tests {
     }
 
     #[test]
-    fn retained_text_buffer_reshapes_only_when_layout_inputs_change() {
+    fn retained_text_buffer_reshapes_only_when_text_or_size_change() {
+        // The window size is deliberately not an input: resizing never reshapes.
         let mut font_system = FontSystem::new();
-        let mut cached = CachedTextBuffer::new(&mut font_system, "Hello", 16.0, 320.0, 200.0);
+        let mut cached = CachedTextBuffer::new(&mut font_system, "Hello", 16.0);
 
-        assert!(!cached.update(&mut font_system, "Hello", 16.0, 320.0, 200.0));
-        assert!(cached.update(&mut font_system, "World", 16.0, 320.0, 200.0));
-        assert!(!cached.update(&mut font_system, "World", 16.0, 320.0, 200.0));
-        assert!(cached.update(&mut font_system, "World", 18.0, 320.0, 200.0));
-        assert!(cached.update(&mut font_system, "World", 18.0, 640.0, 200.0));
+        assert!(!cached.update(&mut font_system, "Hello", 16.0));
+        assert!(cached.update(&mut font_system, "World", 16.0));
+        assert!(!cached.update(&mut font_system, "World", 16.0));
+        assert!(cached.update(&mut font_system, "World", 18.0));
     }
 
     #[test]
@@ -1867,6 +1829,7 @@ impl WindowState {
         let status = self
             .renderer
             .render(&frame.scene, self.window.scale_factor() as f32);
+        self.renderer.shaping.end_frame();
         if status == FrameStatus::Reconfigured || self.runtime.has_active_motion() {
             self.window.request_redraw();
         }

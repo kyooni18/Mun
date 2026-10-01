@@ -29,6 +29,11 @@ pub(crate) struct ScopeModel {
     initials: HashMap<String, Value>,
     /// States read by any `forEach` collection expression (structural deps).
     pub(crate) structural_states: HashSet<String>,
+    /// Template states that can change retained structure: read by a
+    /// conditional's condition, a `.id(_:)` identity key or a `forEach`
+    /// collection. Edits to any other state cannot insert, remove, replace or
+    /// reparent retained nodes.
+    structure_states: HashSet<String>,
 }
 
 impl ScopeModel {
@@ -45,7 +50,22 @@ impl ScopeModel {
             }
         }
         collect_structural_states(template, &mut model.structural_states);
+        model.structure_states = model.structural_states.clone();
+        collect_structure_states(template, &mut model.structure_states);
         model
+    }
+
+    /// Whether a concrete state (template name or per-key instance) can change
+    /// the retained node structure.
+    pub(crate) fn affects_structure(&self, state: &str) -> bool {
+        let template = state
+            .split_once('[')
+            .map_or(state, |(template, _)| template);
+        self.structure_states.contains(template)
+    }
+
+    pub(crate) fn add_structure_expression(&mut self, expression: &UiExpression) {
+        expression_states(expression, &mut self.structure_states);
     }
 
     pub(crate) fn is_scoped(&self, state: &str) -> bool {
@@ -79,6 +99,27 @@ fn collect_structural_states(node: &UiNode, output: &mut HashSet<String>) {
     }
     for child in node.children() {
         collect_structural_states(child, output);
+    }
+}
+
+fn collect_structure_states(node: &UiNode, output: &mut HashSet<String>) {
+    if let Some(key) = &node.base().identity_key {
+        expression_states(key, output);
+    }
+    if let UiNode::Conditional {
+        condition,
+        then_nodes,
+        otherwise,
+        ..
+    } = node
+    {
+        expression_states(condition, output);
+        for child in then_nodes.iter().chain(otherwise) {
+            collect_structure_states(child, output);
+        }
+    }
+    for child in node.children() {
+        collect_structure_states(child, output);
     }
 }
 

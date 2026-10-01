@@ -17,16 +17,22 @@ use unicode_segmentation::UnicodeSegmentation;
 pub const LINE_HEIGHT_FACTOR: f32 = 1.25;
 const TEXT_FONT_SIZE: f32 = 24.0;
 const CONTROL_FONT_SIZE: f32 = 16.0;
-/// Bounded memo of shaped lines; cleared wholesale when full to cap memory.
-const LINE_CACHE_LIMIT: usize = 1024;
+/// Hard cap on lines shaped within one frame generation (memory safety net).
+const LINE_CACHE_LIMIT: usize = 65_536;
 
 pub fn text_attrs() -> Attrs<'static> {
     Attrs::new().family(Family::SansSerif)
 }
 
+/// Shaped lines are memoized in two frame generations: a line used during
+/// the current or previous frame stays cached, a line unused for a whole frame
+/// is dropped at the next [`TextShaping::end_frame`]. The cache therefore
+/// tracks the live text set however large it is, instead of thrashing once a
+/// fixed capacity is exceeded.
 pub struct TextShaping {
     font_system: RefCell<FontSystem>,
     lines: RefCell<HashMap<(String, u32), TextLineLayout>>,
+    previous: RefCell<HashMap<(String, u32), TextLineLayout>>,
     shaped_lines: Cell<u64>,
 }
 
@@ -35,6 +41,7 @@ impl TextShaping {
         Self {
             font_system: RefCell::new(font_system),
             lines: RefCell::new(HashMap::new()),
+            previous: RefCell::new(HashMap::new()),
             shaped_lines: Cell::new(0),
         }
     }
@@ -49,22 +56,44 @@ impl TextShaping {
     }
 
     pub fn cached_line_count(&self) -> usize {
-        self.lines.borrow().len()
+        self.lines.borrow().len() + self.previous.borrow().len()
+    }
+
+    /// Frame boundary: lines not used since the previous boundary are dropped.
+    pub fn end_frame(&self) {
+        let current = std::mem::take(&mut *self.lines.borrow_mut());
+        *self.previous.borrow_mut() = current;
     }
 
     fn shape_line(&self, text: &str, font_size: f32) -> TextLineLayout {
+        self.with_line(text, font_size, TextLineLayout::clone)
+    }
+
+    /// Borrow the (cached) shaped line without copying its caret stops.
+    fn with_line<R>(
+        &self,
+        text: &str,
+        font_size: f32,
+        read: impl FnOnce(&TextLineLayout) -> R,
+    ) -> R {
         let key = (text.to_owned(), font_size.to_bits());
         if let Some(line) = self.lines.borrow().get(&key) {
-            return line.clone();
+            return read(line);
         }
-        let line = shape_line(&mut self.font_system.borrow_mut(), text, font_size);
-        self.shaped_lines.set(self.shaped_lines.get() + 1);
+        let line = match self.previous.borrow_mut().remove(&key) {
+            Some(line) => line,
+            None => {
+                self.shaped_lines.set(self.shaped_lines.get() + 1);
+                shape_line(&mut self.font_system.borrow_mut(), text, font_size)
+            }
+        };
+        let result = read(&line);
         let mut lines = self.lines.borrow_mut();
         if lines.len() >= LINE_CACHE_LIMIT {
             lines.clear();
         }
-        lines.insert(key, line.clone());
-        line
+        lines.insert(key, line);
+        result
     }
 }
 
@@ -85,19 +114,22 @@ pub fn shape_line(font_system: &mut FontSystem, text: &str, font_size: f32) -> T
 
     // Merge glyphs that share a cluster range (e.g. base + combining mark glyphs).
     let mut clusters: Vec<(usize, usize, f32, f32, bool)> = Vec::new();
+    let mut cluster_index: HashMap<(usize, usize), usize> = HashMap::new();
     let mut width = 0.0_f32;
     for run in buffer.layout_runs() {
         width = width.max(run.line_w);
         for glyph in run.glyphs {
             let (left, right) = (glyph.x, glyph.x + glyph.w);
-            if let Some(cluster) = clusters
-                .iter_mut()
-                .find(|cluster| cluster.0 == glyph.start && cluster.1 == glyph.end)
-            {
-                cluster.2 = cluster.2.min(left);
-                cluster.3 = cluster.3.max(right);
-            } else {
-                clusters.push((glyph.start, glyph.end, left, right, glyph.level.is_rtl()));
+            match cluster_index.get(&(glyph.start, glyph.end)) {
+                Some(&index) => {
+                    let cluster = &mut clusters[index];
+                    cluster.2 = cluster.2.min(left);
+                    cluster.3 = cluster.3.max(right);
+                }
+                None => {
+                    cluster_index.insert((glyph.start, glyph.end), clusters.len());
+                    clusters.push((glyph.start, glyph.end, left, right, glyph.level.is_rtl()));
+                }
             }
         }
     }
@@ -148,14 +180,16 @@ pub fn shape_line(font_system: &mut FontSystem, text: &str, font_size: f32) -> T
 
 impl IntrinsicMeasurer for TextShaping {
     fn measure_text(&self, text: &str) -> IntrinsicSize {
-        let line = self.shape_line(text, TEXT_FONT_SIZE);
         // 3pt top inset used by the retained scene plus the shaped line box.
-        IntrinsicSize::new(line.width.ceil(), (line.line_height + 2.0).ceil())
+        self.with_line(text, TEXT_FONT_SIZE, |line| {
+            IntrinsicSize::new(line.width.ceil(), (line.line_height + 2.0).ceil())
+        })
     }
 
     fn measure_action(&self, label: &str) -> IntrinsicSize {
-        let line = self.shape_line(label, CONTROL_FONT_SIZE);
-        IntrinsicSize::new((line.width + 34.0).ceil().max(92.0), 38.0)
+        self.with_line(label, CONTROL_FONT_SIZE, |line| {
+            IntrinsicSize::new((line.width + 34.0).ceil().max(92.0), 38.0)
+        })
     }
 
     fn measure_panel(&self) -> IntrinsicSize {
