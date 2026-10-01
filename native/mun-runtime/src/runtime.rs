@@ -1036,9 +1036,8 @@ impl Runtime {
                 outcome.handled = outcome.pressed_changed;
             }
             InputEvent::WindowFocusChanged(false) => {
-                if let Some((_, editor)) = &mut self.text_editor {
-                    editor.cancel_composition();
-                }
+                // Deactivation keeps what the user sees: commit, never drop.
+                self.finish_composition();
                 self.input.set_modifiers(Default::default());
                 self.scrollbar_drag = None;
                 let pointer_changed = self.input.cancel_pointer(None);
@@ -1512,23 +1511,35 @@ impl Runtime {
             return false;
         };
         self.ime_requests.push(ImeRequest::DiscardComposition);
-        let field = find_text_field(&self.program.root.child, self, &owner)
-            .filter(|(_, base)| self.node_enabled(base))
-            .map(|(state, _)| state.to_owned());
-        let (_, editor) = self.text_editor.as_mut().expect("composition editor");
-        let Some(state) = field.filter(|_| !composition.text.is_empty()) else {
-            editor.cancel_composition();
+        let Some((state, enabled)) = find_text_field(&self.program.root.child, self, &owner)
+            .map(|(state, base)| (state.to_owned(), self.node_enabled(base)))
+        else {
+            if let Some((_, editor)) = self.text_editor.as_mut() {
+                editor.cancel_composition();
+            }
             return true;
         };
-        let binding = self.state.get(&state).and_then(Value::as_str).unwrap_or("");
-        if editor.text() != binding {
+        let binding = self
+            .state
+            .get(&state)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        let (_, editor) = self.text_editor.as_mut().expect("composition editor");
+        if editor.presentation_text() != binding {
             // The binding changed underneath the preedit; its anchor is stale.
-            editor.synchronize(binding);
+            editor.synchronize(&binding);
             return true;
         }
-        editor.apply(crate::text_edit::TextEdit::CompositionCommit(
-            composition.text,
-        ));
+        if enabled && !composition.text.is_empty() {
+            editor.apply(crate::text_edit::TextEdit::CompositionCommit(
+                composition.text,
+            ));
+        } else {
+            editor.cancel_composition();
+        }
+        // The binding already shows the preedit; committing leaves it as is,
+        // cancelling restores the committed text.
         let value = editor.text().to_owned();
         self.set_control_state(state, Value::String(value));
         true
@@ -1686,10 +1697,15 @@ impl Runtime {
         }
         let editor = &mut self.text_editor.as_mut()?.1;
         editor.synchronize(value);
-        if !editor.apply(edit) {
+        // The binding is what the field presents: committed text with any
+        // in-progress IME composition (e.g. a partial Hangul syllable) spliced
+        // in, so bound views update as the user composes.
+        let before = editor.presentation_text();
+        editor.apply(edit);
+        let value = editor.presentation_text();
+        if value == before {
             return None;
         }
-        let value = editor.text().to_owned();
         self.set_control_state(state, Value::String(value))
     }
 
@@ -3304,7 +3320,7 @@ impl Runtime {
                 let editor = self
                     .focused_text_editor()
                     .filter(|_| self.focused_action.as_deref() == Some(base.id.as_str()))
-                    .filter(|editor| editor.text() == value);
+                    .filter(|editor| editor.presentation_text() == value);
                 let presentation = editor.map(|editor| editor.presentation_text());
                 let value = presentation.as_deref().unwrap_or(value);
                 let (text, text_opacity) = if value.is_empty() {
@@ -3610,7 +3626,7 @@ impl Runtime {
         let editor = self
             .focused_text_editor()
             .filter(|_| self.focused_action.as_deref() == Some(base.id.as_str()))
-            .filter(|editor| editor.text() == value);
+            .filter(|editor| editor.presentation_text() == value);
         let scroll = editor
             .and_then(|_| self.text_scroll.borrow().get(&base.id).copied())
             .unwrap_or(0.0);
@@ -3630,7 +3646,14 @@ impl Runtime {
                 width: line.width,
                 height: line.line_height,
             },
-            selection: editor.map(|editor| (index_of(editor.anchor()), index_of(editor.cursor()))),
+            // The value includes any composition; report positions in it.
+            selection: editor.map(|editor| match editor.composition() {
+                Some(_) => {
+                    let caret = index_of(editor.presentation_ranges().caret);
+                    (caret, caret)
+                }
+                None => (index_of(editor.anchor()), index_of(editor.cursor())),
+            }),
         }
     }
 

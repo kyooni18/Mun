@@ -107,7 +107,7 @@ fn display_scale_changes_while_composing_keep_logical_geometry_and_rescale_pixel
     }
     assert_eq!(
         session.runtime().state_value("name").unwrap(),
-        "한국어 text"
+        "한국어 text가"
     );
 }
 

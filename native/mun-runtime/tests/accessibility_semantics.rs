@@ -123,8 +123,8 @@ fn assistive_selection_commits_an_active_composition_first() {
     .unwrap();
     assert_eq!(
         node(&r, "field").value.as_deref(),
-        Some("한e\u{301}👍🏽 ok"),
-        "preedit is not the value"
+        Some("한e\u{301}👍🏽 ok가"),
+        "the in-progress composition is part of the value"
     );
     r.handle_accessibility_action(
         "field",

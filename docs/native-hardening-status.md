@@ -34,14 +34,27 @@ and Linux (Xvfb/Mesa); Windows and Linux were not executed locally.
   from cosmic-text shaped glyph clusters; pointer-to-text mapping, click,
   drag-select and Shift-click use the same geometry. The renderer exposes
   geometry only.
-- IME: preedit never reaches the binding before the platform commits; it
-  survives frames; focus change, pointer relocation and clipboard shortcuts
-  commit the composition into its own field and ask the platform to discard
+- IME: the binding mirrors what the field shows, so an in-progress
+  composition (e.g. a partial Hangul syllable) updates bound views
+  immediately; cancelling restores the committed text. Composition survives
+  frames; focus change, window deactivation, pointer relocation and clipboard
+  shortcuts commit it into its own field and ask the platform to discard
   its marked text (`NSTextInputContext.discardMarkedText` on macOS). The IME
   candidate area follows the shaped caret and is re-sent after scale changes.
 - Clipboard: arboard host service; cut deletes only after a successful write
   acknowledgement; reads carry request ids, stale/failed/superseded reads are
   ignored, pasted text is sanitized to one line. No shelling out.
+
+- Undo/redo (⌘Z/⌘⇧Z, Ctrl+Z/Ctrl+Y) with coalesced typing runs; history is
+  per focus session. Shortcuts use the physical key, so they work under
+  non-Latin input sources.
+
+## Layout
+
+The window bounds its root view. `.frame(minWidth:maxWidth:minHeight:maxHeight:)`
+makes views flexible (grow along the parent's main axis, stretch across it,
+clamped to bounds; `.infinity` allowed for max); containers of flexible
+children become flexible.
 
 ## Scrolling
 

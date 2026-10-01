@@ -105,7 +105,7 @@ fn caret_selection_and_preedit_reach_the_framebuffer_at_shaped_positions() {
     assert!(r > 150, "preedit underline pixel {r}");
     assert_eq!(
         session.runtime().state_value("name").unwrap(),
-        "한국어 text",
-        "preedit never reaches the binding"
+        "한국어 text가",
+        "the binding shows the in-progress composition"
     );
 }

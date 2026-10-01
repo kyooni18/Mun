@@ -33,7 +33,8 @@ fn composition_binding_scene_focus_and_commit_contract() {
             selection: Some((1, 1)),
         })),
     );
-    assert_eq!(r.state_value("name").unwrap(), "Ada");
+    // Bound views see a partial syllable immediately.
+    assert_eq!(r.state_value("name").unwrap(), "한");
     assert_eq!(
         r.build_accessibility_tree(400.0, 300.0)
             .unwrap()
@@ -41,7 +42,7 @@ fn composition_binding_scene_focus_and_commit_contract() {
             .unwrap()
             .value
             .as_deref(),
-        Some("Ada")
+        Some("한")
     );
     assert_eq!(
         r.build_scene(400.0, 300.0)
@@ -53,7 +54,12 @@ fn composition_binding_scene_focus_and_commit_contract() {
             .text,
         "한"
     );
+    // The IME owns editing keys while composing.
     key(&mut r, LogicalKey::Backspace);
+    assert_eq!(r.state_value("name").unwrap(), "한");
+    // Cancelling restores the committed text; re-composing then committing
+    // replaces the still-selected text.
+    input(&mut r, InputEvent::TextEdit(TextEdit::CompositionCancel));
     assert_eq!(r.state_value("name").unwrap(), "Ada");
     input(
         &mut r,
@@ -282,7 +288,7 @@ fn caret_selection_and_preedit_are_presented_from_shaped_geometry() {
     assert!((preedit.rect.width - 3.0 * 9.6).abs() < 0.01);
     let focused_segment = rect(&scene, "field:preedit-selection").expect("composition target");
     assert!((focused_segment.rect.width - 2.0 * 9.6).abs() < 0.01);
-    assert_eq!(r.state_value("name").unwrap(), "한국 hi");
+    assert_eq!(r.state_value("name").unwrap(), "にほん hi");
 }
 
 #[test]
@@ -442,7 +448,7 @@ fn paste_failure_unavailable_content_and_composition_never_mutate() {
             text: Some("new".into()),
         },
     );
-    assert_eq!(r.state_value("name").unwrap(), "한국 hi");
+    assert_eq!(r.state_value("name").unwrap(), "한국 hiㅎ");
     assert_eq!(
         r.focused_text_editor().unwrap().composition().unwrap().text,
         "ㅎ"

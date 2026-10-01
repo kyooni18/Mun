@@ -27,8 +27,9 @@ Each `MUN_TRACE` line is JSON: `platform` (winit/AccessKit event), `focused`,
 ## Korean IME (2-Set Korean)
 
 3. Focus "Project name", select all, type `한국어`. While composing, the trace
-   shows `preedit` with the current syllable and `text` without it; the
-   candidate/compose window sits at the caret (`imeArea`).
+   shows `preedit` with the current syllable, and the bound "Text(name)" line
+   updates with each partial syllable; the candidate/compose window sits at
+   the caret (`imeArea`).
 4. Type several syllables, then move the caret into the middle of Korean text
    (arrow keys) and type `가` — it inserts at the caret, not at the end.
 5. While a syllable is composing, press Tab. Expected: the syllable is

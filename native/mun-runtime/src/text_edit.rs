@@ -167,8 +167,10 @@ impl TextEditor {
             .expect("boundary list always contains 0")
     }
     /// An external binding change invalidates preedit and collapses selection.
+    /// The binding mirrors `presentation_text`; only an external change to it
+    /// resets the editor.
     pub fn synchronize(&mut self, text: &str) {
-        if self.text != text {
+        if self.presentation_text() != text {
             *self = Self::new(text.to_owned());
         }
     }
