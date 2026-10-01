@@ -1,80 +1,113 @@
-# Native hardening checkpoint
+# Native hardening status
 
-This is a partial hardening checkpoint, not a production-readiness declaration.
-The native-first compiler → semantic IR → runtime → Taffy → retained scene →
-winit/wgpu/glyphon/accesskit architecture is unchanged.
+This is a hardening checkpoint, not a production-readiness declaration. The
+architecture is unchanged: compiler → Semantic UI IR → `mun-runtime` (state,
+editing, layout via Taffy, retained scene, accessibility semantics) →
+`mun-native` (winit/wgpu/glyphon/AccessKit realization). Platform adapters
+translate events; semantics stay in the runtime.
 
-## Verified in this checkpoint
+## Automatically verified (macOS arm64, 2026-10-01)
 
-On macOS arm64:
+- `pnpm test`; `cargo test --manifest-path native/Cargo.toml --workspace --locked`
+  (22 host unit tests, 123 runtime unit tests, 54 integration tests in 11
+  suites; source contracts and the stress report are ignored by plain Cargo);
+  `node scripts/verify-native-contracts.mjs` (5 compiled-source contracts,
+  including keyed rows in the production smoke); `cargo build -p mun-native
+  --locked`; `node scripts/native-smoke.mjs` (real window, renderer and
+  AccessKit adapter initialized, frames presented); `node
+  scripts/verify-native-package.mjs` (release host assembly, clean consumer,
+  stale-metadata and no-Cargo-fallback rejection); `cargo fmt --check`;
+  `git diff --check`.
+- Pixel tests through the production wgpu/glyphon renderer (offscreen): sRGB
+  colors, caret/selection/preedit at shaped positions, display scale changes.
 
-- `pnpm run build` and `pnpm test` passed (compiler, package, types, docs, release tests).
-- `cargo test --manifest-path native/Cargo.toml --workspace --locked` passed:
-  18 native-host unit tests, 112 runtime unit tests, 9 existing integration tests,
-  8 scroll integration tests and 3 editing integration tests. Three source contracts are ignored by plain Cargo.
-- `node scripts/verify-native-contracts.mjs` passed all four freshly compiled
-  source contracts, including the production smoke, controls and layout.
-- `cargo build --manifest-path native/Cargo.toml -p mun-native --locked` passed.
-- `node scripts/native-smoke.mjs` opened a real native window, initialized the
-  renderer and accessibility adapter, rendered three frames, and exited.
-- `node scripts/verify-native-package.mjs` packed isolated workspace packages,
-  installed into a clean consumer, compiled source, and launched the installed
-  host without Cargo or checkout dependency.
-- Cargo formatting and `git diff --check` passed.
+CI runs the same contracts, builds, smoke and package checks on macOS, Windows
+and Linux (Xvfb/Mesa); Windows and Linux were not executed locally.
 
-CI now schedules these source contracts, native builds, and real-window smoke
-checks on macOS, Windows and Linux (Xvfb/Mesa). Windows/Linux were **not executed
-locally**. Adapter initialization does not prove screen-reader interaction.
+## Text editing
 
-## Editing contract
+- Grapheme-aware editor (scalar-offset public contract): combining marks, emoji
+  variation selectors, skin tones, ZWJ sequences, flags and decomposed Hangul
+  are never split; word navigation and deletion are separate from grapheme
+  steps.
+- Caret, selection and IME preedit (with composition selection) are positioned
+  from cosmic-text shaped glyph clusters; pointer-to-text mapping, click,
+  drag-select and Shift-click use the same geometry. The renderer exposes
+  geometry only.
+- IME: preedit never reaches the binding before the platform commits; it
+  survives frames; focus change, pointer relocation and clipboard shortcuts
+  commit the composition into its own field and ask the platform to discard
+  its marked text (`NSTextInputContext.discardMarkedText` on macOS). The IME
+  candidate area follows the shaped caret and is re-sent after scale changes.
+- Clipboard: arboard host service; cut deletes only after a successful write
+  acknowledgement; reads carry request ids, stale/failed/superseded reads are
+  ignored, pasted text is sanitized to one line. No shelling out.
 
-Runtime editing uses Unicode scalar offsets, explicitly not UTF-8 byte offsets.
-Left/right, Home/End, Shift-selection, select-all, replacement, Backspace/Delete,
-and composition update/commit/cancel share a semantic editor. Preedit appears
-in presentation but never updates the committed binding or accessibility value.
-Platform preedit byte offsets are normalized at the winit adapter. Focus changes
-and window focus loss cancel composition. Clipboard requests are runtime service
-messages serviced by the host through arboard, not OS commands in controls.
+## Scrolling
 
-## Scrolling contract
+Keyboard (arrows, Page Up/Down, Home/End) with deterministic owner (focused
+control's nearest viewport, else hovered), focus-driven minimal reveal through
+nested ancestors, runtime-owned scrollbars hidden when content fits, thumb
+drag and track paging, nested wheel routing. Scroll input reuses current
+viewport geometry instead of rebuilding a frame.
 
-`ScrollView()` defaults to vertical; `.horizontal` is explicit. The compiler,
-shared semantic IR/schema and native runtime carry a first-class `scroll` node.
-Runtime-owned offsets reconcile against Taffy content extents, clamp on content
-changes and resize, and translate scene/hit-test/accessibility geometry together.
-Nested wheel input consumes inner capacity before routing residual movement to
-ancestors. Removed viewports discard offsets. Integration tests cover clipping,
-hit testing, nested routing, conditional removal, resizing and horizontal input.
-The web compatibility adapter maps this node to CSS overflow; no web dependency
-was introduced into the native runtime.
+## Keyed collections
 
-## Remaining release blockers
+`ForEach(items, id: \.key)` lowers to a `forEach` node. The runtime
+materializes one instance per key; node identities and item-scoped `@State`
+follow the key through insertion, deletion, reorder, filtering and conditional
+parents; removed keys release their state; duplicate/invalid keys are explicit
+errors; rejected transactions roll back atomically. The production smoke has
+keyed `TaskRow`s with per-row state, verified through compiled source.
 
-These are unfinished implementation work, **not external blockers**:
+## Accessibility semantics
 
-- Caret/selection/preedit-decoration rendering, pointer-to-text-position mapping,
-  IME candidate positioning, real Korean/Japanese/Chinese input validation.
-  Scalar editing is UTF-8 safe but not grapheme-aware (combining marks/ZWJ).
-- Clipboard failure acknowledgement: cut currently mutates before host write
-  success. Linux clipboard ownership persistence and Wayland integration need
-  real-platform testing. Service calls are synchronous.
-- Scrollbar presentation, keyboard/page scrolling, focus-driven scroll-to-reveal,
-  and real trackpad/platform scrolling validation. Basic semantic viewports and
-  nested wheel routing are integrated, but these interaction contracts remain.
-- Runtime-owned keyed collection state scopes. Compiler identity safeguards are
-  deliberately not relaxed.
-- Accesskit text selection/edit actions and detailed radio option semantics;
-  VoiceOver/UIA/AT-SPI manual verification.
-- Mirrored text transforms, true subtree opacity contract, full GPU device-loss
-  and initialization error recovery, display-change/DPI regression matrix.
-- Strict unknown-field IR diagnostics, comprehensive contract validation.
-- Release host artifact assembly for supported OS/architecture targets. The
-  packaging test stages a current debug host; it does not produce signed release
-  binaries. Packages lacking hosts still use the existing Cargo fallback.
-- Runtime-scoped keyed local state in the production smoke. The current
-  NativeProductionSmoke source covers controls, scrolling, shapes, gradients,
-  multilingual editing content and conditional transitions, not keyed local state.
-- Retained-tree stress/performance measurement and leak/resource-growth testing.
+Radio options are RadioButton nodes (checked, disabled, activation through the
+group). Text fields expose committed text as AccessKit text runs with grapheme
+characters, shaped positions, word starts and the editor selection, and accept
+SetTextSelection / ReplaceSelectedText / SetValue through the runtime editor.
+Scroll views expose offsets and accept scroll/ScrollIntoView actions. Inactive
+conditional branches are absent from the tree.
 
-No browser or platform UI framework was added to the native core. No claim of
-full desktop production readiness or three-platform direct validation is made.
+## Contracts and lifecycle
+
+- The runtime evaluates the bundled `schemas/semantic-ui-ir-v1.schema.json`
+  before deserializing: unknown fields/kinds, nested windows and malformed data
+  are errors naming node and field; references are checked.
+- Deterministic tests cover scale changes while composing, minimize/restore
+  while scrolled and animating, zero-sized windows. Host layout errors are
+  reported, not panics. Mirrored text transforms are rejected with a
+  diagnostic; collapsed (zero-scale) text is skipped.
+- Release hosts are assembled per OS/arch with metadata the launcher checks;
+  Cargo builds are a source-checkout/dev path only. Signing is an external step
+  (`docs/native-release.md`); published hosts are currently unsigned.
+
+## Measured performance (release, offscreen 800×600@2x)
+
+`tests/stress.rs` (report: `cargo test --release -p mun-native --test stress --
+--ignored --nocapture`). 1000 keyed rows (~7.3k retained nodes): frame build
+~18 ms + render ~3 ms, typing ~1.9 ms per keystroke, scroll input ~0.6 ms,
+keyed insert/move/remove ~42 ms. 3000 rows (~22k nodes): build ~57 ms. Text
+buffers, shaped-line cache and scoped state stay bounded under churn; resizes
+reshape no text.
+
+## Not verified on a real platform
+
+- Korean/Japanese IME typing, VoiceOver, trackpad momentum scrolling and
+  real clipboard interplay on macOS were **not** exercised interactively:
+  this environment has no Accessibility, event-posting or screen-recording
+  permission. `docs/native-manual-validation.md` is the checklist;
+  `MUN_NATIVE_TRACE=1` records a verifiable trace.
+- Windows UIA/IME and Linux AT-SPI/IBus/Wayland clipboard: not exercised.
+
+## Remaining blockers
+
+- Real-platform IME, screen-reader and trackpad validation (above).
+- Scalability: every frame rebuilds layout and scene for the whole tree, and
+  every collection mutation re-materializes the whole `forEach`; no
+  virtualization or offscreen culling. Comfortable for hundreds to low
+  thousands of nodes, not for very large lists.
+- Single-line text only (no wrapping or multi-line editing).
+- Group opacity multiplies per primitive; overlapping children inside a
+  translucent group do not composite as one layer.
+- Release signing/notarization is not automated.
