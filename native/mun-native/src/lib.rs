@@ -1605,6 +1605,9 @@ struct WindowState {
     ime_composing: bool,
     ime_allowed: bool,
     ime_cursor_area: Option<mun_runtime::Rect>,
+    /// `MUN_NATIVE_TRACE=1`: JSON-lines trace of platform input and resulting
+    /// semantic state on stderr, for verifying manual platform sessions.
+    trace: bool,
     window: Arc<Window>,
 }
 
@@ -1662,8 +1665,28 @@ impl WindowState {
             ime_composing: false,
             ime_allowed: false,
             ime_cursor_area: None,
+            trace: std::env::var_os("MUN_NATIVE_TRACE").is_some_and(|value| value == "1"),
             window,
         })
+    }
+
+    /// Trace a platform event and the semantic editing/focus state after it.
+    fn trace_event(&self, platform: &str) {
+        if !self.trace {
+            return;
+        }
+        let focused = self.runtime.focused_action();
+        let editor = self.runtime.focused_text_editor();
+        let entry = serde_json::json!({
+            "platform": platform,
+            "focused": focused,
+            "text": editor.map(|editor| editor.text()),
+            "selection": editor.map(|editor| [editor.anchor(), editor.cursor()]),
+            "preedit": editor.and_then(|editor| editor.composition()).map(|composition| &composition.text),
+            "imeAllowed": self.ime_allowed,
+            "imeArea": self.ime_cursor_area.map(|area| [area.x, area.y, area.width, area.height]),
+        });
+        eprintln!("MUN_TRACE {entry}");
     }
 
     fn logical_size(&self) -> (f32, f32) {
@@ -1902,6 +1925,24 @@ impl ApplicationHandler<NativeEvent> for Application {
     ) {
         let Some(state) = &mut self.state else { return };
         state.accessibility.process_event(&state.window, &event);
+        let traced = state.trace.then(|| match &event {
+            WindowEvent::Ime(ime) => Some(format!("{ime:?}")),
+            WindowEvent::KeyboardInput { event, .. } => Some(format!(
+                "Key {:?} {:?} text={:?}",
+                event.logical_key, event.state, event.text
+            )),
+            WindowEvent::MouseWheel { delta, phase, .. } => {
+                Some(format!("Wheel {delta:?} {phase:?}"))
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                Some(format!("Mouse {button:?} {state:?}"))
+            }
+            WindowEvent::Focused(focused) => Some(format!("WindowFocused {focused}")),
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                Some(format!("Scale {scale_factor}"))
+            }
+            _ => None,
+        });
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
@@ -2056,13 +2097,18 @@ impl ApplicationHandler<NativeEvent> for Application {
             }
             _ => {}
         }
+        if let (Some(Some(platform)), Some(state)) = (traced, &self.state) {
+            state.trace_event(&platform);
+        }
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: NativeEvent) {
         let Some(state) = &mut self.state else { return };
         match event {
             NativeEvent::AccessibilityAction(request) => {
+                let platform = format!("AccessKit {:?} {:?}", request.action, request.data);
                 state.handle_accessibility_action(request);
+                state.trace_event(&platform);
             }
         }
     }
