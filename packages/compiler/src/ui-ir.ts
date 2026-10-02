@@ -1840,12 +1840,16 @@ class UiLowerer {
   readonly #qualifiedNameByDeclaration: ReadonlyMap<MunStructDeclaration, string>
   readonly #semanticViews = new Map<string, MunSemanticView>()
   readonly #componentStack: string[] = []
+  /** Absolute source base for the currently lowered custom View body. */
+  readonly #sourceBaseStack: number[] = []
   readonly #states: MunUiState[]
   readonly #stateTypes: Map<string, string>
   /** Declared Mün type per state identity; development metadata only. */
   readonly #declaredTypes = new Map<string, string>()
   /** Distinct custom View declarations whose bodies were lowered this compile. */
   readonly #loweredViewDeclarations = new Set<string>()
+  /** Development-only semantic node -> canonical source range. */
+  readonly #sourceSpans = new Map<string, { readonly id: string; readonly start: number; readonly end: number; readonly component?: string }>()
   /** Enclosing ForEach templates; View-local state inside them is item-scoped. */
   readonly #forEachScopes: string[] = []
   /** Key path per collection state, recorded by the ForEach that renders it. */
@@ -1882,6 +1886,31 @@ class UiLowerer {
 
   loweredViewDeclarations(): ReadonlySet<string> {
     return this.#loweredViewDeclarations
+  }
+
+  sourceSpans(): readonly { readonly id: string; readonly start: number; readonly end: number; readonly component?: string }[] {
+    return [...this.#sourceSpans.values()]
+  }
+
+  recordSource(nodes: readonly MunUiNode[], node: MunBuilderNode): void {
+    const component = this.#componentStack.at(-1)
+    const base = this.#sourceBaseStack.at(-1) ?? 0
+    for (const output of nodes) {
+      const existing = this.#sourceSpans.get(output.id)
+      // `splitViewChain` reparses a raw expression relative to that expression,
+      // then the outer node is recorded again with its true body-relative range.
+      // Prefer that later span inside the same component. A child custom View,
+      // however, already recorded its output against its declaration body; keep
+      // that source instead of replacing it with the parent's call site.
+      if (!existing || existing.component === component) {
+        this.#sourceSpans.set(output.id, {
+          id: output.id,
+          start: base + node.range.start,
+          end: base + node.range.end,
+          ...(component ? { component } : {}),
+        })
+      }
+    }
   }
 
   states(): readonly MunUiState[] {
@@ -2020,12 +2049,30 @@ class UiLowerer {
 
   lowerBody(declaration: MunStructDeclaration, bindings: UiBindings, path: UiIdentityPath, statePath: UiStateIdentityPath = path): MunUiNode {
     this.#loweredViewDeclarations.add(this.qualifiedName(declaration))
-    const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
-    const nodes = this.lowerProgram(program, bindings, path, statePath)
-    if (nodes.length !== 1) {
-      throw new SyntaxError(`Native custom View '${declaration.name}' body produces ${nodes.length} root views; wrap them in a VStack, HStack or ZStack`)
+    const base = declaration.bodyExpressionRange.start
+    this.#sourceBaseStack.push(base)
+    try {
+      let program: MunBuilderProgram
+      try {
+        // Builder transforms such as modifier-chain parsing naturally operate
+        // relative to the custom View body. Keep every builder range in that
+        // coordinate space and add the absolute declaration base only when
+        // emitting development source metadata.
+        program = parseMunBuilder(declaration.bodyExpressionSource, 0)
+      } catch (error) {
+        if (typeof (error as { offset?: unknown })?.offset === "number") {
+          ;(error as { offset: number }).offset += base
+        }
+        throw error
+      }
+      const nodes = this.lowerProgram(program, bindings, path, statePath)
+      if (nodes.length !== 1) {
+        throw new SyntaxError(`Native custom View '${declaration.name}' body produces ${nodes.length} root views; wrap them in a VStack, HStack or ZStack`)
+      }
+      return nodes[0]
+    } finally {
+      this.#sourceBaseStack.pop()
     }
-    return nodes[0]
   }
 
   lowerNodes(
@@ -2042,14 +2089,35 @@ class UiLowerer {
       }
       const scopedPath = nodeIdentityPathForModifiers(path, chain.modifiers, bindings)
       const scopedStatePath = stateIdentityPathForModifiers(statePath, chain.modifiers, bindings)
-      const bases = color
-        ? [colorView(this, color.colorSource, scopedPath)]
-        : this.lowerNodes(chain.base, bindings, scopedPath, scopedStatePath)
+      let bases: MunUiNode[]
+      if (color) {
+        bases = [colorView(this, color.colorSource, scopedPath)]
+      } else {
+        // `splitViewChain` reparses `node.source` from offset zero. Descendant
+        // builder ranges are therefore relative to this raw expression rather
+        // than the enclosing custom View body. Carry the raw node's body-relative
+        // start while lowering that reparsed base so source metadata remains exact.
+        const sourceBase = (this.#sourceBaseStack.at(-1) ?? 0) + node.range.start
+        this.#sourceBaseStack.push(sourceBase)
+        try {
+          bases = this.lowerNodes(chain.base, bindings, scopedPath, scopedStatePath)
+        } finally {
+          this.#sourceBaseStack.pop()
+        }
+      }
       // Modifiers on a Group apply to each of its Views, as in SwiftUI.
-      return bases.map((base, index) => this.applyModifiers(base, chain.modifiers, bindings, bases.length > 1 ? [...scopedPath, "group", index] : scopedPath))
+      const outputs = bases.map((base, index) => this.applyModifiers(base, chain.modifiers, bindings, bases.length > 1 ? [...scopedPath, "group", index] : scopedPath))
+      this.recordSource(outputs, node)
+      return outputs
     }
-    if (node.kind === "conditional") return [this.lowerConditional(node, bindings, path, statePath)]
-    return this.lowerCall(node, bindings, path, statePath)
+    if (node.kind === "conditional") {
+      const outputs = [this.lowerConditional(node, bindings, path, statePath)]
+      this.recordSource(outputs, node)
+      return outputs
+    }
+    const outputs = this.lowerCall(node, bindings, path, statePath)
+    this.recordSource(outputs, node)
+    return outputs
   }
 
   lower(
@@ -2473,6 +2541,17 @@ export function compileMunUiProgram(
 /** Development-only facts about a compiled program, never part of the IR. */
 export interface MunDevProgramMetadata {
   readonly states: readonly { readonly name: string; readonly type: string; readonly scope?: string }[]
+  readonly nodes: readonly {
+    readonly id: string
+    readonly start: number
+    readonly end: number
+    readonly component?: string
+    readonly file?: string
+    readonly line?: number
+    readonly column?: number
+    readonly endLine?: number
+    readonly endColumn?: number
+  }[]
 }
 
 /**
@@ -2502,6 +2581,7 @@ function devCompileResult(
         type: types.get(state.name) ?? (state.initial === null ? "nil" : typeof state.initial),
         ...(state.scope ? { scope: state.scope } : {}),
       })),
+      nodes: lowerer.sourceSpans(),
     },
     stats: {
       declarationsChecked: countStructDeclarations(structs),

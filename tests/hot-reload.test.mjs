@@ -9,7 +9,7 @@ import { DEV_PROTOCOL_VERSION, MAX_FRAME_BYTES, createFrameDecoder, encodeFrame,
 import { analyzeCompatibility } from '../bin/hot-reload.mjs'
 import { applyProgramPatch, createProgramUpdate } from '../bin/program-patch.mjs'
 import { createProjectCompiler } from '../bin/project.mjs'
-import { HotUpdateRejected, createDevLoop } from '../bin/watch.mjs'
+import { HotUpdateRejected, createDevLoop, enrichInspectorSnapshot, formatRuntimeDiagnostic } from '../bin/watch.mjs'
 import { formatSnapshot, macInfoPlist, packagedExecutableName } from '../bin/workflow.mjs'
 
 const app = ({ type = 'Int', initial = '0', label = 'Count', step = 1, entry = 'App', row = 'Bool' } = {}) => `struct Row: View {
@@ -179,6 +179,8 @@ test('project compiler re-reads only changed files and never reuses a result aft
   assert.ok(initial.stats.declarationsReparsed >= 2)
   assert.ok(initial.stats.declarationsRechecked >= 2)
   assert.ok(initial.stats.viewDeclarationsRelowered >= 2)
+  assert.ok(initial.metadata.nodes.some(node => node.file === 'Sources/Row.mun' && node.line === 4), 'nested View node maps back to Row.mun')
+  assert.ok(initial.metadata.nodes.some(node => node.file === 'Sources/App.mun'), 'entry nodes map back to App.mun')
   const again = compiler.compile()
   assert.equal(again.stats.filesRead, 0); assert.equal(again.stats.reused, true)
   writeFileSync(other, app().split('@main')[0].replace('"row"', '"row!"'))
@@ -202,11 +204,18 @@ test('macOS Info.plist names the real executable and manifest identity', () => {
   assert.equal(packagedExecutableName({ name: 'Mün App/x' }, 'win32'), 'Mün App_x.exe')
 })
 
-test('inspector text output never prints redacted values', () => {
-  const text = formatSnapshot({
+test('inspector and runtime diagnostics attach project-relative source locations without exposing values', () => {
+  const node = '@node/entry/App/body/kind/text'
+  const metadata = { nodes: [{ id: node, file: 'Sources/App.mun', line: 7, column: 5, endLine: 7, endColumn: 18 }] }
+  const snapshot = enrichInspectorSnapshot({
     title: 'T', entry: 'App', revision: 2, primitives: 4,
-    nodes: [{ id: 'window', kind: 'Window', children: ['@node/entry/App/body/kind/text'], frame: [0, 0, 10, 10] }, { id: '@node/entry/App/body/kind/text', kind: 'Text', parent: 'window', children: [] }],
+    nodes: [{ id: 'window', kind: 'Window', children: [node], frame: [0, 0, 10, 10] }, { id: node, kind: 'Text', parent: 'window', children: [] }],
     states: [{ name: 'secret', valueKind: 'string', redacted: true }, { name: 'count', valueKind: 'number', value: 2 }],
-  })
-  assert.match(text, /secret = <redacted>/u); assert.match(text, /count = 2/u); assert.match(text, /^\s+Text\s+App\/body$/mu)
+  }, metadata, 4)
+  const text = formatSnapshot(snapshot)
+  assert.match(text, /secret = <redacted>/u)
+  assert.match(text, /count = 2/u)
+  assert.match(text, /Text\s+App\/body @ Sources\/App\.mun:7:5/u)
+  assert.match(text, /dev revision 4/u)
+  assert.equal(formatRuntimeDiagnostic({ severity: 'error', message: 'bad write', node }, metadata), 'Sources/App.mun:7:5: Runtime error: bad write')
 })

@@ -127,6 +127,44 @@ function sourceError(path, source, error) {
   return new Error(`${path}:${before.split('\n').length}:${before.length - before.lastIndexOf('\n')}: ${error.message}`)
 }
 
+function sourcePoint(source, offset) {
+  const bounded = Math.max(0, Math.min(source.length, offset))
+  const before = source.slice(0, bounded)
+  return { line: before.split('\n').length, column: before.length - before.lastIndexOf('\n') }
+}
+
+function mapDevMetadata(project, sources, metadata) {
+  const ranges = []
+  let base = 0
+  for (const item of sources) {
+    ranges.push({ ...item, base, end: base + item.source.length })
+    base += item.source.length + 1
+  }
+  const locate = offset => {
+    const owner = ranges.find(item => offset <= item.end) ?? ranges.at(-1)
+    if (!owner) return undefined
+    const local = Math.max(0, Math.min(owner.source.length, offset - owner.base))
+    return { owner, local, ...sourcePoint(owner.source, local) }
+  }
+  return {
+    ...metadata,
+    nodes: (metadata.nodes ?? []).map(span => {
+      const start = locate(span.start)
+      const end = locate(span.end)
+      if (!start) return span
+      const sameFileEnd = end?.owner.path === start.owner.path ? end : start
+      return {
+        ...span,
+        file: relative(project.root, start.owner.path).split(sep).join('/'),
+        line: start.line,
+        column: start.column,
+        endLine: sameFileEnd.line,
+        endColumn: sameFileEnd.column,
+      }
+    }),
+  }
+}
+
 function compileSources(project, sources, development = false, preparedStructs) {
   const timings = {}
   const started = performance.now()
@@ -138,7 +176,7 @@ function compileSources(project, sources, development = false, preparedStructs) 
       ? compileMunDevProgramFromStructs(combined, preparedStructs, project.entry)
       : compileMunDevProgram(combined, project.entry)
     timings.lower = performance.now() - started
-    return { ...result, timings }
+    return { ...result, metadata: mapDevMetadata(project, sources, result.metadata), timings }
   } catch (error) {
     let offset = typeof error.offset === 'number' ? error.offset : 0
     let owner = sources[0]

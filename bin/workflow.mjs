@@ -180,14 +180,15 @@ export async function inspectProject(project, { values = false, json = false } =
 
 export function formatSnapshot(snapshot) {
   const nodes = new Map(snapshot.nodes.map(node => [node.id, node]))
-  const lines = [`${snapshot.title} — entry ${snapshot.entry}, revision ${snapshot.revision}, ${snapshot.primitives ?? '?'} primitives${snapshot.activeAnimations ? ', animating' : ''}`]
+  const lines = [`${snapshot.title} — entry ${snapshot.entry}, runtime revision ${snapshot.revision}${snapshot.devRevision !== undefined ? `, dev revision ${snapshot.devRevision}` : ''}, ${snapshot.primitives ?? '?'} primitives${snapshot.activeAnimations ? ', animating' : ''}`]
   if (snapshot.focus) lines.push(`focus: ${snapshot.focus}`)
   const short = id => id.replace(/^@node\/entry\//u, '').replace(/\/kind\/[A-Za-z]+$/u, '')
   const visit = (node, depth) => {
     const frame = node.frame ? ` [${node.frame.map(value => Math.round(value)).join(', ')}]` : ''
     const component = node.component ? ` <${node.component}>` : ''
     const scroll = node.scrollOffset ? ` scroll=${node.scrollOffset.map(value => Math.round(value)).join(',')}` : ''
-    lines.push(`${'  '.repeat(depth)}${node.kind}${component}${frame}${scroll}  ${short(node.id)}`)
+    const source = node.source ? ` @ ${node.source.file}:${node.source.line}:${node.source.column}` : ''
+    lines.push(`${'  '.repeat(depth)}${node.kind}${component}${frame}${scroll}  ${short(node.id)}${source}`)
     for (const child of node.children) if (nodes.has(child)) visit(nodes.get(child), depth + 1)
   }
   const root = snapshot.nodes.find(node => !node.parent)

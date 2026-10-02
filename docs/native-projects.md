@@ -154,8 +154,13 @@ analysis still covers the whole project unit.
 While `mun dev` runs it writes `.mun/dev/session.json` (mode 0600; loopback
 inspector endpoint and token) and removes it on exit. `mun inspect [--values]
 [--json]` prints the live node tree (kind, frame, component, scroll offset, focus)
-and state names. State values are included only with `--values`; `SecureField`
-state is always redacted.
+and state names. Development compilation keeps semantic node source spans outside
+production IR; the inspector joins those identities back to project-relative
+`Sources/*.mun:line:column` locations and reports the current dev-program revision.
+Runtime diagnostics carrying a semantic node id use the same map, so the normal
+dev console points to canonical Mün source instead of only printing an internal
+node id. State values are included only with `--values`; `SecureField` state is
+always redacted.
 
 Ignored `mun.local.json` may contain local-only environment overrides:
 
