@@ -58,6 +58,7 @@ export async function listenForHost({ irVersion, onEvent = () => {} } = {}) {
           pid: message.pid,
           request(type, payload = {}, timeoutMs = 10000) {
             const id = nextId++
+            if (socket.destroyed || !socket.writable) return Promise.reject(new Error('Native app disconnected'))
             return new Promise((resolve, reject) => {
               const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Dev ${type} timed out`)) }, timeoutMs)
               pending.set(id, { resolve, reject, timer })
