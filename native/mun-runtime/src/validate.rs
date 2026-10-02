@@ -44,36 +44,138 @@ fn schema() -> &'static Value {
         .get_or_init(|| serde_json::from_str(SCHEMA_SOURCE).expect("bundled Semantic UI IR schema"))
 }
 
+/// Every `$ref` in the bundled schema, resolved once to its (non-reference)
+/// target. `None` marks a reference that cannot be resolved; using it is a
+/// contract error, reported when it is first reached as before.
+fn references() -> &'static HashMap<String, Option<&'static Value>> {
+    static REFERENCES: OnceLock<HashMap<String, Option<&'static Value>>> = OnceLock::new();
+    REFERENCES.get_or_init(|| {
+        let root = schema();
+        let mut names = Vec::new();
+        collect_references(root, &mut names);
+        names
+            .into_iter()
+            .map(|reference| {
+                let mut target = Some(root);
+                let mut current = reference.clone();
+                // Follow chains of references; give up on cycles.
+                for _ in 0..64 {
+                    target = current
+                        .strip_prefix('#')
+                        .and_then(|pointer| root.pointer(pointer));
+                    match target
+                        .and_then(|value| value.get("$ref"))
+                        .and_then(Value::as_str)
+                    {
+                        Some(next) => current = next.to_owned(),
+                        None => break,
+                    }
+                }
+                let resolved = target.filter(|value| value.get("$ref").is_none());
+                (reference, resolved)
+            })
+            .collect()
+    })
+}
+
+fn collect_references(schema: &Value, names: &mut Vec<String>) {
+    match schema {
+        Value::Object(object) => {
+            if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+                names.push(reference.to_owned());
+            }
+            for value in object.values() {
+                collect_references(value, names);
+            }
+        }
+        Value::Array(items) => items
+            .iter()
+            .for_each(|item| collect_references(item, names)),
+        _ => {}
+    }
+}
+
 /// Validate raw IR JSON against the bundled v1 schema and reference rules.
 pub fn validate_program(program: &Value) -> Result<(), IrValidationError> {
     let schema = schema();
     let mut validator = Validator { root: schema };
-    validator.check(schema, program, &mut Context::default())?;
+    validator.check(schema, program, &Context::default())?;
     validate_references(program)
 }
 
-#[derive(Clone, Default)]
-struct Context {
-    path: Vec<String>,
-    node: Option<String>,
+/// One step of a JSON path. Composite segments render with their own `/`.
+#[derive(Clone, Copy)]
+enum Segment<'a> {
+    Name(&'a str),
+    Index(usize),
+    /// `{name}/{index}`
+    Indexed(&'a str, usize),
+    /// `{name}/{index}/{field}`
+    IndexedField(&'a str, usize, &'a str),
 }
 
-impl Context {
+impl fmt::Display for Segment<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Name(name) => f.write_str(name),
+            Self::Index(index) => write!(f, "{index}"),
+            Self::Indexed(name, index) => write!(f, "{name}/{index}"),
+            Self::IndexedField(name, index, field) => write!(f, "{name}/{index}/{field}"),
+        }
+    }
+}
+
+/// Where validation is: a chain of borrowed path segments up to the root and
+/// the nearest enclosing semantic node. Strings are built only for errors.
+#[derive(Clone, Copy, Default)]
+struct Context<'a> {
+    parent: Option<&'a Context<'a>>,
+    segment: Option<Segment<'a>>,
+    node: Option<&'a str>,
+}
+
+impl<'a> Context<'a> {
     fn error(&self, message: impl Into<String>) -> IrValidationError {
+        let mut segments = Vec::new();
+        let mut node = None;
+        let mut current = Some(self);
+        while let Some(context) = current {
+            if let Some(segment) = context.segment {
+                segments.push(segment);
+            }
+            node = node.or(context.node);
+            current = context.parent;
+        }
+        let path = if segments.is_empty() {
+            "/".into()
+        } else {
+            segments
+                .iter()
+                .rev()
+                .fold(String::new(), |path, segment| format!("{path}/{segment}"))
+        };
         IrValidationError {
-            node: self.node.clone(),
-            path: if self.path.is_empty() {
-                "/".into()
-            } else {
-                format!("/{}", self.path.join("/"))
-            },
+            node: node.map(str::to_owned),
+            path,
             message: message.into(),
         }
     }
-    fn child(&self, segment: impl Into<String>) -> Self {
-        let mut next = self.clone();
-        next.path.push(segment.into());
-        next
+
+    fn child(&'a self, segment: Segment<'a>) -> Context<'a> {
+        Context {
+            parent: Some(self),
+            segment: Some(segment),
+            node: None,
+        }
+    }
+
+    /// Same path, reported against semantic node `id`.
+    fn within(&'a self, id: &'a str) -> Context<'a> {
+        Context {
+            parent: Some(self),
+            segment: None,
+            node: Some(id),
+        }
     }
 }
 
@@ -86,6 +188,13 @@ impl<'s> Validator<'s> {
         let Some(reference) = schema.get("$ref").and_then(Value::as_str) else {
             return Ok(schema);
         };
+        // The bundled schema's references are resolved once; anything else
+        // (or an unresolvable reference, for its exact error) walks the pointer.
+        if std::ptr::eq(self.root, crate::validate::schema()) {
+            if let Some(Some(resolved)) = references().get(reference) {
+                return Ok(resolved);
+            }
+        }
         let pointer = reference.strip_prefix('#').ok_or_else(|| {
             Context::default().error(format!("unsupported schema reference {reference}"))
         })?;
@@ -99,21 +208,20 @@ impl<'s> Validator<'s> {
         &mut self,
         schema: &'s Value,
         value: &Value,
-        context: &mut Context,
+        context: &Context<'_>,
     ) -> Result<(), IrValidationError> {
         let schema = self.resolve(schema)?;
         let Some(rules) = schema.as_object() else {
             return Err(context.error("malformed schema"));
         };
         // A semantic node names itself; nested errors are reported against it.
-        let mut scoped;
+        let scoped;
         let context = if let (Some(id), Some(_)) = (
             value.get("id").and_then(Value::as_str),
             value.get("kind").and_then(Value::as_str),
         ) {
-            scoped = context.clone();
-            scoped.node = Some(id.to_owned());
-            &mut scoped
+            scoped = context.within(id);
+            &scoped
         } else {
             context
         };
@@ -204,7 +312,7 @@ impl<'s> Validator<'s> {
                     if item_schema == &Value::Bool(false) {
                         return Err(context.error(format!("unexpected array item {index}")));
                     }
-                    self.check(item_schema, item, &mut context.child(index.to_string()))?;
+                    self.check(item_schema, item, &context.child(Segment::Index(index)))?;
                 }
             }
         }
@@ -215,23 +323,23 @@ impl<'s> Validator<'s> {
         &mut self,
         rules: &'s Map<String, Value>,
         object: &Map<String, Value>,
-        context: &mut Context,
+        context: &Context<'_>,
     ) -> Result<(), IrValidationError> {
         let properties = rules.get("properties").and_then(Value::as_object);
         let additional = rules.get("additionalProperties");
         for (field, value) in object {
             if let Some(schema) = properties.and_then(|properties| properties.get(field)) {
-                self.check(schema, value, &mut context.child(field.clone()))?;
+                self.check(schema, value, &context.child(Segment::Name(field)))?;
                 continue;
             }
             match additional {
                 Some(Value::Bool(false)) => {
                     return Err(context
-                        .child(field.clone())
+                        .child(Segment::Name(field))
                         .error(format!("unknown field '{field}'")));
                 }
                 Some(schema @ Value::Object(_)) => {
-                    self.check(schema, value, &mut context.child(field.clone()))?;
+                    self.check(schema, value, &context.child(Segment::Name(field)))?;
                 }
                 _ => {}
             }
@@ -246,7 +354,7 @@ impl<'s> Validator<'s> {
         &mut self,
         rule: &'s Value,
         value: &Value,
-        context: &mut Context,
+        context: &Context<'_>,
     ) -> Result<(), IrValidationError> {
         let branches = rule
             .as_array()
@@ -263,7 +371,7 @@ impl<'s> Validator<'s> {
             .filter(|branch| {
                 branch
                     .get("type")
-                    .is_none_or(|rule| check_type(rule, value, context).is_ok())
+                    .is_none_or(|rule| type_matches(rule, value))
             })
             .collect();
         if !typed.is_empty() {
@@ -272,11 +380,7 @@ impl<'s> Validator<'s> {
         for tag in ["kind", "operation"] {
             let tagged = candidates
                 .iter()
-                .filter(|branch| {
-                    branch
-                        .pointer(&format!("/properties/{tag}/const"))
-                        .is_some()
-                })
+                .filter(|branch| tag_constant(branch, tag).is_some())
                 .count();
             if tagged == 0 {
                 continue;
@@ -290,13 +394,11 @@ impl<'s> Validator<'s> {
             let matching: Vec<_> = candidates
                 .iter()
                 .copied()
-                .filter(|branch| {
-                    branch.pointer(&format!("/properties/{tag}/const")) == Some(instance)
-                })
+                .filter(|branch| tag_constant(branch, tag) == Some(instance))
                 .collect();
             if matching.is_empty() && tagged == candidates.len() {
                 return Err(context
-                    .child(tag)
+                    .child(Segment::Name(tag))
                     .error(format!("unsupported {tag} {instance}")));
             }
             if !matching.is_empty() {
@@ -306,7 +408,7 @@ impl<'s> Validator<'s> {
         let mut first_error = None;
         let mut matched = 0;
         for branch in &candidates {
-            match self.check(branch, value, &mut context.clone()) {
+            match self.check(branch, value, context) {
                 Ok(()) => matched += 1,
                 Err(error) => {
                     first_error.get_or_insert(error);
@@ -328,7 +430,20 @@ impl<'s> Validator<'s> {
     }
 }
 
-fn check_type(rule: &Value, value: &Value, context: &Context) -> Result<(), IrValidationError> {
+/// `/properties/{tag}/const` of a schema branch (the discriminator value).
+fn tag_constant<'s>(branch: &'s Value, tag: &str) -> Option<&'s Value> {
+    branch.get("properties")?.get(tag)?.get("const")
+}
+
+fn check_type(rule: &Value, value: &Value, context: &Context<'_>) -> Result<(), IrValidationError> {
+    if type_matches(rule, value) {
+        Ok(())
+    } else {
+        Err(context.error(format!("expected {rule}, found {}", type_name(value))))
+    }
+}
+
+fn type_matches(rule: &Value, value: &Value) -> bool {
     let matches = |name: &str| match name {
         "object" => value.is_object(),
         "array" => value.is_array(),
@@ -339,15 +454,10 @@ fn check_type(rule: &Value, value: &Value, context: &Context) -> Result<(), IrVa
         "null" => value.is_null(),
         _ => false,
     };
-    let ok = match rule {
+    match rule {
         Value::String(name) => matches(name),
         Value::Array(names) => names.iter().filter_map(Value::as_str).any(matches),
         _ => false,
-    };
-    if ok {
-        Ok(())
-    } else {
-        Err(context.error(format!("expected {rule}, found {}", type_name(value))))
     }
 }
 
@@ -375,12 +485,11 @@ fn validate_references(program: &Value) -> Result<(), IrValidationError> {
         .enumerate()
     {
         let name = state["name"].as_str().unwrap_or_default();
-        let context = Context {
-            path: vec!["states".into(), index.to_string(), "name".into()],
-            node: None,
-        };
         if states.insert(name, &state["initial"]).is_some() {
-            return Err(context.error(format!("duplicate state '{name}'")));
+            let root = Context::default();
+            return Err(root
+                .child(Segment::IndexedField("states", index, "name"))
+                .error(format!("duplicate state '{name}'")));
         }
         if let Some(scope) = state["scope"].as_str() {
             scopes.push((name, scope));
@@ -392,18 +501,16 @@ fn validate_references(program: &Value) -> Result<(), IrValidationError> {
         all_for_each: HashSet::new(),
     };
     let root = &program["root"];
-    let context = Context {
-        path: vec!["root".into()],
-        node: root["id"].as_str().map(str::to_owned),
+    let top = Context::default();
+    let path = top.child(Segment::Name("root"));
+    let context = match root["id"].as_str() {
+        Some(id) => path.within(id),
+        None => path,
     };
-    walker.node(&root["child"], &context.child("child"))?;
+    walker.node(&root["child"], &context.child(Segment::Name("child")))?;
     for (state, scope) in scopes {
         if !walker.all_for_each.contains(scope) {
-            return Err(Context {
-                path: vec!["states".into()],
-                node: None,
-            }
-            .error(format!(
+            return Err(top.child(Segment::Name("states")).error(format!(
                 "state '{state}' is scoped to unknown forEach '{scope}'"
             )));
         }
@@ -413,36 +520,37 @@ fn validate_references(program: &Value) -> Result<(), IrValidationError> {
 
 struct References<'a> {
     states: &'a HashMap<&'a str, &'a Value>,
-    for_each: Vec<String>,
-    all_for_each: HashSet<String>,
+    for_each: Vec<&'a str>,
+    all_for_each: HashSet<&'a str>,
 }
 
-impl References<'_> {
-    fn node(&mut self, node: &Value, context: &Context) -> Result<(), IrValidationError> {
-        let id = node["id"].as_str().unwrap_or_default().to_owned();
-        let context = Context {
-            path: context.path.clone(),
-            node: Some(id.clone()),
-        };
+impl<'a> References<'a> {
+    fn node(&mut self, node: &'a Value, context: &Context<'_>) -> Result<(), IrValidationError> {
+        let id = node["id"].as_str().unwrap_or_default();
+        let context = context.within(id);
         let kind = node["kind"].as_str().unwrap_or_default();
         match kind {
             "textField" => {
-                self.state(&node["state"], &context.child("state"), Some("string"))?;
+                self.state(
+                    &node["state"],
+                    &context.child(Segment::Name("state")),
+                    Some("string"),
+                )?;
             }
             "radioGroup" => {
-                self.state(&node["state"], &context.child("state"), None)?;
+                self.state(&node["state"], &context.child(Segment::Name("state")), None)?;
                 let mut seen = HashSet::new();
                 for (index, option) in node["options"].as_array().into_iter().flatten().enumerate()
                 {
                     if !seen.insert(option["value"].to_string()) {
                         return Err(context
-                            .child(format!("options/{index}/value"))
+                            .child(Segment::IndexedField("options", index, "value"))
                             .error(format!("duplicate radio option value {}", option["value"])));
                     }
                 }
             }
             "toggle" => {
-                self.state(&node["state"], &context.child("state"), None)?;
+                self.state(&node["state"], &context.child(Segment::Name("state")), None)?;
                 let name = node["state"].as_str().unwrap_or_default();
                 if self
                     .states
@@ -450,16 +558,17 @@ impl References<'_> {
                     .is_some_and(|initial| !initial.is_boolean())
                 {
                     return Err(context
-                        .child("state")
+                        .child(Segment::Name("state"))
                         .error(format!("toggle state '{name}' must hold a boolean")));
                 }
             }
-            "action" => self.action(&node["action"], &context.child("action"))?,
+            "action" => self.action(&node["action"], &context.child(Segment::Name("action")))?,
             _ => {}
         }
         for phase in ["appear", "disappear"] {
             if let Some(action) = node["lifecycle"].get(phase) {
-                self.action(action, &context.child(format!("lifecycle/{phase}")))?;
+                let lifecycle = context.child(Segment::Name("lifecycle"));
+                self.action(action, &lifecycle.child(Segment::Name(phase)))?;
             }
         }
         if let Value::Object(object) = node {
@@ -468,17 +577,17 @@ impl References<'_> {
                     field.as_str(),
                     "children" | "then" | "otherwise" | "child" | "action" | "lifecycle"
                 ) {
-                    self.expressions(value, &context.child(field.clone()))?;
+                    self.expressions(value, &context.child(Segment::Name(field)))?;
                 }
             }
         }
         if kind == "forEach" {
-            self.all_for_each.insert(id.clone());
+            self.all_for_each.insert(id);
             self.for_each.push(id);
         }
         for field in ["children", "then", "otherwise"] {
             for (index, child) in node[field].as_array().into_iter().flatten().enumerate() {
-                self.node(child, &context.child(format!("{field}/{index}")))?;
+                self.node(child, &context.child(Segment::Indexed(field, index)))?;
             }
         }
         if kind == "forEach" {
@@ -490,7 +599,7 @@ impl References<'_> {
     fn state(
         &self,
         state: &Value,
-        context: &Context,
+        context: &Context<'_>,
         string: Option<&str>,
     ) -> Result<(), IrValidationError> {
         let name = state.as_str().unwrap_or_default();
@@ -503,9 +612,9 @@ impl References<'_> {
         Ok(())
     }
 
-    fn action(&self, action: &Value, context: &Context) -> Result<(), IrValidationError> {
+    fn action(&self, action: &Value, context: &Context<'_>) -> Result<(), IrValidationError> {
         if let Some(state) = action.get("state") {
-            self.state(state, &context.child("state"), None)?;
+            self.state(state, &context.child(Segment::Name("state")), None)?;
         }
         for (index, nested) in action["actions"]
             .as_array()
@@ -513,12 +622,12 @@ impl References<'_> {
             .flatten()
             .enumerate()
         {
-            self.action(nested, &context.child(format!("actions/{index}")))?;
+            self.action(nested, &context.child(Segment::Indexed("actions", index)))?;
         }
         if let Value::Object(object) = action {
             for (field, value) in object {
                 if field != "actions" {
-                    self.expressions(value, &context.child(field.clone()))?;
+                    self.expressions(value, &context.child(Segment::Name(field)))?;
                 }
             }
         }
@@ -526,18 +635,22 @@ impl References<'_> {
     }
 
     /// Every `state` and `item` expression reachable from a node field.
-    fn expressions(&self, value: &Value, context: &Context) -> Result<(), IrValidationError> {
+    fn expressions(&self, value: &Value, context: &Context<'_>) -> Result<(), IrValidationError> {
         match value {
             Value::Object(object) => {
                 match object.get("kind").and_then(Value::as_str) {
                     Some("state") if object.contains_key("state") && object.len() == 2 => {
-                        self.state(&object["state"], &context.child("state"), None)?;
+                        self.state(
+                            &object["state"],
+                            &context.child(Segment::Name("state")),
+                            None,
+                        )?;
                     }
                     Some("item") => {
                         let target = object["forEach"].as_str().unwrap_or_default();
-                        if !self.for_each.iter().any(|id| id == target) {
+                        if !self.for_each.iter().any(|id| *id == target) {
                             return Err(context
-                                .child("forEach")
+                                .child(Segment::Name("forEach"))
                                 .error(format!("item expression outside its forEach '{target}'")));
                         }
                     }
@@ -547,14 +660,14 @@ impl References<'_> {
                     if field != "value"
                         || object.get("kind").and_then(Value::as_str) != Some("literal")
                     {
-                        self.expressions(nested, &context.child(field.clone()))?;
+                        self.expressions(nested, &context.child(Segment::Name(field)))?;
                     }
                 }
                 Ok(())
             }
             Value::Array(items) => {
                 for (index, item) in items.iter().enumerate() {
-                    self.expressions(item, &context.child(index.to_string()))?;
+                    self.expressions(item, &context.child(Segment::Index(index)))?;
                 }
                 Ok(())
             }

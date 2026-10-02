@@ -625,13 +625,18 @@ impl Runtime {
 
         // Validation is complete. Commit any IME preedit through the input
         // contract, then re-read carried values so committed text is kept.
+        // Materialize again only if committing changed a carried value.
         self.finish_composition();
+        let mut changed = false;
         for (name, value) in &self.state {
-            if carried.contains_key(name) {
+            if carried.get(name).is_some_and(|before| before != value) {
                 next.state.insert(name.clone(), value.clone());
+                changed = true;
             }
         }
-        next.materialize().map_err(RuntimeLoadError::Collection)?;
+        if changed {
+            next.materialize().map_err(RuntimeLoadError::Collection)?;
+        }
         timings.materialize_micros = elapsed_micros(started);
         let started = std::time::Instant::now();
         next.measurer = self.measurer.clone();
