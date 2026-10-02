@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { compileMunDevProgram, compileMunUiProgram } from '@mun/compiler'
+import { compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, parseMunStructs } from '@mun/compiler'
 
 const fields = new Set(['manifest_version', 'name', 'entry', 'identifier', 'version', 'minimum_mun_version', 'platforms', 'resources', 'fonts', 'icon', 'window_title'])
 const platforms = { darwin: 'macos', win32: 'windows', linux: 'linux' }
@@ -96,14 +96,47 @@ export function compileProject(project) {
   return compileSources(project, sourceFiles(project).map(path => ({ path, source: readFileSync(path, 'utf8') }))).program
 }
 
-function compileSources(project, sources, development = false) {
+function shiftedRange(range, delta) {
+  return { start: range.start + delta, end: range.end + delta }
+}
+
+function shiftedStruct(declaration, delta) {
+  return {
+    ...declaration,
+    range: shiftedRange(declaration.range, delta),
+    bodyRange: shiftedRange(declaration.bodyRange, delta),
+    bodyExpressionRange: shiftedRange(declaration.bodyExpressionRange, delta),
+    fields: declaration.fields.map(field => ({ ...field, range: shiftedRange(field.range, delta) })),
+    initializers: declaration.initializers.map(initializer => ({
+      ...initializer,
+      range: shiftedRange(initializer.range, delta),
+      parametersRange: shiftedRange(initializer.parametersRange, delta),
+      bodyRange: shiftedRange(initializer.bodyRange, delta),
+    })),
+    ...(declaration.nested ? { nested: declaration.nested.map(item => shiftedStruct(item, delta)) } : {}),
+  }
+}
+
+function structCount(declarations) {
+  return declarations.reduce((count, declaration) => count + 1 + structCount(declaration.nested ?? []), 0)
+}
+
+function sourceError(path, source, error) {
+  const offset = Math.max(0, Math.min(source.length, typeof error.offset === 'number' ? error.offset : 0))
+  const before = source.slice(0, offset)
+  return new Error(`${path}:${before.split('\n').length}:${before.length - before.lastIndexOf('\n')}: ${error.message}`)
+}
+
+function compileSources(project, sources, development = false, preparedStructs) {
   const timings = {}
   const started = performance.now()
   sources = [...sources].sort((a, b) => a.path === project.entry ? -1 : b.path === project.entry ? 1 : a.path.localeCompare(b.path))
   const combined = sources.map(item => item.source).join('\n')
   try {
     if (!development) return { program: compileMunUiProgram(combined, project.entry), timings }
-    const result = compileMunDevProgram(combined, project.entry)
+    const result = preparedStructs
+      ? compileMunDevProgramFromStructs(combined, preparedStructs, project.entry)
+      : compileMunDevProgram(combined, project.entry)
     timings.lower = performance.now() - started
     return { ...result, timings }
   } catch (error) {
@@ -135,6 +168,8 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
       const started = performance.now()
       const paths = sourceFiles(project)
       let filesRead = 0
+      let filesReparsed = 0
+      let declarationsReparsed = 0
       const changedFiles = []
       for (const path of [...snapshots.keys()]) if (!paths.includes(path)) { snapshots.delete(path); changedFiles.push(path) }
       for (const path of paths) {
@@ -142,15 +177,58 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
         const previous = snapshots.get(path)
         if (previous && previous.mtimeMs === mtimeMs && previous.size === size) continue
         const source = fs.readFileSync(path, 'utf8'); filesRead++
-        if (previous?.source !== source) changedFiles.push(path)
-        snapshots.set(path, { mtimeMs, size, source })
+        let structs = previous?.structs ?? []
+        if (previous?.source !== source) {
+          changedFiles.push(path)
+          try { structs = parseMunStructs(source) }
+          catch (error) { throw sourceError(path, source, error) }
+          filesReparsed++
+          declarationsReparsed += structCount(structs)
+        }
+        snapshots.set(path, { mtimeMs, size, source, structs })
       }
       const read = performance.now() - started
-      if (last && changedFiles.length === 0) return { ...last, timings: { read }, stats: { filesRead, changedFiles, reused: true } }
+      if (last && changedFiles.length === 0) {
+        return {
+          ...last,
+          timings: { read },
+          stats: {
+            ...last.stats,
+            filesRead,
+            filesReparsed: 0,
+            declarationsReparsed: 0,
+            declarationsRechecked: 0,
+            viewDeclarationsRelowered: 0,
+            changedFiles,
+            reused: true,
+          },
+        }
+      }
       last = undefined // a failed compile must never fall back to an older result
-      const result = compileSources(project, paths.map(path => ({ path, source: snapshots.get(path).source })), true)
-      last = result
-      return { ...result, timings: { read, ...result.timings }, stats: { filesRead, changedFiles, reused: false } }
+      const sources = paths
+        .map(path => ({ path, source: snapshots.get(path).source }))
+        .sort((a, b) => a.path === project.entry ? -1 : b.path === project.entry ? 1 : a.path.localeCompare(b.path))
+      const preparedStructs = []
+      let offset = 0
+      for (const item of sources) {
+        for (const declaration of snapshots.get(item.path).structs) preparedStructs.push(shiftedStruct(declaration, offset))
+        offset += item.source.length + 1
+      }
+      const result = compileSources(project, sources, true, preparedStructs)
+      last = {
+        ...result,
+        timings: { read, ...result.timings },
+        stats: {
+          filesRead,
+          filesReparsed,
+          declarationsReparsed,
+          declarationsRechecked: result.stats?.declarationsChecked ?? 0,
+          viewDeclarationsRelowered: result.stats?.viewDeclarationsLowered ?? 0,
+          changedFiles,
+          reused: false,
+        },
+      }
+      return last
     },
     /** Forget the last successful result (e.g. after the manifest changed). */
     invalidate() { last = undefined; snapshots.clear() },

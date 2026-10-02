@@ -84,6 +84,7 @@ async function runCase(name, build) {
       } finally { clearTimeout(timer) }
     }
     const compile = [], roundTrip = [], payload = [], read = [], lower = [], compatibility = [], serialization = [], filesRead = []
+    const filesReparsed = [], declarationsReparsed = [], declarationsRechecked = [], viewsRelowered = []
     for (let i = 1; i <= edits; i++) {
       write(directory, spec.files(i))
       const started = performance.now()
@@ -92,6 +93,10 @@ async function runCase(name, build) {
       read.push(next.timings?.read ?? 0)
       lower.push(next.timings?.lower ?? 0)
       filesRead.push(next.stats?.filesRead ?? next.filesRead ?? 0)
+      filesReparsed.push(next.stats?.filesReparsed ?? 0)
+      declarationsReparsed.push(next.stats?.declarationsReparsed ?? 0)
+      declarationsRechecked.push(next.stats?.declarationsRechecked ?? 0)
+      viewsRelowered.push(next.stats?.viewDeclarationsRelowered ?? 0)
       const compatibilityStart = performance.now()
       const analysis = analyzeCompatibility(running, next)
       compatibility.push(performance.now() - compatibilityStart)
@@ -117,7 +122,9 @@ async function runCase(name, build) {
     console.log(`  compatibility ${summary(compatibility)}`)
     console.log(`  serialization ${summary(serialization)}`)
     console.log(`  files read per edit ${filesRead.join(', ')}`)
-    console.log('  reparsed/rechecked/relowered counts: unavailable (whole-project compile)')
+    console.log(`  files reparsed per edit ${filesReparsed.join(', ')}`)
+    console.log(`  declarations reparsed/rechecked per edit ${declarationsReparsed.map((value, index) => `${value}/${declarationsRechecked[index]}`).join(', ')}`)
+    console.log(`  View declarations relowered per edit ${viewsRelowered.join(', ')}`)
     console.log('  watcher/debounce, transfer, runtime, layout, presentation: not separately instrumented; host apply is request/ack round trip, not edit-to-screen')
     console.log('  patch comparison: unavailable (full-program updates only)')
   } finally {

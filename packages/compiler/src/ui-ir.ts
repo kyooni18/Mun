@@ -1844,6 +1844,8 @@ class UiLowerer {
   readonly #stateTypes: Map<string, string>
   /** Declared Mün type per state identity; development metadata only. */
   readonly #declaredTypes = new Map<string, string>()
+  /** Distinct custom View declarations whose bodies were lowered this compile. */
+  readonly #loweredViewDeclarations = new Set<string>()
   /** Enclosing ForEach templates; View-local state inside them is item-scoped. */
   readonly #forEachScopes: string[] = []
   /** Key path per collection state, recorded by the ForEach that renders it. */
@@ -1876,6 +1878,10 @@ class UiLowerer {
 
   declaredStateTypes(): ReadonlyMap<string, string> {
     return this.#declaredTypes
+  }
+
+  loweredViewDeclarations(): ReadonlySet<string> {
+    return this.#loweredViewDeclarations
   }
 
   states(): readonly MunUiState[] {
@@ -2013,6 +2019,7 @@ class UiLowerer {
   }
 
   lowerBody(declaration: MunStructDeclaration, bindings: UiBindings, path: UiIdentityPath, statePath: UiStateIdentityPath = path): MunUiNode {
+    this.#loweredViewDeclarations.add(this.qualifiedName(declaration))
     const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
     const nodes = this.lowerProgram(program, bindings, path, statePath)
     if (nodes.length !== 1) {
@@ -2472,12 +2479,20 @@ export interface MunDevProgramMetadata {
  * Compile for the development toolchain: the canonical production IR plus
  * separate metadata (declared state types) used for hot-reload compatibility.
  */
-export function compileMunDevProgram(
-  source: string,
-  fileName = "mun-source.mun",
-  options: MunUiCompileOptions = {},
-): { program: MunUiProgram; metadata: MunDevProgramMetadata } {
-  const { program, lowerer } = lowerMunUiProgram(source, fileName, options)
+export interface MunDevCompileStats {
+  readonly declarationsChecked: number
+  readonly viewDeclarationsLowered: number
+}
+
+function countStructDeclarations(structs: readonly MunStructDeclaration[]): number {
+  return structs.reduce((count, declaration) => count + 1 + countStructDeclarations(declaration.nested ?? []), 0)
+}
+
+function devCompileResult(
+  program: MunUiProgram,
+  lowerer: UiLowerer,
+  structs: readonly MunStructDeclaration[],
+): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
   const types = lowerer.declaredStateTypes()
   return {
     program,
@@ -2488,16 +2503,46 @@ export function compileMunDevProgram(
         ...(state.scope ? { scope: state.scope } : {}),
       })),
     },
+    stats: {
+      declarationsChecked: countStructDeclarations(structs),
+      viewDeclarationsLowered: lowerer.loweredViewDeclarations().size,
+    },
   }
+}
+
+export function compileMunDevProgram(
+  source: string,
+  fileName = "mun-source.mun",
+  options: MunUiCompileOptions = {},
+): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
+  const structs = parseMunStructs(source)
+  const { program, lowerer } = lowerMunUiProgram(source, fileName, options, structs)
+  return devCompileResult(program, lowerer, structs)
+}
+
+/**
+ * Development compile using an already-parsed struct forest. Project tooling
+ * uses this to keep unchanged source files out of the struct-parser hot path.
+ * Ranges in the provided structs must refer to offsets in source.
+ */
+export function compileMunDevProgramFromStructs(
+  source: string,
+  structs: readonly MunStructDeclaration[],
+  fileName = "mun-source.mun",
+  options: MunUiCompileOptions = {},
+): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
+  const { program, lowerer } = lowerMunUiProgram(source, fileName, options, structs)
+  return devCompileResult(program, lowerer, structs)
 }
 
 function lowerMunUiProgram(
   source: string,
   fileName: string,
   options: MunUiCompileOptions,
+  preparedStructs?: readonly MunStructDeclaration[],
 ): { program: MunUiProgram; lowerer: UiLowerer } {
   assertCanonicalMunSource(source, fileName)
-  const structs = parseMunStructs(source)
+  const structs = preparedStructs ?? parseMunStructs(source)
   if (structs.length === 0) throw new SyntaxError("Native Mün requires a View struct entry point")
   // Canonical declaration rules (Swift type spellings, access levels). The
   // legacy compatibility pipelines keep accepting TypeScript spellings.
