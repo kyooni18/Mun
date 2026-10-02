@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, parseMunStructs } from '@mun/compiler'
+import { MunLoweringCache, compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, parseMunStructs } from '@mun/compiler'
 
 const fields = new Set(['manifest_version', 'name', 'entry', 'identifier', 'version', 'minimum_mun_version', 'platforms', 'resources', 'fonts', 'icon', 'window_title'])
 const platforms = { darwin: 'macos', win32: 'windows', linux: 'linux' }
@@ -121,6 +121,26 @@ function structCount(declarations) {
   return declarations.reduce((count, declaration) => count + 1 + structCount(declaration.nested ?? []), 0)
 }
 
+/** Qualified View name -> declaration source for a file's struct forest. */
+function declarationSources(declarations, prefix = '', result = new Map()) {
+  for (const declaration of declarations) {
+    const name = prefix ? `${prefix}.${declaration.name}` : declaration.name
+    result.set(name, declaration.source)
+    declarationSources(declaration.nested ?? [], name, result)
+  }
+  return result
+}
+
+/** Declarations added, removed or edited between two struct forests of one file. */
+function changedDeclarations(before, after) {
+  const previous = declarationSources(before)
+  const next = declarationSources(after)
+  const changed = []
+  for (const [name, source] of next) if (previous.get(name) !== source) changed.push(name)
+  for (const name of previous.keys()) if (!next.has(name)) changed.push(name)
+  return changed
+}
+
 function sourceError(path, source, error) {
   const offset = Math.max(0, Math.min(source.length, typeof error.offset === 'number' ? error.offset : 0))
   const before = source.slice(0, offset)
@@ -189,7 +209,7 @@ function mapDevMetadata(project, sources, metadata) {
   }
 }
 
-function compileSources(project, sources, development = false, preparedStructs) {
+function compileSources(project, sources, development = false, preparedStructs, loweringCache) {
   const timings = {}
   const started = performance.now()
   sources = [...sources].sort((a, b) => a.path === project.entry ? -1 : b.path === project.entry ? 1 : a.path.localeCompare(b.path))
@@ -197,8 +217,8 @@ function compileSources(project, sources, development = false, preparedStructs) 
   try {
     if (!development) return { program: compileMunUiProgram(combined, project.entry), timings }
     const result = preparedStructs
-      ? compileMunDevProgramFromStructs(combined, preparedStructs, project.entry)
-      : compileMunDevProgram(combined, project.entry)
+      ? compileMunDevProgramFromStructs(combined, preparedStructs, project.entry, { loweringCache })
+      : compileMunDevProgram(combined, project.entry, { loweringCache })
     timings.lower = performance.now() - started
     return { ...result, metadata: mapDevMetadata(project, sources, result.metadata), timings }
   } catch (error) {
@@ -219,11 +239,15 @@ function compileSources(project, sources, development = false, preparedStructs) 
  * mtime and size) are not re-read; an edit that leaves every source byte-equal
  * (editors often save twice) reuses the previous compilation outright.
  *
- * Semantic analysis and lowering still run over the whole project unit when
- * any source changes: the compiler does not yet expose per-file invalidation.
+ * Changed files are reparsed per file. Lowering reuses every custom View
+ * instance whose declaration, transitive View dependencies and call-site
+ * inputs are unchanged (`MunLoweringCache`); stats report what was actually
+ * relowered versus reused, and which Views the previous dependency graph
+ * marks as affected by the changed declarations.
  */
-export function createProjectCompiler(project, { fs = { readFileSync, statSync } } = {}) {
+export function createProjectCompiler(project, { fs = { readFileSync, statSync }, incremental = true } = {}) {
   const snapshots = new Map()
+  const loweringCache = incremental ? new MunLoweringCache() : undefined
   let last
   return {
     compile() {
@@ -233,7 +257,12 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
       let filesReparsed = 0
       let declarationsReparsed = 0
       const changedFiles = []
-      for (const path of [...snapshots.keys()]) if (!paths.includes(path)) { snapshots.delete(path); changedFiles.push(path) }
+      const changed = []
+      for (const path of [...snapshots.keys()]) {
+        if (paths.includes(path)) continue
+        changed.push(...declarationSources(snapshots.get(path).structs).keys())
+        snapshots.delete(path); changedFiles.push(path)
+      }
       for (const path of paths) {
         const { mtimeMs, size } = fs.statSync(path)
         const previous = snapshots.get(path)
@@ -246,6 +275,7 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
           catch (error) { throw sourceError(path, source, error) }
           filesReparsed++
           declarationsReparsed += structCount(structs)
+          changed.push(...changedDeclarations(previous?.structs ?? [], structs))
         }
         snapshots.set(path, { mtimeMs, size, source, structs })
       }
@@ -276,7 +306,10 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
         for (const declaration of snapshots.get(item.path).structs) preparedStructs.push(shiftedStruct(declaration, offset))
         offset += item.source.length + 1
       }
-      const result = compileSources(project, sources, true, preparedStructs)
+      // Affected Views per the dependency graph of the last successful compile.
+      const affectedViews = loweringCache ? [...loweringCache.affectedBy(changed)].sort() : undefined
+      const result = compileSources(project, sources, true, preparedStructs, loweringCache)
+      const lowering = result.stats?.lowering
       last = {
         ...result,
         timings: { read, ...result.timings },
@@ -285,7 +318,14 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
           filesReparsed,
           declarationsReparsed,
           declarationsRechecked: result.stats?.declarationsChecked ?? 0,
-          viewDeclarationsRelowered: result.stats?.viewDeclarationsLowered ?? 0,
+          viewDeclarationsRelowered: lowering ? lowering.declarationsLowered.length : result.stats?.viewDeclarationsLowered ?? 0,
+          ...(lowering ? {
+            viewInstancesLowered: lowering.instancesLowered,
+            viewInstancesReused: lowering.instancesReused,
+            relowered: lowering.declarationsLowered,
+            changedDeclarations: [...new Set(changed)].sort(),
+            affectedViews,
+          } : {}),
           changedFiles,
           reused: false,
         },
@@ -293,7 +333,9 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
       return last
     },
     /** Forget the last successful result (e.g. after the manifest changed). */
-    invalidate() { last = undefined; snapshots.clear() },
+    invalidate() { last = undefined; snapshots.clear(); loweringCache?.clear() },
+    /** View -> custom Views it uses, from the last successful compile. */
+    dependencyGraph() { return loweringCache?.dependencyGraph() ?? new Map() },
   }
 }
 

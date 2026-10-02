@@ -188,7 +188,12 @@ export async function develop(project, { env, verbose = false }) {
       const result = compiler.compile()
       if (verbose && !result.stats.reused) {
         for (const path of result.stats.changedFiles) log(`Changed: ${path}`)
-        log(`Read ${result.stats.filesRead} file(s) in ${result.timings.read.toFixed(1)} ms; parse+semantic ${result.timings.analyze.toFixed(1)} ms; lowering ${result.timings.lower.toFixed(1)} ms`)
+        const stats = result.stats
+        log(`Read ${stats.filesRead} file(s) in ${result.timings.read.toFixed(1)} ms; reparsed ${stats.filesReparsed} file(s); analysis+lowering ${(result.timings.lower ?? 0).toFixed(1)} ms`)
+        if (stats.viewInstancesLowered !== undefined) {
+          log(`Changed declarations: ${stats.changedDeclarations.join(', ') || 'none'}; affected Views: ${stats.affectedViews.join(', ') || 'none'}`)
+          log(`View instances lowered ${stats.viewInstancesLowered}, reused ${stats.viewInstancesReused}; relowered declarations: ${stats.relowered.join(', ')}`)
+        }
       }
       return result
     },

@@ -15,7 +15,7 @@ export type { MunVueHostGenerationOptions, MunVueHostGenerationResult } from "./
 export type { MunDiagnostic, MunLanguageService, MunSourceMap, MunTransformResult, MunVitePluginOptions } from "./types.js"
 
 export { lowerMunBuilderAst, parseMunBuilder, parseMunStructs } from "./ast.js"
-export { compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, nativeLoweringMetadata, type MunDevCompileStats, type MunDevProgramMetadata } from "./ui-ir.js"
+export { compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, MunLoweringCache, nativeLoweringMetadata, parsedExpressionCacheStats, type MunDevCompileStats, type MunDevProgramMetadata, type MunLoweringCacheStats } from "./ui-ir.js"
 export type { MunUiCompileOptions } from "./ui-ir.js"
 export type {
   MunArgument,

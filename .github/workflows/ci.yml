@@ -58,7 +58,7 @@ jobs:
       - name: Native project, manifest, formatter and development state machine
         run: node --test tests/native-dx.test.mjs
       - name: Hot-reload compatibility analysis, dev protocol and dev loop
-        run: node --test tests/hot-reload.test.mjs
+        run: node --test tests/hot-reload.test.mjs tests/incremental-lowering.test.mjs
       - name: Editor protocols and extension packaging
         run: node --test tests/editor-integrations.test.mjs tests/vscode-extension.test.mjs
       - uses: dtolnay/rust-toolchain@stable

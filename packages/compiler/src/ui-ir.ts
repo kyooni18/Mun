@@ -62,6 +62,8 @@ export interface MunUiCompileOptions {
   readonly windowTitle?: string
   readonly windowWidth?: number
   readonly windowHeight?: number
+  /** Development only: reuse unchanged custom View instance bodies across recompiles. */
+  readonly loweringCache?: MunLoweringCache
 }
 
 interface ModifierCall {
@@ -1863,6 +1865,161 @@ export function nativeLoweringMetadata(): {
   }
 }
 
+/**
+ * A recorded mutation of lowerer state made while lowering one custom View
+ * instance body. Replaying the effects in order reproduces that lowering
+ * exactly; source spans are stored relative to their declaration body so a
+ * reused instance stays correct when edits elsewhere shift absolute offsets.
+ */
+type LoweringEffect =
+  | { readonly kind: "state"; readonly state: MunUiState; readonly type: string }
+  | { readonly kind: "declaredType"; readonly name: string; readonly type: string }
+  | { readonly kind: "view"; readonly name: string }
+  | { readonly kind: "span"; readonly id: string; readonly component: string; readonly start: number; readonly end: number }
+  | { readonly kind: "collection"; readonly state: string; readonly keyPath: readonly string[] }
+
+interface LoweringCacheEntry {
+  /** Every custom View resolved while lowering this body (itself included) -> its declaration source. */
+  readonly dependencies: ReadonlyMap<string, string>
+  readonly node: MunUiNode
+  readonly effects: readonly LoweringEffect[]
+}
+
+interface LoweringCapture {
+  readonly dependencies: Map<string, string>
+  readonly effects: LoweringEffect[]
+}
+
+/** Per-compile counters of the development lowering cache; never part of the IR. */
+export interface MunLoweringCacheStats {
+  /** Custom View instance bodies lowered from source (entry included). */
+  readonly instancesLowered: number
+  /** Custom View instance bodies reused from the previous compile. */
+  readonly instancesReused: number
+  /** Distinct View declarations whose bodies were lowered from source. */
+  readonly declarationsLowered: readonly string[]
+  /** Cache entries kept after this compile. */
+  readonly entries: number
+}
+
+/**
+ * Development-only cache of lowered custom View instance bodies, shared by
+ * successive compiles of one project. An entry is reused only when the
+ * instance's call-site inputs (bindings, identity, enclosing scopes and the
+ * types of all states declared before it) are identical and every View
+ * declaration it depends on is byte-identical. Production compiles never use
+ * it; the cached and uncached IR are identical by construction and by test.
+ */
+export class MunLoweringCache {
+  readonly #entries = new Map<string, LoweringCacheEntry>()
+  #used = new Set<string>()
+  #instancesLowered = 0
+  #instancesReused = 0
+  #declarationsLowered = new Set<string>()
+  /** View -> Views its instance bodies depend on, from the last successful compile. */
+  #graph = new Map<string, ReadonlySet<string>>()
+
+  /** @internal */
+  begin(): void {
+    this.#used = new Set()
+    this.#instancesLowered = 0
+    this.#instancesReused = 0
+    this.#declarationsLowered = new Set()
+  }
+
+  /** @internal Keep only entries used by this (successful) compile. */
+  commit(graph: ReadonlyMap<string, ReadonlySet<string>>): MunLoweringCacheStats {
+    for (const key of this.#entries.keys()) if (!this.#used.has(key)) this.#entries.delete(key)
+    this.#graph = new Map(graph)
+    return this.stats()
+  }
+
+  /** @internal */
+  lookup(key: string): LoweringCacheEntry | undefined {
+    return this.#entries.get(key)
+  }
+
+  /** @internal */
+  reused(key: string): void {
+    this.#used.add(key)
+    this.#instancesReused += 1
+  }
+
+  /** @internal */
+  lowered(name: string): void {
+    this.#instancesLowered += 1
+    this.#declarationsLowered.add(name)
+  }
+
+  /** @internal */
+  store(key: string, entry: LoweringCacheEntry): void {
+    this.#entries.set(key, entry)
+    this.#used.add(key)
+  }
+
+  stats(): MunLoweringCacheStats {
+    return {
+      instancesLowered: this.#instancesLowered,
+      instancesReused: this.#instancesReused,
+      declarationsLowered: [...this.#declarationsLowered].sort(),
+      entries: this.#entries.size,
+    }
+  }
+
+  /** View -> custom Views its body uses, as observed by the last successful compile. */
+  dependencyGraph(): ReadonlyMap<string, ReadonlySet<string>> {
+    return this.#graph
+  }
+
+  /** Views whose lowering depends on any of `changed` (transitively), including `changed` themselves. */
+  affectedBy(changed: Iterable<string>): ReadonlySet<string> {
+    const dependents = new Map<string, Set<string>>()
+    for (const [view, dependencies] of this.#graph) {
+      for (const dependency of dependencies) {
+        let set = dependents.get(dependency)
+        if (!set) dependents.set(dependency, set = new Set())
+        set.add(view)
+      }
+    }
+    const affected = new Set<string>()
+    const pending = [...changed]
+    while (pending.length) {
+      const view = pending.pop()!
+      if (affected.has(view)) continue
+      affected.add(view)
+      for (const dependent of dependents.get(view) ?? []) pending.push(dependent)
+    }
+    return affected
+  }
+
+  clear(): void {
+    this.#entries.clear()
+    this.#graph = new Map()
+  }
+}
+
+/** JSON replacer for cache keys: keeps -0/0, NaN/null and numbers/strings distinct. */
+function cacheKeyValue(_key: string, value: unknown): unknown {
+  if (typeof value === "number") return `\u0000n${Object.is(value, -0) ? "-0" : String(value)}`
+  if (typeof value === "string") return `\u0000s${value}`
+  if (value === undefined) return "\u0000u"
+  return value
+}
+
+/** 53-bit string hash (cyrb53) used for rolling cache-key digests. */
+function hashString(text: string, seed = 0): number {
+  let h1 = 0xdeadbeef ^ seed
+  let h2 = 0x41c6ce57 ^ seed
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    h1 = Math.imul(h1 ^ code, 2654435761)
+    h2 = Math.imul(h2 ^ code, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0)
+}
+
 class UiLowerer {
   readonly #structs: ReadonlyMap<string, MunStructDeclaration>
   readonly #qualifiedNameByDeclaration: ReadonlyMap<MunStructDeclaration, string>
@@ -1882,14 +2039,147 @@ class UiLowerer {
   readonly #forEachScopes: string[] = []
   /** Key path per collection state, recorded by the ForEach that renders it. */
   readonly #collectionKeyPaths = new Map<string, readonly string[]>()
+  /** Development lowering cache and the instance bodies currently being recorded. */
+  readonly #cache?: MunLoweringCache
+  readonly #captures: LoweringCapture[] = []
+  /**
+   * Rolling digest of every state name/type declared so far, in order. Call-site
+   * initializer resolution already type-checks what an instance receives; this
+   * keeps reuse conservative should a body ever observe other state types.
+   */
+  #stateTypesDigest = 0
+  /** Digest of the declared View set: adding/removing a View can change name resolution. */
+  readonly #declarationSetKey: string
+  /** View -> custom Views its instance bodies used in this compile. */
+  readonly #dependencyGraph = new Map<string, Set<string>>()
 
-  constructor(structs: readonly MunStructDeclaration[], states: readonly MunUiState[]) {
+  constructor(structs: readonly MunStructDeclaration[], states: readonly MunUiState[], cache?: MunLoweringCache) {
     const declarationIndex = collectStructDeclarations(structs)
     this.#structs = declarationIndex.byQualifiedName
     this.#qualifiedNameByDeclaration = declarationIndex.qualifiedNameByDeclaration
     this.#states = [...states]
     this.#stateTypes = stateTypeMap(states)
+    for (const [name, type] of this.#stateTypes) this.#digestStateType(name, type)
     for (const view of semanticViewsForStructs(structs)) this.#semanticViews.set(view.qualifiedName, view)
+    this.#cache = cache
+    this.#declarationSetKey = cache ? String(hashString([...this.#structs.keys()].sort().join("\n"))) : ""
+  }
+
+  #digestStateType(name: string, type: string): void {
+    this.#stateTypesDigest = hashString(`${name}\u0000${type}`, this.#stateTypesDigest % 4294967296)
+  }
+
+  #record(effect: LoweringEffect): void {
+    for (const capture of this.#captures) capture.effects.push(effect)
+  }
+
+  #depend(name: string, source: string): void {
+    for (const capture of this.#captures) capture.dependencies.set(name, source)
+  }
+
+  #addState(state: MunUiState, type: string): void {
+    this.#states.push(state)
+    this.#stateTypes.set(state.name, type)
+    this.#digestStateType(state.name, type)
+    this.#record({ kind: "state", state, type })
+  }
+
+  #setDeclaredType(name: string, type: string): void {
+    this.#declaredTypes.set(name, type)
+    this.#record({ kind: "declaredType", name, type })
+  }
+
+  #markLoweredView(name: string): void {
+    this.#loweredViewDeclarations.add(name)
+    this.#record({ kind: "view", name })
+  }
+
+  #setCollectionKeyPath(state: string, keyPath: readonly string[]): void {
+    const existing = this.#collectionKeyPaths.get(state)
+    if (existing && existing.join(".") !== keyPath.join(".")) {
+      throw new SyntaxError(`Collection '${state}' is rendered with conflicting ForEach id key paths`)
+    }
+    this.#collectionKeyPaths.set(state, keyPath)
+    this.#record({ kind: "collection", state, keyPath })
+  }
+
+  /** Record a node's source span; `start`/`end` are relative to `component`'s body when it is set. */
+  #recordSpan(id: string, start: number, end: number, component: string | undefined): void {
+    const existing = this.#sourceSpans.get(id)
+    // `splitViewChain` reparses a raw expression relative to that expression,
+    // then the outer node is recorded again with its true body-relative range.
+    // Prefer that later span inside the same component. A child custom View,
+    // however, already recorded its output against its declaration body; keep
+    // that source instead of replacing it with the parent's call site.
+    if (existing && existing.component !== component) return
+    const base = component ? this.#structs.get(component)?.bodyExpressionRange.start ?? 0 : 0
+    this.#sourceSpans.set(id, { id, start: base + start, end: base + end, ...(component ? { component } : {}) })
+    if (component) this.#record({ kind: "span", id, component, start, end })
+  }
+
+  #replay(effect: LoweringEffect): void {
+    switch (effect.kind) {
+      case "state": this.#addState(effect.state, effect.type); break
+      case "declaredType": this.#setDeclaredType(effect.name, effect.type); break
+      case "view": this.#markLoweredView(effect.name); break
+      case "collection": this.#setCollectionKeyPath(effect.state, effect.keyPath); break
+      case "span": this.#recordSpan(effect.id, effect.start, effect.end, effect.component); break
+    }
+  }
+
+  #addDependencies(view: string, dependencies: Iterable<string>): void {
+    let set = this.#dependencyGraph.get(view)
+    if (!set) this.#dependencyGraph.set(view, set = new Set())
+    for (const dependency of dependencies) if (dependency !== view) set.add(dependency)
+  }
+
+  /** View -> custom Views its body uses, observed while lowering this program. */
+  dependencyGraph(): ReadonlyMap<string, ReadonlySet<string>> {
+    return this.#dependencyGraph
+  }
+
+  /**
+   * Lower one custom View instance body, reusing the previous compile's result
+   * when every input it observed is unchanged. `lower` must perform the body's
+   * whole lowering (local state binding included).
+   */
+  #lowerInstance(
+    qualifiedName: string,
+    declaration: MunStructDeclaration,
+    inputs: string,
+    lower: () => MunUiNode,
+  ): MunUiNode {
+    const cache = this.#cache
+    this.#depend(qualifiedName, declaration.source)
+    if (!cache) return lower()
+    const key = [
+      qualifiedName,
+      this.#declarationSetKey,
+      this.#componentStack.join(">"),
+      this.#forEachScopes.at(-1) ?? "",
+      this.#stateTypesDigest,
+      inputs,
+    ].join("\u0001")
+    const entry = cache.lookup(key)
+    if (entry && [...entry.dependencies].every(([name, source]) => this.#structs.get(name)?.source === source)) {
+      for (const effect of entry.effects) this.#replay(effect)
+      for (const [name, source] of entry.dependencies) this.#depend(name, source)
+      this.#addDependencies(qualifiedName, entry.dependencies.keys())
+      cache.reused(key)
+      return entry.node
+    }
+    const capture: LoweringCapture = { dependencies: new Map([[qualifiedName, declaration.source]]), effects: [] }
+    this.#captures.push(capture)
+    let node: MunUiNode
+    try {
+      node = lower()
+    } finally {
+      this.#captures.pop()
+    }
+    cache.lowered(qualifiedName)
+    this.#addDependencies(qualifiedName, capture.dependencies.keys())
+    cache.store(key, { dependencies: capture.dependencies, node, effects: capture.effects })
+    return node
   }
 
   resolveComponent(name: string): { declaration: MunStructDeclaration; semanticView: MunSemanticView } | undefined {
@@ -1897,7 +2187,10 @@ class UiLowerer {
     for (const candidate of semanticViewLookupCandidates(name, scope)) {
       const declaration = this.#structs.get(candidate)
       const semanticView = this.#semanticViews.get(candidate)
-      if (declaration && semanticView) return { declaration, semanticView }
+      if (declaration && semanticView) {
+        this.#depend(candidate, declaration.source)
+        return { declaration, semanticView }
+      }
     }
     return undefined
   }
@@ -1923,21 +2216,9 @@ class UiLowerer {
   recordSource(nodes: readonly MunUiNode[], node: MunBuilderNode): void {
     const component = this.#componentStack.at(-1)
     const base = this.#sourceBaseStack.at(-1) ?? 0
+    const componentBase = component ? this.#structs.get(component)?.bodyExpressionRange.start ?? 0 : 0
     for (const output of nodes) {
-      const existing = this.#sourceSpans.get(output.id)
-      // `splitViewChain` reparses a raw expression relative to that expression,
-      // then the outer node is recorded again with its true body-relative range.
-      // Prefer that later span inside the same component. A child custom View,
-      // however, already recorded its output against its declaration body; keep
-      // that source instead of replacing it with the parent's call site.
-      if (!existing || existing.component === component) {
-        this.#sourceSpans.set(output.id, {
-          id: output.id,
-          start: base + node.range.start,
-          end: base + node.range.end,
-          ...(component ? { component } : {}),
-        })
-      }
+      this.#recordSpan(output.id, base - componentBase + node.range.start, base - componentBase + node.range.end, component)
     }
   }
 
@@ -1962,11 +2243,7 @@ class UiLowerer {
     let source: MunUiExpression = collection
     while (source.kind === "filter") source = source.collection
     if (source.kind === "state") {
-      const existing = this.#collectionKeyPaths.get(source.state)
-      if (existing && existing.join(".") !== keyPath.join(".")) {
-        throw new SyntaxError(`Collection '${source.state}' is rendered with conflicting ForEach id key paths`)
-      }
-      this.#collectionKeyPaths.set(source.state, keyPath)
+      this.#setCollectionKeyPath(source.state, keyPath)
     } else if (source.kind !== "item") {
       throw new SyntaxError(`ForEach collection must be @State, an item field, or a filter of one: ${collectionSource}`)
     }
@@ -2028,19 +2305,18 @@ class UiLowerer {
       const stateName = `@component/${instanceId}/${field.name}`
       if (field.type) {
         const declared = parseMunType(field.type, { canonical: false, what: `${declaration.name}.${field.name}` })
-        this.#declaredTypes.set(stateName, displayMunType(declared))
+        this.#setDeclaredType(stateName, displayMunType(declared))
         if (!valueMatchesType(initial.value, declared)) {
           throw new SyntaxError(
             `@State '${declaration.name}.${field.name}' is declared ${displayMunType(declared)} but its initial value is ${describeValueType(initial.value)}`,
           )
         }
       } else {
-        this.#declaredTypes.set(stateName, initial.value === null ? "nil" : Array.isArray(initial.value) ? "Array" : typeof initial.value)
+        this.#setDeclaredType(stateName, initial.value === null ? "nil" : Array.isArray(initial.value) ? "Array" : typeof initial.value)
       }
       const scope = this.#forEachScopes.at(-1)
-      this.#states.push({ name: stateName, initial: initial.value, ...(scope ? { scope } : {}) })
-      this.#stateTypes.set(
-        stateName,
+      this.#addState(
+        { name: stateName, initial: initial.value, ...(scope ? { scope } : {}) },
         initial.value === null ? "null" : Array.isArray(initial.value) ? "array" : typeof initial.value,
       )
       bindings.set(field.name, { kind: "state", state: stateName })
@@ -2066,17 +2342,27 @@ class UiLowerer {
     }
     const qualifiedName = this.qualifiedName(declaration)
     const instancePath: UiIdentityPath = ["entry", qualifiedName]
-    this.bindLocalStates(declaration, bindings, instancePath)
-    this.#componentStack.push(qualifiedName)
+    // The entry body is always lowered (it is the root instance); its
+    // dependencies are still recorded for the project dependency graph.
+    const capture: LoweringCapture = { dependencies: new Map([[qualifiedName, declaration.source]]), effects: [] }
+    this.#captures.push(capture)
     try {
-      return this.lowerBody(declaration, bindings, [...instancePath, "body"])
+      this.bindLocalStates(declaration, bindings, instancePath)
+      this.#cache?.lowered(qualifiedName)
+      this.#componentStack.push(qualifiedName)
+      try {
+        return this.lowerBody(declaration, bindings, [...instancePath, "body"])
+      } finally {
+        this.#componentStack.pop()
+      }
     } finally {
-      this.#componentStack.pop()
+      this.#captures.pop()
+      this.#addDependencies(qualifiedName, capture.dependencies.keys())
     }
   }
 
   lowerBody(declaration: MunStructDeclaration, bindings: UiBindings, path: UiIdentityPath, statePath: UiStateIdentityPath = path): MunUiNode {
-    this.#loweredViewDeclarations.add(this.qualifiedName(declaration))
+    this.#markLoweredView(this.qualifiedName(declaration))
     const base = declaration.bodyExpressionRange.start
     this.#sourceBaseStack.push(base)
     try {
@@ -2405,19 +2691,25 @@ class UiLowerer {
       }
     }
     const instancePath = childIdentityPath(statePath, "component", qualifiedName)
-    this.bindLocalStates(declaration, fieldBindings, instancePath)
-
-    this.#componentStack.push(qualifiedName)
-    try {
-      return this.lowerBody(
-        declaration,
-        fieldBindings,
-        [...path, "component", qualifiedName, "body"],
-        childIdentityPath(instancePath, "body"),
-      )
-    } finally {
-      this.#componentStack.pop()
-    }
+    // Everything below depends only on these inputs, the lowerer state the
+    // cache key digests, and the declarations recorded as dependencies.
+    const inputs = this.#cache
+      ? JSON.stringify([identityPathKey(path), instancePath ? identityPathKey(instancePath) : null, [...fieldBindings]], cacheKeyValue)
+      : ""
+    return this.#lowerInstance(qualifiedName, declaration, inputs, () => {
+      this.bindLocalStates(declaration, fieldBindings, instancePath)
+      this.#componentStack.push(qualifiedName)
+      try {
+        return this.lowerBody(
+          declaration,
+          fieldBindings,
+          [...path, "component", qualifiedName, "body"],
+          childIdentityPath(instancePath, "body"),
+        )
+      } finally {
+        this.#componentStack.pop()
+      }
+    })
   }
 
   lowerCall(
@@ -2588,7 +2880,10 @@ export interface MunDevProgramMetadata {
  */
 export interface MunDevCompileStats {
   readonly declarationsChecked: number
+  /** Distinct custom View declarations present in the lowered program. */
   readonly viewDeclarationsLowered: number
+  /** Present when a lowering cache was supplied: what was lowered vs reused. */
+  readonly lowering?: MunLoweringCacheStats
 }
 
 function countStructDeclarations(structs: readonly MunStructDeclaration[]): number {
@@ -2599,6 +2894,7 @@ function devCompileResult(
   program: MunUiProgram,
   lowerer: UiLowerer,
   structs: readonly MunStructDeclaration[],
+  lowering?: MunLoweringCacheStats,
 ): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
   const types = lowerer.declaredStateTypes()
   return {
@@ -2614,6 +2910,7 @@ function devCompileResult(
     stats: {
       declarationsChecked: countStructDeclarations(structs),
       viewDeclarationsLowered: lowerer.loweredViewDeclarations().size,
+      ...(lowering ? { lowering } : {}),
     },
   }
 }
@@ -2624,8 +2921,8 @@ export function compileMunDevProgram(
   options: MunUiCompileOptions = {},
 ): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
   const structs = parseMunStructs(source)
-  const { program, lowerer } = lowerMunUiProgram(source, fileName, options, structs)
-  return devCompileResult(program, lowerer, structs)
+  const { program, lowerer, lowering } = lowerMunUiProgram(source, fileName, options, structs)
+  return devCompileResult(program, lowerer, structs, lowering)
 }
 
 /**
@@ -2639,8 +2936,8 @@ export function compileMunDevProgramFromStructs(
   fileName = "mun-source.mun",
   options: MunUiCompileOptions = {},
 ): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
-  const { program, lowerer } = lowerMunUiProgram(source, fileName, options, structs)
-  return devCompileResult(program, lowerer, structs)
+  const { program, lowerer, lowering } = lowerMunUiProgram(source, fileName, options, structs)
+  return devCompileResult(program, lowerer, structs, lowering)
 }
 
 function lowerMunUiProgram(
@@ -2648,7 +2945,7 @@ function lowerMunUiProgram(
   fileName: string,
   options: MunUiCompileOptions,
   preparedStructs?: readonly MunStructDeclaration[],
-): { program: MunUiProgram; lowerer: UiLowerer } {
+): { program: MunUiProgram; lowerer: UiLowerer; lowering?: MunLoweringCacheStats } {
   assertCanonicalMunSource(source, fileName)
   const structs = preparedStructs ?? parseMunStructs(source)
   if (structs.length === 0) throw new SyntaxError("Native Mün requires a View struct entry point")
@@ -2659,7 +2956,9 @@ function lowerMunUiProgram(
   const requestedEntry = entryName(source, structs[0].name)
   const entry = structs.find(structure => structure.name === requestedEntry) ?? structs[0]
   const states = stateDeclarations(source)
-  const lowerer = new UiLowerer(structs, states)
+  const cache = options.loweringCache
+  cache?.begin()
+  const lowerer = new UiLowerer(structs, states, cache)
   const lowered = withCollectionKeyPaths(lowerer.lowerEntry(entry), lowerer)
   const title = options.windowTitle ?? "Mün"
   const root: MunUiWindowNode = lowered.kind === "window"
@@ -2685,5 +2984,8 @@ function lowerMunUiProgram(
       root,
     },
     lowerer,
+    // Committed only after the whole program lowered: a failed compile keeps
+    // the previous entries for reuse once the error is fixed.
+    ...(cache ? { lowering: cache.commit(lowerer.dependencyGraph()) } : {}),
   }
 }

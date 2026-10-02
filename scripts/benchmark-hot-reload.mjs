@@ -85,7 +85,7 @@ async function runCase(name, build) {
       } finally { clearTimeout(timer) }
     }
     const compile = [], roundTrip = [], payload = [], wirePayload = [], read = [], lower = [], compatibility = [], serialization = [], filesRead = []
-    const filesReparsed = [], declarationsReparsed = [], declarationsRechecked = [], viewsRelowered = [], updateModes = [], patchOps = []
+    const filesReparsed = [], declarationsReparsed = [], declarationsRechecked = [], viewsRelowered = [], updateModes = [], patchOps = [], instances = [], affected = []
     for (let i = 1; i <= edits; i++) {
       write(directory, spec.files(i))
       const started = performance.now()
@@ -98,6 +98,8 @@ async function runCase(name, build) {
       declarationsReparsed.push(next.stats?.declarationsReparsed ?? 0)
       declarationsRechecked.push(next.stats?.declarationsRechecked ?? 0)
       viewsRelowered.push(next.stats?.viewDeclarationsRelowered ?? 0)
+      instances.push(`${next.stats?.viewInstancesLowered ?? '?'}/${next.stats?.viewInstancesReused ?? '?'}`)
+      affected.push(next.stats?.affectedViews?.length ?? '?')
       const compatibilityStart = performance.now()
       const analysis = analyzeCompatibility(running, next)
       compatibility.push(performance.now() - compatibilityStart)
@@ -137,6 +139,8 @@ async function runCase(name, build) {
     console.log(`  files reparsed per edit ${filesReparsed.join(', ')}`)
     console.log(`  declarations reparsed/rechecked per edit ${declarationsReparsed.map((value, index) => `${value}/${declarationsRechecked[index]}`).join(', ')}`)
     console.log(`  View declarations relowered per edit ${viewsRelowered.join(', ')}`)
+    console.log(`  View instances lowered/reused per edit ${[...new Set(instances)].join(', ')}${new Set(instances).size === 1 ? ' (every edit)' : ''}`)
+    console.log(`  affected Views (dependency graph) per edit ${[...new Set(affected)].join(', ')}${new Set(affected).size === 1 ? ' (every edit)' : ''}`)
     console.log('  watcher/debounce, transfer, runtime, layout, presentation: not separately instrumented; host apply is request/ack round trip, not edit-to-screen')
   } finally {
     listener?.close()
