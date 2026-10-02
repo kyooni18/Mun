@@ -1,7 +1,7 @@
 {
   "name": "create-mun",
   "version": "0.1.20",
-  "description": "Create a ready-to-run renderer-independent Mün UI project with Vite and TypeScript.",
+  "description": "Create a canonical native Mün application, with explicit Web compatibility scaffolding.",
   "type": "module",
   "files": [
     "bin"

@@ -2,8 +2,7 @@
   "name": "mun-language-support",
   "displayName": "Mün Language Support",
   "description": "Mün syntax and semantic highlighting, diagnostics, formatting, completion, hover, signature help, and language tooling.",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.20",
   "publisher": "mun",
   "repository": {
     "type": "git",
@@ -12,6 +11,9 @@
   "license": "MIT",
   "files": [
     "extension.cjs",
+    "client.mjs",
+    "discovery.mjs",
+    "protocol.mjs",
     "language-configuration.json",
     "syntaxes",
     "package.json"
@@ -23,8 +25,7 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:mun",
-    "onLanguage:vue"
+    "onLanguage:mun"
   ],
   "main": "./extension.cjs",
   "contributes": {
@@ -58,10 +59,10 @@
     "configuration": {
       "title": "Mün",
       "properties": {
-        "mun.languageTools.enableVue": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable Mün formatting, completion, hover, signature help, definition, diagnostics, rename, and semantic highlighting in Vue SFCs."
+        "mun.server.command": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit mun executable. Otherwise use workspace-local @mun/ui before global mun; versions must match the extension."
         }
       }
     }

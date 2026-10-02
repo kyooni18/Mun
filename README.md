@@ -31,6 +31,51 @@ they do not define Mün's native UI architecture.
 
 ## Quick start
 
+### Install and create a native app
+
+With Node.js 20.19 or newer, install a Mün release that includes a native host
+for your OS and architecture:
+
+```bash
+npm install -g @mun/ui
+mun new HelloMun
+cd HelloMun
+mun dev
+```
+
+`mun create HelloMun`, `npm create mun HelloMun`, and `pnpm create mun HelloMun`
+use the same native template. No npm install is needed inside the generated app.
+Edit `Sources/App.mun`. `mun dev` debounces source changes, recompiles, and
+relaunches the native process with fresh state. It is **not hot reload**. Invalid
+edits show diagnostics and leave the last valid application running.
+
+```text
+HelloMun/
+  mun.toml
+  Sources/App.mun
+  Assets/
+  .gitignore
+```
+
+Commands discover the nearest `mun.toml` from nested directories:
+
+```bash
+mun run          # compile and launch
+mun check        # project diagnostics, nonzero on errors
+mun fmt --check  # check structural indentation without modifying files
+mun fmt          # normalize structural indentation
+mun build        # host + Semantic UI IR in .mun/build/<os>-<arch>/<name>
+mun package      # unsigned .app on macOS; portable directory elsewhere
+mun doctor       # offline host, project, asset, Cargo/Xcode checks
+mun editor install --editor all
+mun lsp --stdio
+```
+
+See [Native project workflow](docs/native-projects.md) for the manifest contract,
+packaging/signing steps, resources, local toolchain development, and limitations.
+Web/Vite scaffolding is an explicit compatibility workflow:
+`mun create MyWebApp --target web`.
+
 ### Native checkout
 
 From the Mün repository, build the compiler packages once:
@@ -58,7 +103,7 @@ passes that backend-neutral program to `mun-native`. A packaged native binary is
 used when available; source checkouts and source-only packages fall back to the
 locked Rust workspace without changing Mün language semantics.
 
-### Local checkout (recommended while Mün is unpublished)
+### Compatibility: local Web/React checkout
 
 Mün can be used from a completely separate project without publishing any
 `@mun/*` package to npm. Install and build the Mün checkout once:
@@ -95,7 +140,7 @@ To create a brand-new separate project using this checkout:
 
 ```bash
 cd ~/Code/Mun
-pnpm dev:create ~/Code/Web/React/MyMunApp --no-install
+pnpm dev:create ~/Code/Web/React/MyMunApp --target web --no-install
 cd ~/Code/Web/React/MyMunApp
 pnpm install
 pnpm dev
@@ -104,7 +149,7 @@ pnpm dev
 The equivalent direct CLI is:
 
 ```bash
-node ~/Code/Mun/bin/mun.mjs create ./MyMunApp --local
+node ~/Code/Mun/bin/mun.mjs create ./MyMunApp --target web --local
 ```
 
 For Astro, Vue, or the native Web renderer in an existing project:

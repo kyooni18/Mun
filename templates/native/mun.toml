@@ -1,0 +1,8 @@
+manifest_version = 1
+name = "__MUN_PROJECT_APP_NAME__"
+entry = "Sources/App.mun"
+identifier = "app.mun.__MUN_PROJECT_NAME__"
+version = "1.0.0"
+minimum_mun_version = "__MUN_VERSION__"
+platforms = ["macos", "windows", "linux"]
+resources = ["Assets"]

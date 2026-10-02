@@ -17,9 +17,10 @@ const extensionStage = resolve(stage, 'extension')
 
 try {
   mkdirSync(extensionStage, { recursive: true })
-  for (const file of ['extension.cjs', 'language-configuration.json', 'package.json', 'syntaxes']) {
+  for (const file of ['extension.cjs', 'client.mjs', 'discovery.mjs', 'language-configuration.json', 'package.json', 'syntaxes']) {
     cpSync(resolve(extensionRoot, file), resolve(extensionStage, file), { recursive: true })
   }
+  cpSync(resolve(extensionRoot, 'protocol.mjs'), resolve(extensionStage, 'protocol.mjs'))
   const packagedManifest = { ...extensionManifest, version, private: undefined }
   delete packagedManifest.private
   writeFileSync(resolve(extensionStage, 'package.json'), `${JSON.stringify(packagedManifest, null, 2)}\n`)

@@ -1,184 +1,123 @@
 #!/usr/bin/env node
-
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { LanguageService, tokenTypes } from './service.mjs'
+import { offsetAt } from './source.mjs'
+import { MessageReader, encode } from '../vscode/protocol.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-
-async function loadCompiler() {
-  for (const request of ['@mun/compiler', resolve(root, 'packages/compiler/dist/index.js')]) {
-    try {
-      const compiler = await import(request.startsWith('.') || request.startsWith('/') ? pathToFileURL(request).href : request)
-      if (typeof compiler.diagnoseMunSource === 'function') return compiler
-    } catch { /* A published standalone server may run without the optional compiler. */ }
-  }
-  return undefined
-}
-
-const compiler = await loadCompiler()
-const documents = new Map()
-
-function send(message) {
-  const body = JSON.stringify(message)
-  process.stdout.write(`Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n${body}`)
-}
-
+const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
+const service = new LanguageService()
+const open = new Set()
+let shutdown = false
+function send(message) { process.stdout.write(encode(message)) }
 function response(id, result) { send({ jsonrpc: '2.0', id, result }) }
-function notification(method, params) { send({ jsonrpc: '2.0', method, params }) }
+function error(id, code, message) { send({ jsonrpc: '2.0', id, error: { code, message } }) }
+function publish(uri) { send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics', params: { uri, diagnostics: service.diagnostics(uri) } }) }
 
-function positionAt(source, offset) {
-  const bounded = Math.max(0, Math.min(source.length, offset))
-  const before = source.slice(0, bounded)
-  const line = before.split('\n').length - 1
-  return { line, character: bounded - (before.lastIndexOf('\n') + 1) }
-}
-
-function offsetAt(source, position) {
-  const lines = source.split('\n')
-  const line = Math.max(0, Math.min(lines.length - 1, position?.line ?? 0))
-  return lines.slice(0, line).reduce((total, value) => total + value.length + 1, 0) + Math.max(0, position?.character ?? 0)
-}
-
-function fallbackDiagnostics(source) {
-  const result = []
-  const stack = []
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index]
-    if ('({['.includes(character)) stack.push({ character, index })
-    if (!')}]'.includes(character)) continue
-    const expected = { ')': '(', ']': '[', '}': '{' }[character]
-    const opening = stack.pop()
-    if (!opening || opening.character !== expected) result.push({ severity: 1, code: 'MUN_SYNTAX', message: `Unexpected '${character}' in Mün source.`, index })
+function projectRoot(path) {
+  let directory = existsSync(path) && statSync(path).isDirectory() ? path : dirname(path)
+  while (true) {
+    if (existsSync(resolve(directory, 'mun.toml'))) return directory
+    const parent = dirname(directory)
+    if (parent === directory) return undefined
+    directory = parent
   }
-  for (const opening of stack) result.push({ severity: 1, code: 'MUN_SYNTAX', message: `Unclosed '${opening.character}' in Mün source.`, index: opening.index })
-  return result
 }
-
-function diagnosticsFor(source) {
-  const diagnostics = compiler ? compiler.diagnoseMunSource(source) : fallbackDiagnostics(source)
-  return diagnostics.map(diagnostic => {
-    const index = diagnostic.line && diagnostic.column
-      ? offsetAt(source, { line: diagnostic.line - 1, character: diagnostic.column - 1 })
-      : diagnostic.index ?? 0
-    const start = positionAt(source, index)
-    return {
-      range: { start, end: { line: start.line, character: start.character + 1 } },
-      severity: diagnostic.severity === 'warning' ? 2 : 1,
-      code: diagnostic.code,
-      source: 'mun',
-      message: diagnostic.message,
+function indexProject(path) {
+  const directory = projectRoot(path)
+  if (!directory) return
+  function walk(path) {
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      if (entry.name.startsWith('.') || ['node_modules', 'Assets', 'build', 'dist'].includes(entry.name) || entry.isSymbolicLink()) continue
+      const file = resolve(path, entry.name)
+      if (entry.isDirectory()) walk(file)
+      else if (entry.name.endsWith('.mun') && entry.isFile()) {
+        const uri = pathToFileURL(file).href
+        if (!open.has(uri)) service.update(uri, readFileSync(file, 'utf8'))
+      }
     }
-  })
+  }
+  walk(directory)
 }
-
-function publish(uri, source) {
-  notification('textDocument/publishDiagnostics', { uri, diagnostics: diagnosticsFor(source) })
-}
-
-function completionItems(source) {
-  const names = new Set(['Text', 'VStack', 'HStack', 'ZStack', 'ScrollView', 'SafeArea', 'GeometryReader', 'Spacer', 'Button', 'ForEach'])
-  for (const match of source.matchAll(/\bstruct\s+([A-Za-z_$][A-Za-z0-9_$]*)/g)) names.add(match[1])
-  return [...names].map(label => ({ label, kind: 3, detail: 'Mün View' }))
-}
-
-function formatSource(source) {
-  let depth = 0
-  return source.split(/\r?\n/).map(line => {
-    const trimmed = line.trim()
-    if (!trimmed) return ''
-    if (/^[}\])]/.test(trimmed)) depth = Math.max(0, depth - 1)
-    const formatted = `${'  '.repeat(depth)}${trimmed}`
-    if (/[{[(]\s*$/.test(trimmed)) depth += 1
-    return formatted
-  }).join('\n')
-}
-
 function handle(message) {
   const { id, method, params = {} } = message
   if (method === 'initialize') {
+    for (const uri of [...(params.workspaceFolders ?? []).map(folder => folder.uri), ...(params.rootUri ? [params.rootUri] : [])]) {
+      try { indexProject(fileURLToPath(uri)) } catch (e) { console.error(e.message) }
+    }
     response(id, {
       capabilities: {
-        textDocumentSync: { openClose: true, change: 1, save: { includeText: true } },
-        completionProvider: { triggerCharacters: [':', '.', '@'] },
-        hoverProvider: true,
-        documentFormattingProvider: true,
+        positionEncoding: 'utf-16',
+        textDocumentSync: { openClose: true, change: 2, save: { includeText: true } },
+        completionProvider: { triggerCharacters: ['.', '@', '$', ':'] }, hoverProvider: true,
+        signatureHelpProvider: { triggerCharacters: ['(', ',', ':'] }, definitionProvider: true,
+        referencesProvider: true, renameProvider: { prepareProvider: true },
+        documentFormattingProvider: true, documentSymbolProvider: true, workspaceSymbolProvider: true,
+        semanticTokensProvider: { legend: { tokenTypes, tokenModifiers: [] }, full: true },
+        foldingRangeProvider: true, selectionRangeProvider: true,
+        codeActionProvider: { codeActionKinds: ['quickfix'] },
       },
-      serverInfo: { name: 'mun-lsp', version: '0.1.0' },
-    })
-    return
+      serverInfo: { name: 'mun-lsp', version },
+    }); return
   }
-  if (method === 'shutdown') { response(id, null); return }
-  if (method === 'exit') { process.exit(0); return }
+  if (method === 'shutdown') { shutdown = true; response(id, null); return }
+  if (method === 'exit') { process.exit(shutdown ? 0 : 1); return }
+  if (method === 'initialized' || method === '$/cancelRequest') return
+  if (shutdown) { if (id !== undefined) error(id, -32600, 'Server has shut down.'); return }
   if (method === 'textDocument/didOpen') {
-    const { uri, text } = params.textDocument
-    documents.set(uri, text)
-    publish(uri, text)
-    return
+    const { uri, text, version } = params.textDocument
+    if (!uri.endsWith('.mun')) return
+    try { indexProject(fileURLToPath(uri)) } catch (e) { console.error(e.message) }
+    open.add(uri); service.update(uri, text, version); publish(uri); return
   }
   if (method === 'textDocument/didChange') {
-    const uri = params.textDocument.uri
-    const current = documents.get(uri) ?? ''
-    const next = params.contentChanges?.at(-1)
-    const text = next?.range ? `${current.slice(0, offsetAt(current, next.range.start))}${next.text}${current.slice(offsetAt(current, next.range.end))}` : next?.text ?? current
-    documents.set(uri, text)
-    publish(uri, text)
-    return
+    const { uri, version } = params.textDocument
+    let source = service.snapshot(uri)?.source ?? ''
+    for (const change of params.contentChanges ?? []) source = change.range ? source.slice(0, offsetAt(source, change.range.start)) + change.text + source.slice(offsetAt(source, change.range.end)) : change.text
+    service.update(uri, source, version); publish(uri); return
   }
   if (method === 'textDocument/didSave') {
-    const uri = params.textDocument.uri
-    const text = params.text ?? documents.get(uri) ?? ''
-    documents.set(uri, text)
-    publish(uri, text)
-    return
+    const { uri } = params.textDocument
+    if (params.text !== undefined) service.update(uri, params.text)
+    publish(uri); return
   }
   if (method === 'textDocument/didClose') {
-    const uri = params.textDocument.uri
-    documents.delete(uri)
-    notification('textDocument/publishDiagnostics', { uri, diagnostics: [] })
-    return
+    const { uri } = params.textDocument
+    open.delete(uri)
+    try { service.update(uri, readFileSync(fileURLToPath(uri), 'utf8')) } catch { service.remove(uri) }
+    send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics', params: { uri, diagnostics: [] } }); return
   }
-  if (method === 'textDocument/completion') {
-    const source = documents.get(params.textDocument.uri) ?? ''
-    response(id, { isIncomplete: false, items: completionItems(source) })
-    return
-  }
-  if (method === 'textDocument/hover') {
-    const source = documents.get(params.textDocument.uri) ?? ''
-    const offset = offsetAt(source, params.position)
-    const prefix = source.slice(0, offset)
-    const token = /[A-Za-z_$][A-Za-z0-9_$]*$/.exec(prefix)?.[0]
-    if (!token) { response(id, null); return }
-    let view
-    try { view = compiler?.createMunSemanticModel(source, params.textDocument.uri).view(token) } catch { view = undefined }
-    response(id, view ? { contents: { kind: 'markdown', value: `\`\`\`mun\n${view.name}\n\`\`\`` } } : { contents: { kind: 'markdown', value: `Mün symbol \`${token}\`` } })
-    return
-  }
-  if (method === 'textDocument/formatting') {
-    const uri = params.textDocument.uri
-    const source = documents.get(uri) ?? ''
-    const text = formatSource(source)
-    response(id, [{ range: { start: { line: 0, character: 0 }, end: positionAt(source, source.length) }, newText: text }])
-    return
-  }
-  if (id !== undefined) response(id, null)
-}
-
-let buffer = Buffer.alloc(0)
-process.stdin.on('data', chunk => {
-  buffer = Buffer.concat([buffer, chunk])
-  while (true) {
-    const separator = buffer.indexOf('\r\n\r\n')
-    if (separator < 0) return
-    const headers = buffer.slice(0, separator).toString('utf8')
-    const length = Number(/Content-Length:\s*(\d+)/i.exec(headers)?.[1] ?? 0)
-    const start = separator + 4
-    if (!length || buffer.length < start + length) return
-    const body = buffer.slice(start, start + length).toString('utf8')
-    buffer = buffer.slice(start + length)
-    let message
-    try { message = JSON.parse(body); handle(message) } catch (error) {
-      if (message?.id !== undefined) response(message.id, null)
-      console.error(error)
+  if (method === 'workspace/didChangeWatchedFiles') {
+    for (const change of params.changes ?? []) {
+      if (!change.uri.endsWith('.mun') || open.has(change.uri)) continue
+      if (change.type === 3) service.remove(change.uri)
+      else try { service.update(change.uri, readFileSync(fileURLToPath(change.uri), 'utf8')) } catch (e) { console.error(e.message) }
     }
+    return
   }
-})
+  const uri = params.textDocument?.uri
+  const requests = {
+    'textDocument/completion': () => ({ isIncomplete: false, items: service.completion(uri, params.position) }),
+    'textDocument/hover': () => service.hover(uri, params.position),
+    'textDocument/signatureHelp': () => service.signatureHelp(uri, params.position),
+    'textDocument/definition': () => service.definition(uri, params.position),
+    'textDocument/references': () => service.references(uri, params.position, params.context?.includeDeclaration),
+    'textDocument/prepareRename': () => service.prepareRename(uri, params.position),
+    'textDocument/rename': () => service.rename(uri, params.position, params.newName),
+    'textDocument/formatting': () => service.formatting(uri),
+    'textDocument/codeAction': () => service.codeActions(uri, params.range, params.context),
+    'textDocument/documentSymbol': () => service.symbols(uri),
+    'workspace/symbol': () => service.workspaceSymbols(params.query ?? ''),
+    'textDocument/semanticTokens/full': () => service.semanticTokens(uri),
+    'textDocument/foldingRange': () => service.folding(uri),
+    'textDocument/selectionRange': () => service.selectionRanges(uri, params.positions),
+  }
+  if (id !== undefined) {
+    if (!requests[method]) { error(id, -32601, `Unsupported method: ${method}`); return }
+    try { response(id, requests[method]()) } catch (e) { error(id, -32602, e.message) }
+  }
+}
+const reader = new MessageReader(handle, e => { console.error(`LSP protocol error: ${e.message}`); process.exitCode = 1; process.stdin.destroy() })
+process.stdin.on('data', chunk => reader.feed(chunk))

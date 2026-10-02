@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { updatePnpmWorkspaceOverrides } from './pnpm-workspace.mjs'
 import { installEditors } from '../editors/install.mjs'
 import { runNativeSource } from './native.mjs'
+import { projectCommand } from './workflow.mjs'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageManifest = JSON.parse(readFileSync(resolve(packageRoot, 'package.json'), 'utf8'))
@@ -46,13 +47,20 @@ try {
     else if (argument === '--local') options.local = true
     else if (argument === '--global') options.global = true
     else if (argument === '--help' || argument === '-h') options.help = true
+    else if (argument === '--check') options.check = true
+    else if (argument === '--verbose') options.verbose = true
+    else if (argument === '--version' || argument === '-v') options.version = true
     else {
       const packageManager = takeValue(argument, index, '--package-manager') ?? takeValue(argument, index, '--pm')
       const localRoot = takeValue(argument, index, '--local-root')
       const renderer = takeValue(argument, index, '--renderer')
       const editor = takeValue(argument, index, '--editor')
       const project = takeValue(argument, index, '--project')
-      if (packageManager) {
+      const target = takeValue(argument, index, '--target')
+      if (target) {
+        options.target = target.value
+        index += target.consumed
+      } else if (packageManager) {
         options.packageManager = packageManager.value
         index += packageManager.consumed
       } else if (localRoot) {
@@ -129,9 +137,9 @@ function projectName(projectRoot) {
 }
 
 function projectAppName(projectRoot) {
-  const words = projectName(projectRoot).split(/[-._]+/u).filter(Boolean)
-  const name = words.map(word => `${word[0].toUpperCase()}${word.slice(1)}`).join('')
-  return /^[A-Za-z_$]/u.test(name) ? `${name}App` : `Mun${name}App`
+  const words = basename(projectRoot).split(/[^A-Za-z0-9]+/u).filter(Boolean)
+  const name = words.map(word => `${word[0].toUpperCase()}${word.slice(1)}`).join('') || 'Mun'
+  return /^[A-Za-z]/u.test(name) ? `${name}App` : `Mun${name}App`
 }
 
 function detectPackageManager(projectRoot) {
@@ -300,10 +308,17 @@ function printHelp() {
   console.log(`Mün UI CLI
 
 Usage:
-  mun create <directory> [--pm <manager>] [--no-install] [--force] [--local] [--local-root <path>]
-  mun init [--pm <manager>] [--force] [--no-install] [--local] [--local-root <path>]
+  mun new <directory> [--target native|web]
+  mun create <directory> [--target native|web]
+  mun init [--target native|web]
+  mun dev [--verbose]
+  mun run [input.mun]
+  mun check
+  mun fmt [--check]
+  mun build
+  mun package
+  mun doctor
   mun compile <input.mun> [output.json]
-  mun run <input.mun>
   mun link <project> [--renderer astro|react|vue|web] [--pm <manager>] [--no-install] [--local-root <path>]
   mun lsp [--stdio]
   mun lsp install [--editor ...] [--project <path>] [--global]
@@ -322,7 +337,7 @@ Initializer aliases after publishing:
   npm create mun <directory>
   pnpm create mun <directory>
 
-create scaffolds a renderer-independent Web + Vite + TypeScript Mün app.
+new/create/init scaffold a canonical native application by default. Use --target web for Vite compatibility.
 --local rewrites Mün dependencies to link: paths pointing at the source checkout.
 Local source mode always uses pnpm because it relies on pnpm workspace overrides.
 --no-install leaves dependency installation to you and prints the exact commands to continue.
@@ -344,11 +359,8 @@ function compileCommand() {
 }
 
 function runCommand() {
-  if (positionals.length !== 1) {
-    console.error('Usage: mun run <input.mun>')
-    return 1
-  }
-  return runNativeSource(positionals[0])
+  if (positionals.length > 1) throw new Error('Usage: mun run [input.mun]')
+  return positionals.length ? runNativeSource(positionals[0]) : projectCommand('run', options)
 }
 
 function editorCommand() {
@@ -379,6 +391,23 @@ function scaffold(projectRoot, commandName) {
     console.warn('Using --force: Mün template files will be replaced; unrelated files will be kept.')
   }
 
+  const target = options.target ?? (options.renderer === 'web' ? 'web' : 'native')
+  if (!['native', 'web'].includes(target)) throw new Error(`Unsupported project target: ${target}. Use native or web.`)
+  if (target === 'native') {
+    if (options.renderer && options.renderer !== 'native') throw new Error('Native scaffolds do not use a Web renderer.')
+    if (options.packageManager) packageManagerFor(projectRoot)
+    if (options.local) assertSourceCheckout(normalizeLocalRoot(options.localRoot))
+    mkdirSync(projectRoot, { recursive: true })
+    writeTemplates(projectRoot, [
+      ['templates/native/mun.toml', 'mun.toml'],
+      ['templates/native/App.mun', 'Sources/App.mun'],
+      ['templates/native/gitignore', '.gitignore'],
+    ])
+    mkdirSync(resolve(projectRoot, 'Assets'), { recursive: true })
+    console.log(`Created native Mün app in ${projectRoot}`)
+    console.log(`\nNext steps:\n  cd ${projectRoot}\n  mun dev`)
+    return 0
+  }
   if (options.renderer && options.renderer !== 'web') {
     throw new Error('The built-in project template uses the renderer-independent Web adapter. Use `mun link` to connect an existing React or Vue project.')
   }
@@ -420,6 +449,14 @@ function linkProject(target) {
 }
 
 function main() {
+  if (command === '--version' || command === '-v') { console.log(packageManifest.version); return 0 }
+  if (command === '--help' || command === '-h') { printHelp(); return 0 }
+  if (options.help || !command) { printHelp(); return 0 }
+  if (options.version) { console.log(packageManifest.version); return 0 }
+  if (['check', 'fmt', 'build', 'package', 'doctor', 'dev'].includes(command)) {
+    if (positionals.length) throw new Error(`Usage: mun ${command} [--project <directory>]`)
+    return projectCommand(command, options)
+  }
   if (options.help || !command) {
     printHelp()
     return 0
@@ -462,7 +499,7 @@ function main() {
 }
 
 try {
-  process.exitCode = main()
+  process.exitCode = await main()
 } catch (error) {
   console.error(`Mün ${command ?? 'command'} failed: ${error instanceof Error ? error.message : String(error)}`)
   process.exitCode = 1

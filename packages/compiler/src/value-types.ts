@@ -192,6 +192,7 @@ interface DeclaredMember {
   readonly access?: string
   readonly type?: string
   readonly initializer?: string
+  readonly range?: { readonly start: number; readonly end: number }
 }
 
 interface DeclaredView {
@@ -233,7 +234,13 @@ export function validateCanonicalDeclarations(views: readonly DeclaredView[]): v
   for (const view of views) {
     for (const member of view.fields) {
       const what = `${view.name}.${member.name}`
-      if (member.type) parseMunType(member.type, { canonical: true, what })
+      if (member.type) {
+        try { parseMunType(member.type, { canonical: true, what }) }
+        catch (error) {
+          if (error instanceof SyntaxError && member.range) Object.assign(error, { offset: member.range.start, length: member.range.end - member.range.start })
+          throw error
+        }
+      }
       const hidden = member.access === "private" || member.access === "fileprivate"
       if (hidden && member.kind === "binding") {
         throw new SyntaxError(`${what}: a @Binding cannot be ${member.access}; its caller must supply it`)

@@ -1,0 +1,15 @@
+@main
+struct __MUN_PROJECT_APP_NAME__: View {
+  @State var count: Int = 0
+
+  var body: some View {
+    VStack(spacing: 12) {
+      Text("Hello, Mün")
+      Text("Count: \(count)")
+      Button("Increase") {
+        count += 1
+      }
+    }
+    .padding(24)
+  }
+}

@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { assembleNativeHost } from './assemble-native-host.mjs'
+import { pathToFileURL } from 'node:url'
+import { LspClient } from '../editors/vscode/client.mjs'
 const temporary = mkdtempSync(resolve(tmpdir(), 'mun-package-'))
 const name = process.platform === 'win32' ? 'mun-native.exe' : 'mun-native'
 const key = `${process.platform}-${process.arch}`
@@ -64,6 +66,31 @@ try {
   assert(existsSync(host), 'installed native host')
   // A real native launch, with no Cargo and no repository fixture dependency.
   run(host, ['--smoke', 'app.json'], consumer)
+  for (const file of ['templates/native/App.mun', 'templates/native/mun.toml', 'bin/project.mjs', 'bin/workflow.mjs', 'bin/watch.mjs', 'editors/lsp/mun-lsp.mjs']) assert(packed.files.some(entry => entry.path === file), `${file} must be in tarball`)
+  const publicCli = resolve(consumer, 'node_modules/@mun/ui/bin/mun.mjs')
+  run(process.execPath, [publicCli, 'new', 'HelloMun'], consumer)
+  const nativeProject = resolve(consumer, 'HelloMun')
+  assert(!existsSync(resolve(nativeProject, 'package.json')), 'native app must not depend on Web packages')
+  mkdirSync(resolve(nativeProject, 'Sources/Nested'))
+  const nested = resolve(nativeProject, 'Sources/Nested')
+  run(process.execPath, [publicCli, 'check'], nested)
+  run(process.execPath, [publicCli, 'fmt', '--check'], nested)
+  run(process.execPath, [publicCli, 'build'], nested)
+  const app = resolve(nativeProject, '.mun/build', key, 'HelloMunApp')
+  const builtIr = resolve(app, 'Resources/program.mun.ir.json')
+  assert.equal(JSON.parse(readFileSync(builtIr, 'utf8')).entry, 'HelloMunApp')
+  run(resolve(app, name), ['--smoke', builtIr], consumer)
+  run(process.execPath, [publicCli, 'package'], nested)
+  if (process.platform === 'darwin') assert(existsSync(resolve(nativeProject, '.mun/package', key, 'HelloMunApp.app/Contents/Info.plist')))
+  const client = new LspClient({ command: process.execPath, args: [publicCli, 'lsp', '--stdio'], cwd: nativeProject }, () => {}, () => {})
+  try {
+    const initialization = await client.request('initialize', { capabilities: {}, rootUri: pathToFileURL(nativeProject).href })
+    assert.equal(initialization.serverInfo.version, manifest.version)
+    const uri = pathToFileURL(resolve(nativeProject, 'Sources/App.mun')).href
+    client.notify('textDocument/didOpen', { textDocument: { uri, text: readFileSync(resolve(nativeProject, 'Sources/App.mun'), 'utf8'), version: 1 } })
+    const symbols = await client.request('textDocument/documentSymbol', { textDocument: { uri } })
+    assert.equal(symbols[0].name, 'HelloMunApp')
+  } finally { await client.dispose() }
 
   // A host assembled for another package version is rejected before launch,
   // and an installed package never falls back to building with Cargo.

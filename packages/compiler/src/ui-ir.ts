@@ -1,3 +1,4 @@
+import { horizontalAlignments, overlayAlignments, paddingEdges } from './native-member-contract.js'
 import ts from "typescript"
 import { compileMotionPlan as compileInheritedMotionPlan, curves as inheritedCurves, spring as inheritedSpring, timing as inheritedTiming } from "@mun/animation/core"
 import {
@@ -1125,7 +1126,7 @@ function closureLabel(closure: MunClosureExpression | undefined, what: string): 
 function horizontalAlignment(source: string | undefined): MunUiAlignment | undefined {
   if (source === undefined) return undefined
   const value = source.trim().replace(/^(?:HorizontalAlignment)?\./, "")
-  if (value === "leading" || value === "center" || value === "trailing") return value
+  if ((horizontalAlignments as readonly string[]).includes(value)) return value as MunUiAlignment
   throw new SyntaxError(`VStack alignment must be .leading, .center or .trailing: ${source}`)
 }
 
@@ -1141,7 +1142,7 @@ function verticalAlignment(source: string | undefined): MunUiAlignment | undefin
   throw new SyntaxError(`HStack alignment must be .top, .center or .bottom: ${source}`)
 }
 
-const alignments: readonly MunUiOverlayAlignment[] = ["center", "leading", "trailing", "top", "bottom", "topLeading", "topTrailing", "bottomLeading", "bottomTrailing"]
+const alignments: readonly MunUiOverlayAlignment[] = overlayAlignments
 
 function alignment(source: string | undefined, what: string): MunUiOverlayAlignment | undefined {
   if (source === undefined) return undefined
@@ -1562,12 +1563,7 @@ function frameBound(source: string | undefined, label: string, bindings: UiBindi
 
 function edgeInsets(edges: string | undefined, length: number): MunUiLayout["padding"] {
   if (edges === undefined) return length
-  const sets: Readonly<Record<string, readonly ("top" | "leading" | "bottom" | "trailing")[]>> = {
-    all: ["top", "leading", "bottom", "trailing"],
-    horizontal: ["leading", "trailing"],
-    vertical: ["top", "bottom"],
-    top: ["top"], bottom: ["bottom"], leading: ["leading"], trailing: ["trailing"],
-  }
+  const sets: Readonly<Record<string, readonly ("top" | "leading" | "bottom" | "trailing")[]>> = paddingEdges
   const names = edges.trim().startsWith("[")
     ? splitTopLevel(edges.trim().slice(1, -1)).map(item => item.trim())
     : [edges.trim()]

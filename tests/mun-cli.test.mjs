@@ -123,7 +123,7 @@ test('the published package carries the locked native Rust fallback used by mun 
 
 test('canonical @mun/ui create scaffolds a Web project without React or Vue', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-cli-'))
-  const result = run(['create', 'hello-mun', '--no-install'], workspace)
+  const result = run(['create', 'hello-mun', '--target', 'web', '--no-install'], workspace)
   const project = resolve(workspace, 'hello-mun')
 
   assert.equal(result.status, 0, result.stderr)
@@ -160,7 +160,7 @@ test('canonical @mun/ui create scaffolds a Web project without React or Vue', ()
 
 test('create prints complete next steps when installation is skipped', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-cli-steps-'))
-  const result = run(['create', 'hello-mun', '--no-install'], workspace, { npm_config_user_agent: '' })
+  const result = run(['create', 'hello-mun', '--target', 'web', '--no-install'], workspace, { npm_config_user_agent: '' })
 
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /Next steps:\n  cd hello-mun\n  npm install\n  npm run dev/u)
@@ -168,7 +168,7 @@ test('create prints complete next steps when installation is skipped', () => {
 
 test('init prints current-directory next steps without a redundant cd command', () => {
   const project = mkdtempSync(resolve(tmpdir(), 'mun-init-'))
-  const result = run(['init', '--no-install', '--pm', 'pnpm'], project)
+  const result = run(['init', '--target', 'web', '--no-install', '--pm', 'pnpm'], project)
 
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /Next steps:\n  pnpm install\n  pnpm dev/u)
@@ -193,9 +193,9 @@ test('create-mun accepts the npm/pnpm create directory shape', () => {
   const result = runInitializer(['.', '--no-install'], project)
 
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Created Mün app/u)
-  assert.equal(existsSync(resolve(project, 'src/App.mun')), true)
-  assert.equal(JSON.parse(readFileSync(resolve(project, 'package.json'), 'utf8')).name, project.split('/').pop().toLowerCase())
+  assert.match(result.stdout, /Created native Mün app/u)
+  assert.equal(existsSync(resolve(project, 'Sources/App.mun')), true)
+  assert.equal(existsSync(resolve(project, 'mun.toml')), true)
 })
 
 test('create-mun tolerates npm create argument separators', () => {
@@ -203,12 +203,12 @@ test('create-mun tolerates npm create argument separators', () => {
   const result = runInitializer(['hello-mun', '--', '--no-install'], workspace)
 
   assert.equal(result.status, 0, result.stderr)
-  assert.equal(existsSync(resolve(workspace, 'hello-mun', 'package.json')), true)
+  assert.equal(existsSync(resolve(workspace, 'hello-mun', 'mun.toml')), true)
 })
 
 test('local create mode wires a separate app to the source checkout without npm publication', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-local-create-'))
-  const result = run(['create', 'linked-app', '--local', '--no-install'], workspace)
+  const result = run(['create', 'linked-app', '--target', 'web', '--local', '--no-install'], workspace)
   const project = resolve(workspace, 'linked-app')
 
   assert.equal(result.status, 0, result.stderr)
@@ -241,7 +241,7 @@ test('local create mode uses pnpm even when invoked directly outside pnpm', () =
   writeFileSync(fakePnpm, '#!/bin/sh\nexit 0\n')
   chmodSync(fakePnpm, 0o755)
 
-  const result = run(['create', 'linked-app', '--local'], workspace, {
+  const result = run(['create', 'linked-app', '--target', 'web', '--local'], workspace, {
     PATH: `${bin}:${process.env.PATH ?? ''}`,
     npm_config_user_agent: 'npm/11.0.0',
   })
@@ -280,7 +280,7 @@ test('create keeps a usable scaffold and prints recovery steps when install fail
   writeFileSync(fakeNpm, '#!/bin/sh\nexit 7\n')
   chmodSync(fakeNpm, 0o755)
 
-  const result = run(['create', 'recoverable-app', '--pm', 'npm'], workspace, {
+  const result = run(['create', 'recoverable-app', '--target', 'web', '--pm', 'npm'], workspace, {
     PATH: `${bin}:${process.env.PATH ?? ''}`,
   })
 

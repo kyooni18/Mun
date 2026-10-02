@@ -13,7 +13,7 @@ function displayPath(path, cwd) {
   return local && !local.startsWith('..') ? local : path
 }
 
-function nativeBinaryName() {
+export function nativeBinaryName() {
   return process.platform === 'win32' ? 'mun-native.exe' : 'mun-native'
 }
 
@@ -32,7 +32,7 @@ function runProcess(command, args, options) {
   return result.status ?? 1
 }
 
-function resolveNativeHost(cwd, env, irVersion) {
+export function resolveNativeHost(cwd, env, irVersion) {
   const override = env.MUN_NATIVE_HOST?.trim()
   if (override) {
     const command = override.includes('/') || override.includes('\\') || override.includes(sep)

@@ -55,6 +55,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+      - name: Native project, manifest, formatter and development state machine
+        run: node --test tests/native-dx.test.mjs
+      - name: Editor protocols and extension packaging
+        run: node --test tests/editor-integrations.test.mjs tests/vscode-extension.test.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt

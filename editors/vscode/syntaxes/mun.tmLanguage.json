@@ -2,39 +2,129 @@
   "name": "Mün",
   "scopeName": "source.mun",
   "patterns": [
-    { "include": "#comments" },
-    { "include": "#strings" },
-    { "include": "#keywords" },
-    { "include": "#views" },
-    { "include": "#modifiers" },
-    { "include": "#labels" }
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#views"
+    },
+    {
+      "include": "#modifiers"
+    },
+    {
+      "include": "#labels"
+    }
   ],
   "repository": {
     "comments": {
       "patterns": [
-        { "name": "comment.line.double-slash.mun", "match": "//.*$" },
-        { "name": "comment.block.mun", "begin": "/\\*", "end": "\\*/" }
+        {
+          "name": "comment.line.double-slash.mun",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.mun",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
       ]
     },
     "strings": {
       "patterns": [
-        { "name": "string.quoted.double.mun", "begin": "\"", "end": "\"", "patterns": [{ "name": "constant.character.escape.mun", "match": "\\\\." }] },
-        { "name": "string.quoted.single.mun", "begin": "'", "end": "'", "patterns": [{ "name": "constant.character.escape.mun", "match": "\\\\." }] },
-        { "name": "string.template.mun", "begin": "`", "end": "`" }
+        {
+          "name": "string.quoted.double.mun",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "meta.interpolation.mun",
+              "begin": "\\\\\\(",
+              "end": "\\)",
+              "patterns": [
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#views"
+                },
+                {
+                  "include": "#modifiers"
+                }
+              ]
+            },
+            {
+              "name": "constant.character.escape.mun",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.mun",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.mun",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.template.mun",
+          "begin": "`",
+          "end": "`"
+        }
       ]
     },
     "keywords": {
-      "patterns": [{ "name": "keyword.control.mun", "match": "\\b(struct|var|let|init|if|else|for|in|true|false|nil)\\b" }, { "name": "storage.type.mun", "match": "\\b(View|State|Binding)\\b" }]
+      "patterns": [
+        {
+          "name": "keyword.control.mun",
+          "match": "\\b(struct|var|let|some|private|public|init|if|else|switch|case|default|for|in|return|true|false|nil)\\b"
+        },
+        {
+          "name": "storage.type.mun",
+          "match": "\\b(View|String|Bool|Int|Double|State|Binding)\\b"
+        },
+        {
+          "name": "storage.modifier.wrapper.mun",
+          "match": "@(main|State|Binding)\\b"
+        },
+        {
+          "name": "variable.other.binding.mun",
+          "match": "\\$[A-Za-z_][A-Za-z0-9_]*"
+        }
+      ]
     },
     "views": {
-      "patterns": [{ "name": "entity.name.type.view.mun", "match": "\\b[A-Z][A-Za-z0-9_$]*(?=\\s*\\()" }]
+      "patterns": [
+        {
+          "name": "entity.name.type.view.mun",
+          "match": "\\b[A-Z][A-Za-z0-9_$]*(?=\\s*\\()"
+        }
+      ]
     },
-
     "modifiers": {
-      "patterns": [{ "name": "support.function.modifier.mun", "match": "\\.[a-zA-Z_$][A-Za-z0-9_$]*" }]
+      "patterns": [
+        {
+          "name": "support.function.modifier.mun",
+          "match": "\\.[a-zA-Z_$][A-Za-z0-9_$]*"
+        }
+      ]
     },
     "labels": {
-      "patterns": [{ "name": "entity.name.label.mun", "match": "\\b[a-zA-Z_$][A-Za-z0-9_$]*(?=\\s*:)" }]
+      "patterns": [
+        {
+          "name": "entity.name.label.mun",
+          "match": "\\b[a-zA-Z_$][A-Za-z0-9_$]*(?=\\s*:)"
+        }
+      ]
     }
   }
 }

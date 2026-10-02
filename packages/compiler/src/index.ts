@@ -108,3 +108,5 @@ export function createMunLanguageService(): MunLanguageService {
     semantic: createMunSemanticModel,
   }
 }
+
+export { nativeLanguageCatalog } from "./language-catalog.js"
