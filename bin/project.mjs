@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { MunLoweringCache, compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, parseMunStructs } from '@mun/compiler'
+import { MunLoweringCache, compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, munStructParseStats, parseMunStructs, shiftMunStruct } from '@mun/compiler'
 
 const fields = new Set(['manifest_version', 'name', 'entry', 'identifier', 'version', 'minimum_mun_version', 'platforms', 'resources', 'fonts', 'icon', 'window_title'])
 const platforms = { darwin: 'macos', win32: 'windows', linux: 'linux' }
@@ -94,31 +94,6 @@ export function validateAssets(project) {
 
 export function compileProject(project) {
   return compileSources(project, sourceFiles(project).map(path => ({ path, source: readFileSync(path, 'utf8') }))).program
-}
-
-function shiftedRange(range, delta) {
-  return { start: range.start + delta, end: range.end + delta }
-}
-
-function shiftedStruct(declaration, delta) {
-  return {
-    ...declaration,
-    range: shiftedRange(declaration.range, delta),
-    bodyRange: shiftedRange(declaration.bodyRange, delta),
-    bodyExpressionRange: shiftedRange(declaration.bodyExpressionRange, delta),
-    fields: declaration.fields.map(field => ({ ...field, range: shiftedRange(field.range, delta) })),
-    initializers: declaration.initializers.map(initializer => ({
-      ...initializer,
-      range: shiftedRange(initializer.range, delta),
-      parametersRange: shiftedRange(initializer.parametersRange, delta),
-      bodyRange: shiftedRange(initializer.bodyRange, delta),
-    })),
-    ...(declaration.nested ? { nested: declaration.nested.map(item => shiftedStruct(item, delta)) } : {}),
-  }
-}
-
-function structCount(declarations) {
-  return declarations.reduce((count, declaration) => count + 1 + structCount(declaration.nested ?? []), 0)
 }
 
 /** Qualified View name -> declaration source for a file's struct forest. */
@@ -271,10 +246,12 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
         let structs = previous?.structs ?? []
         if (previous?.source !== source) {
           changedFiles.push(path)
+          const before = munStructParseStats().parsed
           try { structs = parseMunStructs(source) }
           catch (error) { throw sourceError(path, source, error) }
           filesReparsed++
-          declarationsReparsed += structCount(structs)
+          // Declarations whose text is unchanged are reused, not reparsed.
+          declarationsReparsed += munStructParseStats().parsed - before
           changed.push(...changedDeclarations(previous?.structs ?? [], structs))
         }
         snapshots.set(path, { mtimeMs, size, source, structs })
@@ -303,7 +280,7 @@ export function createProjectCompiler(project, { fs = { readFileSync, statSync }
       const preparedStructs = []
       let offset = 0
       for (const item of sources) {
-        for (const declaration of snapshots.get(item.path).structs) preparedStructs.push(shiftedStruct(declaration, offset))
+        for (const declaration of snapshots.get(item.path).structs) preparedStructs.push(shiftMunStruct(declaration, offset))
         offset += item.source.length + 1
       }
       // Affected Views per the dependency graph of the last successful compile.

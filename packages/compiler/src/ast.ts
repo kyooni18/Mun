@@ -674,6 +674,44 @@ function parseStructMembers(body: string, baseOffset: number): { fields: MunStru
   return { fields, initializers }
 }
 
+/**
+ * Parsed declarations keyed by their exact source text, with offsets relative
+ * to the declaration start. A declaration's parse depends only on its own
+ * text, so an unchanged View in an edited file is not reparsed. Bounded.
+ */
+const parsedDeclarations = new Map<string, MunStructDeclaration>()
+const parsedDeclarationLimit = 4096
+let declarationsParsed = 0
+let declarationsReused = 0
+
+/** Cumulative struct-parse counters (development tooling diffs them per compile). */
+export function munStructParseStats(): { readonly parsed: number; readonly reused: number } {
+  return { parsed: declarationsParsed, reused: declarationsReused }
+}
+
+function shiftedRange(range: MunSourceRange, delta: number): MunSourceRange {
+  return { start: range.start + delta, end: range.end + delta }
+}
+
+/** The same declaration with every source range moved by `delta`. */
+export function shiftMunStruct(declaration: MunStructDeclaration, delta: number): MunStructDeclaration {
+  if (delta === 0) return declaration
+  return {
+    ...declaration,
+    range: shiftedRange(declaration.range, delta),
+    bodyRange: shiftedRange(declaration.bodyRange, delta),
+    bodyExpressionRange: shiftedRange(declaration.bodyExpressionRange, delta),
+    fields: declaration.fields.map(field => ({ ...field, range: shiftedRange(field.range, delta) })),
+    initializers: declaration.initializers.map(initializer => ({
+      ...initializer,
+      range: shiftedRange(initializer.range, delta),
+      parametersRange: shiftedRange(initializer.parametersRange, delta),
+      bodyRange: shiftedRange(initializer.bodyRange, delta),
+    })),
+    ...(declaration.nested ? { nested: declaration.nested.map(item => shiftMunStruct(item, delta)) } : {}),
+  }
+}
+
 export function parseMunStructs(source: string, baseOffset = 0): readonly MunStructDeclaration[] {
   const declarations: MunStructDeclaration[] = []
   let cursor = 0
@@ -685,28 +723,50 @@ export function parseMunStructs(source: string, baseOffset = 0): readonly MunStr
     const brace = source.indexOf("{", index + header[0].length)
     if (brace < 0) throw syntaxError(`Missing body for struct ${header[1]}`, baseOffset + index)
     const close = findMatching(source, brace, "{")
-    const bodySource = source.slice(brace + 1, close)
-    const bodyExpression = findTopLevelBodyExpression(bodySource)
-    if (!bodyExpression) throw syntaxError(`struct ${header[1]} must declare var body`, baseOffset + index)
-    const members = parseStructMembers(bodySource.slice(0, bodyExpression.declarationStart), baseOffset + brace + 1)
-    const nested = parseMunStructs(bodySource, baseOffset + brace + 1)
-    declarations.push({
-      kind: "struct",
-      name: header[1],
-      genericParameters: header[2]?.trim(),
-      source: source.slice(index, close + 1),
-      bodySource,
-      bodyExpressionSource: bodySource.slice(bodyExpression.open + 1, bodyExpression.close),
-      range: { start: baseOffset + index, end: baseOffset + close + 1 },
-      bodyRange: { start: baseOffset + brace + 1, end: baseOffset + close },
-      bodyExpressionRange: { start: baseOffset + brace + 1 + bodyExpression.open + 1, end: baseOffset + brace + 1 + bodyExpression.close },
-      fields: members.fields,
-      initializers: members.initializers,
-      nested,
-    })
+    const text = source.slice(index, close + 1)
+    const cached = parsedDeclarations.get(text)
+    if (cached) {
+      declarationsReused += 1
+      declarations.push(shiftMunStruct(cached, baseOffset + index))
+      cursor = close + 1
+      continue
+    }
+    let parsed: MunStructDeclaration
+    try {
+      parsed = parseStructDeclaration(text, header, text.indexOf("{", header[0].length), text.length - 1)
+    } catch (error) {
+      if (typeof (error as { offset?: unknown })?.offset === "number") (error as { offset: number }).offset += baseOffset + index
+      throw error
+    }
+    declarationsParsed += 1
+    if (parsedDeclarations.size >= parsedDeclarationLimit) parsedDeclarations.clear()
+    parsedDeclarations.set(text, parsed)
+    declarations.push(shiftMunStruct(parsed, baseOffset + index))
     cursor = close + 1
   }
   return declarations
+}
+
+/** Parse one declaration whose text starts at offset 0 (`struct Name: View {` … `}`). */
+function parseStructDeclaration(source: string, header: RegExpExecArray, brace: number, close: number): MunStructDeclaration {
+  const bodySource = source.slice(brace + 1, close)
+  const bodyExpression = findTopLevelBodyExpression(bodySource)
+  if (!bodyExpression) throw syntaxError(`struct ${header[1]} must declare var body`, 0)
+  const members = parseStructMembers(bodySource.slice(0, bodyExpression.declarationStart), brace + 1)
+  return {
+    kind: "struct",
+    name: header[1],
+    genericParameters: header[2]?.trim(),
+    source,
+    bodySource,
+    bodyExpressionSource: bodySource.slice(bodyExpression.open + 1, bodyExpression.close),
+    range: { start: 0, end: close + 1 },
+    bodyRange: { start: brace + 1, end: close },
+    bodyExpressionRange: { start: brace + 1 + bodyExpression.open + 1, end: brace + 1 + bodyExpression.close },
+    fields: members.fields,
+    initializers: members.initializers,
+    nested: parseMunStructs(bodySource, brace + 1),
+  }
 }
 
 export interface MunAstLowering {

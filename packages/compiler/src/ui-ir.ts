@@ -251,12 +251,18 @@ function swiftInterpolation(literal: string): string {
   return `(${parts.join(" + ")})`
 }
 
+/** Initial-value sources already proven well-formed; the check is pure. Bounded. */
+const wellFormedValueSources = new Set<string>()
+
 function assertWellFormedValueSource(source: string, owner: string): void {
+  if (wellFormedValueSources.has(source)) return
   const file = ts.createSourceFile("mun-ui-value.ts", `(${swiftDictionaryLiterals(source)})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const diagnostics = (file as ts.SourceFile & { readonly parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics
   if (file.statements.length !== 1 || (diagnostics?.length ?? 0) > 0) {
     throw new SyntaxError(`${owner} has a malformed initial value: ${source}`)
   }
+  if (wellFormedValueSources.size >= parsedExpressionLimit) wellFormedValueSources.clear()
+  wellFormedValueSources.add(source)
 }
 
 function scalarFromExpression(expression: ts.Expression): MunUiScalar | undefined {

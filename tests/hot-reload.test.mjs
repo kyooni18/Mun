@@ -176,7 +176,6 @@ test('project compiler re-reads only changed files and never reuses a result aft
   const initial = compiler.compile()
   assert.equal(initial.stats.filesRead, 2)
   assert.equal(initial.stats.filesReparsed, 2)
-  assert.ok(initial.stats.declarationsReparsed >= 2)
   assert.ok(initial.stats.declarationsRechecked >= 2)
   assert.ok(initial.stats.viewDeclarationsRelowered >= 2)
   assert.ok(initial.metadata.nodes.some(node => node.file === 'Sources/Row.mun' && node.line === 4), 'nested View node maps back to Row.mun')
@@ -188,8 +187,12 @@ test('project compiler re-reads only changed files and never reuses a result aft
   const edited = compiler.compile()
   assert.deepEqual([edited.stats.filesRead, edited.stats.filesReparsed, edited.stats.changedFiles], [1, 1, [other]])
   assert.equal(edited.stats.declarationsReparsed, 1)
-  assert.ok(edited.stats.declarationsRechecked >= 2, 'semantic validation still honestly reports whole-project checking')
-  assert.ok(edited.stats.viewDeclarationsRelowered >= 2, 'lowering still honestly reports all reachable View declarations')
+  assert.ok(edited.stats.declarationsRechecked >= 2, 'declaration validation still honestly reports whole-project checking')
+  // Only the edited View and the Views that use it are relowered, exactly as
+  // the previous compile's dependency graph predicts.
+  assert.deepEqual(edited.stats.changedDeclarations, ['Row'])
+  assert.deepEqual(edited.stats.relowered, edited.stats.affectedViews)
+  assert.ok(edited.stats.relowered.includes('Row') && edited.stats.viewInstancesLowered >= 2)
   writeFileSync(other, 'struct Row: View {'); utimesSync(other, new Date(), new Date(Date.now() + 10000))
   assert.throws(() => compiler.compile())
   assert.throws(() => compiler.compile(), 'unchanged invalid source must not fall back to the last valid result')

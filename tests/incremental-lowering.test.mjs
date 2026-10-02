@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync, readdirSync } from 'node:fs'
-import { MunLoweringCache, compileMunDevProgram } from '@mun/compiler'
+import { MunLoweringCache, compileMunDevProgram, parseMunStructs } from '@mun/compiler'
 
 // Differential check: a compile that reuses cached View instances must be
 // indistinguishable (IR and development metadata) from a from-scratch compile.
@@ -65,4 +65,27 @@ test('nested Views, bindings, ForEach item state and the example corpus stay exa
     const edited = source.replace(/Text\("([^"\\]*)"\)/u, 'Text("$1 edited")')
     assertSequence([source, edited, `// moved\n${edited}`, source])
   }
+})
+
+test('reused struct parses keep exact source ranges at any offset', () => {
+  const sources = readdirSync(new URL('../examples', import.meta.url))
+    .filter(name => name.endsWith('.mun'))
+    .map(file => readFileSync(new URL(`../examples/${file}`, import.meta.url), 'utf8'))
+  // Every recorded range must slice back out of the source to the recorded
+  // text, whether the declaration was parsed fresh or reused and shifted.
+  const check = (source, declarations) => {
+    for (const declaration of declarations) {
+      assert.equal(source.slice(declaration.range.start, declaration.range.end), declaration.source)
+      assert.equal(source.slice(declaration.bodyRange.start, declaration.bodyRange.end), declaration.bodySource)
+      assert.equal(source.slice(declaration.bodyExpressionRange.start, declaration.bodyExpressionRange.end), declaration.bodyExpressionSource)
+      for (const field of declaration.fields) assert.equal(source.slice(field.range.start, field.range.end), field.name)
+      for (const initializer of declaration.initializers) {
+        assert.equal(source.slice(initializer.parametersRange.start, initializer.parametersRange.end), initializer.parametersSource)
+        assert.equal(source.slice(initializer.bodyRange.start, initializer.bodyRange.end), initializer.bodySource)
+      }
+      check(source, declaration.nested ?? [])
+    }
+  }
+  const variants = [...sources, ...sources.map(source => `// shifted\n\n${source}`), sources.join('\n'), `\n${sources.slice().reverse().join('\n\n')}`]
+  for (let pass = 0; pass < 2; pass += 1) for (const source of variants) check(source, parseMunStructs(source))
 })
