@@ -27,9 +27,12 @@ try {
   writeFileSync(resolve(stage, '[Content_Types].xml'), `<?xml version="1.0" encoding="utf-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="cjs" ContentType="application/javascript"/><Default Extension="xml" ContentType="text/xml"/><Default Extension="tmLanguage" ContentType="application/json"/></Types>\n`)
   writeFileSync(resolve(stage, 'extension.vsixmanifest'), `<?xml version="1.0" encoding="utf-8"?>\n<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011"><Metadata><Identity Language="en-US" Id="${packagedManifest.name}" Version="${version}" Publisher="${packagedManifest.publisher}"/><DisplayName>${packagedManifest.displayName}</DisplayName><Description xml:space="preserve">${packagedManifest.description}</Description><Tags>mun,lsp,typescript</Tags><Categories>${packagedManifest.categories.join(',')}</Categories></Metadata><Installation><InstallationTarget Id="Microsoft.VisualStudio.Code" Version="^1.85.0"/></Installation><Dependencies/><Assets><Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json"/><Asset Type="Microsoft.VisualStudio.Code.Extension" Path="extension/"/></Assets></PackageManifest>\n`)
   mkdirSync(dirname(output), { recursive: true })
-  const zip = spawnSync('zip', ['-q', '-r', output, '.'], { cwd: stage, encoding: 'utf8' })
-  if (zip.error) throw new Error(`Could not create VSIX with zip: ${zip.error.message}`)
-  if (zip.status !== 0) throw new Error(`zip failed with exit code ${zip.status}: ${zip.stderr ?? ''}`)
+  // Windows ships bsdtar, which writes zip archives; other platforms use zip.
+  const zip = process.platform === 'win32'
+    ? spawnSync('tar', ['-a', '-c', '--format', 'zip', '-f', output, '.'], { cwd: stage, encoding: 'utf8' })
+    : spawnSync('zip', ['-q', '-r', output, '.'], { cwd: stage, encoding: 'utf8' })
+  if (zip.error) throw new Error(`Could not create VSIX: ${zip.error.message}`)
+  if (zip.status !== 0) throw new Error(`archiver failed with exit code ${zip.status}: ${zip.stderr ?? ''}`)
   console.log(output)
 } finally {
   rmSync(stage, { recursive: true, force: true })

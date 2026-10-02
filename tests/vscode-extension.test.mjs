@@ -89,5 +89,10 @@ test('workspace-local toolchain discovery launches the actual LSP with version v
     client.notify('textDocument/didOpen', { textDocument: { uri: 'file:///Fixture.mun', text: 'struct Fixture: View { var body: some View { Text("Hi") } }', version: 1 } })
     const symbols = await client.request('textDocument/documentSymbol', { textDocument: { uri: 'file:///Fixture.mun' } })
     assert.equal(symbols[0].name, 'Fixture')
-  } finally { await client?.dispose(); rmSync(directory, { recursive: true, force: true }) }
+  } finally {
+    await client?.dispose()
+    // Windows keeps handles briefly after the server exits; drop the junction first and retry.
+    rmSync(resolve(directory, 'node_modules/@mun/compiler'), { recursive: true, force: true })
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  }
 })
