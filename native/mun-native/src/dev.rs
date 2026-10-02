@@ -534,16 +534,32 @@ mod tests {
         };
 
         let (_, timings) = dev
-            .apply(&mut runtime, 0, 1, set_label("b"), &preserve, Received::now())
+            .apply(
+                &mut runtime,
+                0,
+                1,
+                set_label("b"),
+                &preserve,
+                Received::now(),
+            )
             .unwrap();
         assert_eq!(dev.revision(), 1);
         assert!(timings.apply_micros >= timings.patch_micros);
 
         // Stale revision, malformed patch and a program the runtime rejects
         // leave the committed program and revision untouched.
-        let stale = dev.apply(&mut runtime, 0, 1, set_label("c"), &preserve, Received::now());
+        let stale = dev.apply(
+            &mut runtime,
+            0,
+            1,
+            set_label("c"),
+            &preserve,
+            Received::now(),
+        );
         assert_eq!(stale.unwrap_err().code, "revision-mismatch");
-        let missing = UpdateBody::Patch(vec![json!({"op": "set", "path": ["nope", "x"], "value": 1})]);
+        let missing = UpdateBody::Patch(vec![
+            json!({"op": "set", "path": ["nope", "x"], "value": 1}),
+        ]);
         let invalid = dev.apply(&mut runtime, 1, 2, missing, &preserve, Received::now());
         assert_eq!(invalid.unwrap_err().code, "patch-invalid");
         let broken = UpdateBody::Full(json!({"version": 1, "states": 3}));
@@ -552,8 +568,15 @@ mod tests {
         assert_eq!(dev.revision(), 1);
         assert_eq!(dev.program["root"]["child"]["value"]["value"], "b");
 
-        dev.apply(&mut runtime, 1, 2, set_label("c"), &preserve, Received::now())
-            .unwrap();
+        dev.apply(
+            &mut runtime,
+            1,
+            2,
+            set_label("c"),
+            &preserve,
+            Received::now(),
+        )
+        .unwrap();
         assert_eq!(dev.revision(), 2);
         assert_eq!(dev.program["root"]["child"]["value"]["value"], "c");
     }
