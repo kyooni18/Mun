@@ -110,6 +110,20 @@ test('cross-file custom Views resolve and rename semantically', () => {
   assert.equal(Object.values(service.rename('file:///App.mun', position, 'Panel').changes).flat().length, 2)
 })
 
+test('a long-lived service with its shared lowering cache diagnoses exactly like a fresh one', () => {
+  const card = label => `struct Card: View {\n  var title: String\n  var body: some View { Text(title) }\n}\nstruct Badge: View {\n  var body: some View { Text("${label}") }\n}\n`
+  const app = argument => `@main\nstruct App: View {\n  var body: some View {\n    VStack {\n      Card(title: ${argument})\n      Badge()\n    }\n  }\n}\n`
+  const steps = [[app('"a"'), card('x')], [app('"b"'), card('x')], [app('3'), card('x')], [app('"b"'), card('y')], [app('"b"'), card('y').replace('var title: String', 'var title: string')], [app('"c"'), card('z')]]
+  const service = new LanguageService()
+  for (const [appSource, cardSource] of steps) {
+    service.update('file:///App.mun', appSource); service.update('file:///Card.mun', cardSource)
+    const fresh = new LanguageService()
+    fresh.update('file:///App.mun', appSource); fresh.update('file:///Card.mun', cardSource)
+    for (const uri of ['file:///App.mun', 'file:///Card.mun']) assert.deepEqual(service.diagnostics(uri), fresh.diagnostics(uri))
+  }
+  assert.ok(service.loweringCache.stats().instancesReused > 0, 'unchanged Views were reused')
+})
+
 test('workspace-local toolchain discovery launches the actual LSP with version validation', async () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'mun-lsp-client-'))
   let client

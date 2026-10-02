@@ -3,7 +3,7 @@ import { createMunSourceMap, mapGeneratedPosition } from "./source-map.js"
 import { createSemanticModel } from "./semantic.js"
 import { transformMunSource } from "./pipeline.js"
 import { matching, regexCanStart, skipComment, skipRegex, skipString, validateRawHtmlSyntax } from "./scanner.js"
-import { compileMunUiProgram } from "./ui-ir.js"
+import { compileMunUiProgram, type MunLoweringCache } from "./ui-ir.js"
 import type { MunDiagnostic } from "./types.js"
 
 
@@ -95,11 +95,19 @@ function topLevelStateScopeDiagnostics(source: string): MunDiagnostic[] {
   return diagnostics
 }
 
-/** Canonical files use native semantic validity; compatibility snippets retain TS diagnostics. */
-export function diagnoseMunSource(source: string, fileName?: string): readonly MunDiagnostic[] {
+/**
+ * Canonical files use native semantic validity; compatibility snippets retain
+ * TS diagnostics. Editors may pass a lowering cache shared across calls so
+ * unchanged custom View instances are not relowered (identical results).
+ */
+export function diagnoseMunSource(
+  source: string,
+  fileName?: string,
+  options: { readonly loweringCache?: MunLoweringCache } = {},
+): readonly MunDiagnostic[] {
   try {
     if (fileName && /\.mun$/iu.test(fileName)) {
-      compileMunUiProgram(source, fileName)
+      compileMunUiProgram(source, fileName, { loweringCache: options.loweringCache })
       return []
     }
     validateRawHtmlSyntax(source)

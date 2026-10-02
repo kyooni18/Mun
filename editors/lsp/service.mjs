@@ -1,4 +1,4 @@
-import { parseMunStructs, diagnoseMunSource, compileMunUiProgram, nativeLanguageCatalog } from '@mun/compiler'
+import { MunLoweringCache, parseMunStructs, diagnoseMunSource, compileMunUiProgram, nativeLanguageCatalog } from '@mun/compiler'
 import { formatSource } from '../../bin/formatter.mjs'
 import { offsetAt, positionAt, rangeAt, scan } from './source.mjs'
 
@@ -17,7 +17,12 @@ function initials(item) { return item?.initializers ?? [] }
 function tokenAt(snapshot, offset) { return snapshot.tokens.find(token => token.start <= offset && token.end >= offset && /^[A-Za-z_]/u.test(token.text)) }
 
 export class LanguageService {
-  constructor() { this.documents = new Map(); this.parseCount = 0 }
+  constructor() {
+    this.documents = new Map(); this.parseCount = 0
+    // Shared with every diagnostics compile: unchanged View declarations are
+    // neither reparsed, revalidated nor relowered when one document changes.
+    this.loweringCache = new MunLoweringCache()
+  }
   update(uri, source, version = 0) {
     const prior = this.documents.get(uri)
     if (prior?.source === source) return prior
@@ -136,7 +141,7 @@ export class LanguageService {
     // Diagnose the native compilation unit, including cross-file custom Views.
     // Never gate canonical lowering on the compatibility TypeScript transform.
     const documents = [snapshot, ...[...this.documents.values()].filter(s => s !== snapshot)]
-    snapshot.diagnostics = diagnoseMunSource(documents.map(s => s.source).join('\n'), uri).flatMap(d => {
+    snapshot.diagnostics = diagnoseMunSource(documents.map(s => s.source).join('\n'), uri, { loweringCache: this.loweringCache }).flatMap(d => {
       const start = d.index ?? offsetAt(snapshot.source, { line: (d.line ?? 1) - 1, character: (d.column ?? 1) - 1 })
       if ((d.line ?? 1) > snapshot.source.split('\n').length) return []
       return [{ range: rangeAt(snapshot.source, start, Math.min(snapshot.source.length, start + 1)), severity: d.severity === 'warning' ? 2 : 1, code: d.code, source: 'mun', message: d.message }]
