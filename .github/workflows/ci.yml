@@ -21,7 +21,7 @@ jobs:
           version: 11.22.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.19.0
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Select React compatibility version
@@ -101,7 +101,7 @@ jobs:
           version: 11.22.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.19.0
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
@@ -161,7 +161,7 @@ jobs:
           version: 11.22.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.19.0
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run benchmark:modifiers:ci

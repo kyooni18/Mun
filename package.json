@@ -72,7 +72,7 @@
   "scripts": {
     "clean": "rm -rf ./dist",
     "build": "pnpm run clean && pnpm run build:workspace && tsc -p tsconfig.build.json",
-    "build:workspace": "pnpm -r --filter './packages/*' run build",
+    "build:workspace": "pnpm -r --filter \"./packages/*\" run build",
     "check": "pnpm run build:workspace && tsc -p tsconfig.build.json --noEmit",
     "test:types": "tsc -p tsconfig.tests.json",
     "test:runtime": "node --test tests/react-runtime.test.mjs tests/react-widgets.test.mjs tests/react-client.test.mjs tests/macro-react.test.mjs tests/new-features.test.mjs tests/view-system.test.mjs",
