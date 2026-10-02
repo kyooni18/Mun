@@ -85,6 +85,7 @@
     "benchmark:modifiers": "pnpm run build && node benchmarks/modifiers.mjs",
     "benchmark:hot-reload": "pnpm --filter @mun/compiler run build && node scripts/benchmark-hot-reload.mjs",
     "benchmark:hot-reload:compile": "pnpm --filter @mun/compiler run build && node scripts/benchmark-hot-reload.mjs --compile-only",
+    "benchmark:hot-reload:window": "pnpm --filter @mun/compiler run build && node scripts/benchmark-hot-reload.mjs --window",
     "benchmark:modifiers:ci": "MUN_BENCH_CI=1 MUN_BENCH_BASE_RATIO=8 MUN_BENCH_DEPTH_RATIO=4 pnpm run benchmark:modifiers",
     "benchmark:performance": "pnpm run build:workspace && node benchmarks/performance.mjs",
     "benchmark:performance:ci": "MUN_BENCH_CI=1 pnpm run build:workspace && MUN_BENCH_CI=1 node --expose-gc benchmarks/performance.mjs",

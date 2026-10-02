@@ -51,33 +51,65 @@ compatibility transform.
 
 ### Repeatable hot-reload measurements
 
-Run `pnpm benchmark:hot-reload` with a built native host, or
-`pnpm benchmark:hot-reload:compile` without a display. Pass `--edits N` to the
-script directly to change the sample count. The benchmark preserves unchanged
-files, reads one edited file per iteration, validates compatibility and reports
-p50/p95/max, UTF-8 IR bytes, file-read, native compile, serialization and
-compatibility timings. No performance threshold blocks CI.
+`pnpm benchmark:hot-reload` compiles every edit with the same incremental
+project compiler `mun dev` uses, diffs it into the exact update message `mun
+dev` sends, and replays that stream headlessly through `mun-native
+--dev-replay <ir> <updates.ndjson>`. The replay applies each update with the
+dev host's own code path (`DevProgram::apply`: revision check, patch
+reconstruction, `Runtime::hot_update`) and renders one offscreen frame through
+the production renderer, waiting for the GPU. It opens no window.
+`pnpm benchmark:hot-reload:window` drives a real windowed dev host instead and
+adds the loopback round trip and first-presented-frame timings;
+`pnpm benchmark:hot-reload:compile` measures the toolchain only. Pass
+`--edits N`, `--case <name>` or `--json` to the script directly. No performance
+threshold blocks CI. Not measured: the file watcher's 80 ms debounce and display
+scan-out after the frame is handed to the platform.
 
-Initial darwin-arm64 compile-only samples (30 edits, milliseconds):
+darwin-arm64 headless sample (30 compatible edits per case; p50 / p95 ms). These
+are local measurements, not CI thresholds:
 
-| Case | p50 | p95 | max | Full IR KiB |
-| --- | ---: | ---: | ---: | ---: |
-| Small app | 0.6 | 1.3 | 1.7 | 1.4 |
-| 25 custom Views | 2.3 | 3.3 | 3.5 | 25.1 |
-| 1,000 keyed rows | 14.2 | 19.5 | 22.1 | 33.2 |
-| Cross-file View body edit | 0.2 | 0.3 | 0.5 | 1.8 |
+| Case | Compile | Diff | Host load | Materialize | Reconcile | Layout | Render prepare | GPU | Host total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Small app | 0.39 / 0.89 | 0.03 / 0.09 | 0.05 / 0.07 | 0.00 / 0.00 | 0.00 / 0.01 | 0.04 / 0.07 | 0.07 / 0.10 | 0.34 / 0.41 | 0.56 / 0.74 |
+| 25 custom Views | 0.51 / 0.78 | 0.06 / 0.15 | 0.53 / 0.58 | 0.01 / 0.01 | 0.04 / 0.05 | 0.22 / 0.27 | 0.06 / 0.08 | 0.35 / 0.43 | 1.33 / 1.54 |
+| 1,000 keyed rows | 3.24 / 3.77 | 0.24 / 0.49 | 3.77 / 4.19 | 3.52 / 3.90 | 2.08 / 2.22 | 8.72 / 9.02 | 1.01 / 1.08 | 0.61 / 0.72 | 21.16 / 22.34 |
+| Cross-file View body edit | 0.16 / 0.19 | 0.01 / 0.02 | 0.05 / 0.08 | 0.00 / 0.00 | 0.00 / 0.01 | 0.04 / 0.07 | 0.07 / 0.11 | 0.70 / 0.76 | 0.93 / 1.12 |
 
-The pre-fix draft measured small/medium compile p50 at 147.5/269.0 ms
-(5 edits) and failed on the cross-file fixture. It bypassed diagnostics for the
-keyed case. These are exploratory samples, not a controlled performance claim.
-The semantic-contract fix removes the unnecessary compatibility analysis pass.
+"Host load" is IR schema validation, typed deserialization and one collection
+materialization of the new program. In the same cases at the start of this
+work, compile p50 was 0.6 / 2.9 / 14.3 / 0.2 ms and host total p50 was
+0.77 / 4.50 / 29.8 / 0.78 ms. Headless p95 stays within roughly 10% of p50; the
+one large p95 outlier seen earlier (hundreds of milliseconds) came from the
+windowed path, which the `update-presented` timings below are meant to locate.
+For 1,000 rows, per-frame layout of ~3,000 nodes is now the largest remaining
+cost; the layout tree is rebuilt every frame and is not yet incremental.
 
-The project compiler now keeps a parsed struct forest per source file. A changed
-file is re-read and reparsed without reparsing unchanged files; byte-identical
-saves reuse the prior parse. Semantic validation and reachable-View lowering are
-still whole-project work and the benchmark reports that honestly. For example,
-a body edit in the 25-custom-View fixture reparses 1 declaration but currently
-rechecks and relowers all 26 declarations/Views.
+**Incremental compilation.** Changed files are reread and reparsed per file,
+and within a file only declarations whose text changed are reparsed (each
+declaration's parse is reused by exact text). Canonical declaration validation
+runs only for changed declarations. Lowering reuses every custom View instance
+whose declaration, transitively resolved View declarations and call-site inputs
+(bindings, identity path, component stack, enclosing ForEach scope and the
+types of states declared before it) are unchanged; recorded side effects are
+replayed and source spans are kept relative to their declaration, so offset
+shifts elsewhere do not invalidate. Adding, removing or renaming any View
+invalidates every instance (name resolution may change). A differential test
+checks that reused and from-scratch compiles produce identical IR and dev
+metadata. Per edit, the benchmark reports declarations reparsed and rechecked,
+View declarations relowered, instances lowered/reused, and the Views the
+previous compile's dependency graph marks as affected: an `App` edit in the
+25-View fixture reparses, rechecks and relowers 1 declaration and reuses 25
+instances; editing `Header` in the cross-file fixture relowers `Header` and the
+entry View that uses it. The entry View's body is always relowered.
+
+**Host instrumentation.** `update-applied` carries `timings` (frame decode,
+event-loop queue, patch reconstruction, load, materialize, reconcile, total
+apply). After an update the windowed host sends `update-presented` for the
+first frame that reaches the platform presentation engine: receive-to-present
+and apply-to-present latency plus step, layout, accessibility, render prepare,
+surface acquire, submit and present times. Frames skipped while the window is
+occluded are counted and the update stays pending until one is presented.
+`mun dev --verbose` prints both.
 
 Development protocol v2 adds monotonic program revisions and a dev-only JSON
 path patch representation. The toolchain chooses a patch only when its encoded
@@ -145,9 +177,8 @@ Compile failed … Running previous valid build
 
 An invalid edit never replaces the running build; the next valid save applies
 normally. Declared state types are carried only in dev metadata, never in the
-production IR. Compilation is incremental at the file-read level (unchanged files
-are not re-read; byte-identical saves reuse the previous result) but semantic
-analysis still covers the whole project unit.
+production IR. Compilation is incremental per declaration and per View instance
+(see the measurements above); byte-identical saves reuse the previous result.
 
 ### Inspecting a running app
 
@@ -224,9 +255,11 @@ signatures, definition, references, rename, formatting, semantic tokens,
 document/workspace symbols, folding and selection ranges. Compiler/parity
 metadata supplies signatures; lexically scoped navigation excludes comments and
 literal text and includes Swift interpolation and cross-file custom Views.
-Unchanged syntax snapshots are cached. Full semantic-incremental analysis,
-project-isolated multi-root indexing, and broader diagnostic quick fixes remain
-follow-up work. Safe quick fixes for `string` → `String` and `boolean` → `Bool`
+Unchanged syntax snapshots are cached. Diagnostics still compile the whole
+project unit for each document, but share the compiler's per-declaration parse
+and validation reuse and a per-service View lowering cache (26 open documents:
+edit plus full diagnostics refresh p50 22.8 -> 6.6 ms). Project-isolated
+multi-root indexing and broader diagnostic quick fixes remain follow-up work. Safe quick fixes for `string` → `String` and `boolean` → `Bool`
 are available through LSP and VS Code; `number` is deliberately not rewritten
 because Int versus Double is ambiguous.
 
