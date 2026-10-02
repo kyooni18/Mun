@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { assembleNativeHost } from './assemble-native-host.mjs'
 import { pathToFileURL } from 'node:url'
+import { packagedExecutableName } from '../bin/workflow.mjs'
 import { LspClient } from '../editors/vscode/client.mjs'
 const temporary = mkdtempSync(resolve(tmpdir(), 'mun-package-'))
 const name = process.platform === 'win32' ? 'mun-native.exe' : 'mun-native'
@@ -79,9 +80,18 @@ try {
   const app = resolve(nativeProject, '.mun/build', key, 'HelloMunApp')
   const builtIr = resolve(app, 'Resources/program.mun.ir.json')
   assert.equal(JSON.parse(readFileSync(builtIr, 'utf8')).entry, 'HelloMunApp')
-  run(resolve(app, name), ['--smoke', builtIr], consumer)
+  // The native host is the application executable itself: no shell launcher.
+  const appExecutable = packagedExecutableName({ name: 'HelloMunApp' })
+  assert(existsSync(resolve(app, appExecutable)), 'built app executable')
+  assert(!existsSync(resolve(app, 'launch')) && !existsSync(resolve(app, 'Run.cmd')), 'no launcher script')
+  run(resolve(app, appExecutable), ['--smoke', builtIr], consumer)
   run(process.execPath, [publicCli, 'package'], nested)
-  if (process.platform === 'darwin') assert(existsSync(resolve(nativeProject, '.mun/package', key, 'HelloMunApp.app/Contents/Info.plist')))
+  if (process.platform === 'darwin') {
+    const bundle = resolve(nativeProject, '.mun/package', key, 'HelloMunApp.app/Contents')
+    assert(existsSync(resolve(bundle, 'Info.plist')))
+    assert(existsSync(resolve(bundle, 'MacOS', appExecutable)), 'bundle executable')
+    assert(existsSync(resolve(bundle, 'Resources/program.mun.ir.json')), 'bundle IR')
+  }
   const client = new LspClient({ command: process.execPath, args: [publicCli, 'lsp', '--stdio'], cwd: nativeProject }, () => {}, () => {})
   try {
     const initialization = await client.request('initialize', { capabilities: {}, rootUri: pathToFileURL(nativeProject).href })
