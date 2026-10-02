@@ -113,7 +113,7 @@ async function launchDevHost(project, compiled, env, onEvent) {
       stdio: 'inherit',
     })
   } catch (error) { listener.close(); rmSync(directory, { recursive: true, force: true }); throw error }
-  const running = { child, exited: false, program: compiled.program, metadata: compiled.metadata, revision: 0 }
+  const running = { child, exited: false, program: compiled.program, metadata: compiled.metadata, revision: 0, runtimeDiagnostics: [] }
   child.once('close', () => { running.exited = true; listener.close(); rmSync(directory, { recursive: true, force: true }) })
   const failed = new Promise((_, reject) => {
     child.once('error', reject)
@@ -137,11 +137,15 @@ export function formatRuntimeDiagnostic(message, metadata) {
   return `${location}Runtime ${message.severity}: ${message.message}${node}`
 }
 
-export function enrichInspectorSnapshot(snapshot, metadata, devRevision) {
+export function enrichInspectorSnapshot(snapshot, metadata, devRevision, runtimeDiagnostics = []) {
   const sources = new Map((metadata?.nodes ?? []).filter(node => node.file).map(node => [node.id, node]))
   return {
     ...snapshot,
     devRevision,
+    runtimeDiagnostics: runtimeDiagnostics.map(diagnostic => {
+      const source = sourceForNode(metadata, diagnostic.node)
+      return { ...diagnostic, ...(source ? { source: { file: source.file, line: source.line, column: source.column, endLine: source.endLine, endColumn: source.endColumn } } : {}) }
+    }),
     nodes: snapshot.nodes.map(node => {
       const span = sources.get(node.id)
       if (!span) return node
@@ -165,8 +169,15 @@ export async function develop(project, { env, verbose = false }) {
   const log = message => console.log(message)
   let loop
   const onEvent = message => {
-    if (message.type === 'diagnostic') console.error(formatRuntimeDiagnostic(message, loop?.running?.metadata))
-    else if (message.type === 'protocol-error') console.error(`Dev protocol error: ${message.message}`)
+    if (message.type === 'diagnostic') {
+      const running = loop?.running
+      if (running) {
+        running.runtimeDiagnostics ??= []
+        running.runtimeDiagnostics.push(message)
+        if (running.runtimeDiagnostics.length > 100) running.runtimeDiagnostics.splice(0, running.runtimeDiagnostics.length - 100)
+      }
+      console.error(formatRuntimeDiagnostic(message, running?.metadata))
+    } else if (message.type === 'protocol-error') console.error(`Dev protocol error: ${message.message}`)
   }
   loop = createDevLoop({
     verbose,
@@ -209,6 +220,7 @@ export async function develop(project, { env, verbose = false }) {
       running.program = compiled.program
       running.metadata = compiled.metadata
       running.revision = revision
+      running.runtimeDiagnostics = []
       if (verbose) {
         const reduction = update.fullBytes > 0 ? (100 * (1 - update.bytes / update.fullBytes)).toFixed(1) : '0.0'
         log(`Runtime round trip ${(performance.now() - started).toFixed(1)} ms; ${update.type} ${(update.bytes / 1024).toFixed(1)} KiB vs full ${(update.fullBytes / 1024).toFixed(1)} KiB (${reduction}% smaller); ${update.operationCount} patch op(s); revision ${revision}`)
@@ -264,7 +276,7 @@ async function openInspectorEndpoint(project, current) {
           const nativeReply = await running.channel.request('inspect', { includeValues: message.includeValues === true })
           reply = {
             ...nativeReply,
-            ...(nativeReply.snapshot ? { snapshot: enrichInspectorSnapshot(nativeReply.snapshot, running.metadata, running.revision) } : {}),
+            ...(nativeReply.snapshot ? { snapshot: enrichInspectorSnapshot(nativeReply.snapshot, running.metadata, running.revision, running.runtimeDiagnostics) } : {}),
             id: message.id,
           }
         } catch (error) { reply = { type: 'error', id: message.id, message: error.message } }

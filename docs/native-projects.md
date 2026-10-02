@@ -216,19 +216,33 @@ This runs `codesign` with the hardened runtime and a secure timestamp, then
 `mun editor install` supports VS Code, Vim, Neovim, Zed, Helix and generic LSP
 configurations. All canonical `.mun` intelligence now comes from the standalone
 `mun lsp --stdio` server; `.mun.ts` and Vue are not classified as canonical Mün.
-The VS Code extension is a thin LSP client. It checks workspace-local `@mun/ui`
-first, then global `mun`, and refuses a version mismatch instead of silently
-using a different compiler. Set `mun.server.command` to select an executable.
-The LSP provides diagnostics, completion, hover, signatures, definition,
-references, rename, formatting, semantic tokens, document/workspace symbols,
-folding and selection ranges. Compiler/parity metadata supplies signatures;
-lexically scoped navigation excludes comments and literal text and includes
-Swift interpolation and cross-file custom Views. Unchanged syntax snapshots are
-cached. Full type-directed navigation, project-isolated multi-root indexing,
-and broader diagnostic quick fixes remain follow-up work. Safe quick fixes for
-`string` → `String` and `boolean` → `Bool` are available through LSP and VS Code;
-`number` is deliberately not rewritten because Int versus Double is ambiguous.
-`mun editor export vscode output.vsix` uses the existing VSIX exporter.
+The VS Code extension is a thin LSP client for source semantics. It checks
+workspace-local `@mun/ui` first, then global `mun`, and refuses a version mismatch
+instead of silently using a different compiler. Set `mun.server.command` to
+select an executable. The LSP provides diagnostics, completion, hover,
+signatures, definition, references, rename, formatting, semantic tokens,
+document/workspace symbols, folding and selection ranges. Compiler/parity
+metadata supplies signatures; lexically scoped navigation excludes comments and
+literal text and includes Swift interpolation and cross-file custom Views.
+Unchanged syntax snapshots are cached. Full semantic-incremental analysis,
+project-isolated multi-root indexing, and broader diagnostic quick fixes remain
+follow-up work. Safe quick fixes for `string` → `String` and `boolean` → `Bool`
+are available through LSP and VS Code; `number` is deliberately not rewritten
+because Int versus Double is ambiguous.
+
+Native development is kept separate from LSP semantics. VS Code contributes
+`Mün: Start Dev`, `Mün: Stop Dev`, `Mün: Restart App`, and `Mün: Inspect Running
+App`. A **Mün Runtime** Explorer view polls the authenticated loopback inspector
+while the extension-owned `mun dev` process is alive. The tree keeps runtime
+semantic identities, shows source locations, and selecting a mapped node opens
+its `.mun` range. Runtime diagnostics are carried structurally in inspector
+snapshots and published as a distinct `mun-runtime` diagnostic collection; the
+extension does not parse terminal text to invent source errors. Multiple
+workspace folders keep separate dev processes, snapshots and runtime diagnostic
+sets. Inspector polling never requests state values, so `SecureField` contents
+remain redacted and ordinary state values are not exposed in the editor tree.
+`mun editor export vscode output.vsix` packages exactly the files declared by the
+extension manifest, including the dev inspector client.
 
 For framework development: `pnpm install && pnpm build` in the Mün checkout,
 then `node /path/to/Mun/bin/mun.mjs new /path/to/HelloMun`. Invoke that same CLI

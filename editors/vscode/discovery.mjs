@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
-export async function discoverToolchain({ cwd, command, expectedVersion, env = process.env }) {
+export async function discoverMunCommand({ cwd, command, expectedVersion, env = process.env }) {
   let selected
   if (command) selected = { command, args: [] }
   else {
@@ -25,8 +25,14 @@ export async function discoverToolchain({ cwd, command, expectedVersion, env = p
   }
   const actual = await commandVersion(selected, cwd, env)
   if (actual !== expectedVersion) throw new Error(`Selected Mün ${actual} does not match extension ${expectedVersion}. Install matching versions or set mun.server.command.`)
-  return { ...selected, args: [...selected.args, 'lsp', '--stdio'], cwd, env: selected.env ?? env }
+  return { ...selected, cwd, env: selected.env ?? env }
 }
+
+export async function discoverToolchain(options) {
+  const selected = await discoverMunCommand(options)
+  return { ...selected, args: [...selected.args, 'lsp', '--stdio'] }
+}
+
 function commandVersion(selected, cwd, env) {
   return new Promise((resolve, reject) => {
     const child = spawn(selected.command, [...selected.args, '--version'], { cwd, env: selected.env ?? env, stdio: ['ignore', 'pipe', 'pipe'] })

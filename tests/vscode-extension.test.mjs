@@ -1,23 +1,66 @@
 import assert from 'node:assert/strict'
-import { readFileSync, mkdtempSync, mkdirSync, cpSync, rmSync, symlinkSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync, cpSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { createServer } from 'node:net'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { LanguageService } from '../editors/lsp/service.mjs'
 import { positionAt } from '../editors/lsp/source.mjs'
-import { discoverToolchain } from '../editors/vscode/discovery.mjs'
+import { discoverMunCommand, discoverToolchain } from '../editors/vscode/discovery.mjs'
+import { DEV_PROTOCOL_VERSION, createDevFrameDecoder, encodeDevFrame, inspectDevSession, runtimeTree } from '../editors/vscode/dev-client.mjs'
 import { LspClient } from '../editors/vscode/client.mjs'
 
 const root = new URL('../editors/vscode/', import.meta.url)
 test('VS Code is a canonical-only LSP client, not an independent compiler', () => {
   const manifest = JSON.parse(readFileSync(new URL('package.json', root)))
-  assert.deepEqual(manifest.activationEvents, ['onLanguage:mun'])
+  assert.ok(manifest.activationEvents.includes('onLanguage:mun'))
+  for (const command of ['mun.startDev', 'mun.stopDev', 'mun.restartDev', 'mun.inspectRunningApp']) assert.ok(manifest.activationEvents.includes(`onCommand:${command}`), command)
+  assert.ok(manifest.activationEvents.includes('onView:mun.runtimeView'))
   assert.deepEqual(manifest.contributes.languages[0].extensions, ['.mun'])
+  assert.ok(manifest.files.includes('dev-client.mjs'))
+  assert.equal(manifest.contributes.views.explorer[0].id, 'mun.runtimeView')
   const source = readFileSync(new URL('extension.cjs', root), 'utf8')
   for (const feature of ['DocumentFormattingEdit', 'CompletionItem', 'Hover', 'SignatureHelp', 'Definition', 'Reference', 'Rename', 'DocumentSymbol', 'DocumentSemanticTokens', 'FoldingRange', 'SelectionRange']) assert.ok(source.includes(`register${feature}Provider`), feature)
+  for (const command of ['mun.startDev', 'mun.stopDev', 'mun.restartDev', 'mun.inspectRunningApp', 'mun.openRuntimeSource']) assert.ok(source.includes(`registerCommand('${command}'`), command)
+  assert.match(source, /createTreeView\('mun\.runtimeView'/u)
+  assert.match(source, /createDiagnosticCollection\('mun-runtime'\)/u)
   assert.doesNotMatch(source, /VIEW_SIGNATURES|parseMun|diagnoseMun/)
   assert.match(source, /d.severity === 2 \? vscode.DiagnosticSeverity.Warning/)
   assert.equal(manifest.private, undefined)
+})
+
+
+test('VS Code dev inspector uses authenticated loopback snapshots and preserves tree identity', async t => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'mun-vscode-inspect-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  mkdirSync(resolve(directory, '.mun/dev'), { recursive: true })
+  const token = 'test-token'
+  const snapshot = {
+    title: 'T', entry: 'App', revision: 2, devRevision: 7,
+    nodes: [
+      { id: 'root', kind: 'Column', parent: null, children: ['text'], source: { file: 'Sources/App.mun', line: 6, column: 5 } },
+      { id: 'text', kind: 'Text', parent: 'root', children: [], source: { file: 'Sources/App.mun', line: 7, column: 7 } },
+    ],
+    runtimeDiagnostics: [{ severity: 'error', message: 'bad write', node: 'text', source: { file: 'Sources/App.mun', line: 7, column: 7 } }],
+  }
+  const server = createServer(socket => {
+    let authenticated = false
+    const decode = createDevFrameDecoder(message => {
+      if (!authenticated) { assert.deepEqual(message, { type: 'hello', token }); authenticated = true; return }
+      assert.equal(message.type, 'inspect'); assert.equal(message.includeValues, false)
+      socket.write(encodeDevFrame({ type: 'snapshot', id: message.id, snapshot }))
+    })
+    socket.on('data', decode)
+  })
+  await new Promise((resolveListen, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolveListen) })
+  t.after(() => server.close())
+  const address = server.address()
+  writeFileSync(resolve(directory, '.mun/dev/session.json'), JSON.stringify({ protocol: DEV_PROTOCOL_VERSION, endpoint: `127.0.0.1:${address.port}`, token, pid: process.pid }))
+  const actual = await inspectDevSession(directory)
+  assert.deepEqual(actual, snapshot)
+  const tree = runtimeTree(actual)
+  assert.deepEqual(tree.roots.map(node => node.id), ['root'])
+  assert.deepEqual(tree.children(tree.roots[0]).map(node => node.id), ['text'])
 })
 
 test('shared service uses canonical initializer contracts and context-aware members', () => {
@@ -79,8 +122,12 @@ test('workspace-local toolchain discovery launches the actual LSP with version v
     cpSync(new URL('../editors', import.meta.url), resolve(local, 'editors'), { recursive: true })
     symlinkSync(resolve('node_modules/@mun/compiler'), resolve(directory, 'node_modules/@mun/compiler'), 'junction')
     const version = JSON.parse(readFileSync(resolve(local, 'package.json'))).version
+    const base = await discoverMunCommand({ cwd: directory, expectedVersion: version })
+    assert.equal(base.args[0], resolve(local, 'bin/mun.mjs'))
+    assert.ok(!base.args.includes('lsp'))
     const server = await discoverToolchain({ cwd: directory, expectedVersion: version })
     assert.equal(server.args[0], resolve(local, 'bin/mun.mjs'))
+    assert.deepEqual(server.args.slice(-2), ['lsp', '--stdio'])
     await assert.rejects(discoverToolchain({ cwd: directory, expectedVersion: '99.0.0' }), /refusing a global fallback/)
     client = new LspClient(server, () => {}, () => {})
     const result = await client.request('initialize', { capabilities: {} })

@@ -1,7 +1,7 @@
 {
   "name": "mun-language-support",
   "displayName": "Mün Language Support",
-  "description": "Mün syntax and semantic highlighting, diagnostics, formatting, completion, hover, signature help, and language tooling.",
+  "description": "Mün language tooling plus native dev, runtime inspection, diagnostics, and source navigation.",
   "version": "0.1.20",
   "publisher": "mun",
   "repository": {
@@ -13,6 +13,7 @@
     "extension.cjs",
     "client.mjs",
     "discovery.mjs",
+    "dev-client.mjs",
     "protocol.mjs",
     "language-configuration.json",
     "syntaxes",
@@ -25,7 +26,12 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:mun"
+    "onLanguage:mun",
+    "onCommand:mun.startDev",
+    "onCommand:mun.stopDev",
+    "onCommand:mun.restartDev",
+    "onCommand:mun.inspectRunningApp",
+    "onView:mun.runtimeView"
   ],
   "main": "./extension.cjs",
   "contributes": {
@@ -54,6 +60,22 @@
       {
         "command": "mun.formatDocument",
         "title": "Mün: Format Document"
+      },
+      {
+        "command": "mun.startDev",
+        "title": "Mün: Start Dev"
+      },
+      {
+        "command": "mun.stopDev",
+        "title": "Mün: Stop Dev"
+      },
+      {
+        "command": "mun.restartDev",
+        "title": "Mün: Restart App"
+      },
+      {
+        "command": "mun.inspectRunningApp",
+        "title": "Mün: Inspect Running App"
       }
     ],
     "configuration": {
@@ -65,6 +87,33 @@
           "description": "Explicit mun executable. Otherwise use workspace-local @mun/ui before global mun; versions must match the extension."
         }
       }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "mun.runtimeView",
+          "name": "Mün Runtime"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "mun.startDev",
+          "when": "view == mun.runtimeView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "mun.inspectRunningApp",
+          "when": "view == mun.runtimeView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "mun.stopDev",
+          "when": "view == mun.runtimeView",
+          "group": "navigation@3"
+        }
+      ]
     }
   }
 }

@@ -17,10 +17,12 @@ const extensionStage = resolve(stage, 'extension')
 
 try {
   mkdirSync(extensionStage, { recursive: true })
-  for (const file of ['extension.cjs', 'client.mjs', 'discovery.mjs', 'language-configuration.json', 'package.json', 'syntaxes']) {
+  // Package exactly the extension's declared file surface so adding a runtime
+  // helper cannot silently produce a VSIX that passes source tests but fails
+  // after installation.
+  for (const file of extensionManifest.files) {
     cpSync(resolve(extensionRoot, file), resolve(extensionStage, file), { recursive: true })
   }
-  cpSync(resolve(extensionRoot, 'protocol.mjs'), resolve(extensionStage, 'protocol.mjs'))
   const packagedManifest = { ...extensionManifest, version, private: undefined }
   delete packagedManifest.private
   writeFileSync(resolve(extensionStage, 'package.json'), `${JSON.stringify(packagedManifest, null, 2)}\n`)
