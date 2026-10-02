@@ -140,4 +140,9 @@ fn settings_pane_controls_layout_and_lifecycle() {
         .find(|node| node.id == wifi)
         .expect("toggle");
     assert_eq!(toggle.checked, Some(false));
+    // Swift string interpolation renders through the runtime's number text.
+    assert!(
+        frame.scene.texts.iter().any(|text| text.text == "Visits 11"),
+        "interpolated visit count"
+    );
 }

@@ -13,23 +13,21 @@ No React, Vue, HTML, DOM, or CSS is required.
 Create `App.mun`:
 
 ```mun
-const expanded = State(false)
-
+@main
 struct App: View {
+  @State private var expanded: Bool = false
+
   var body: some View {
     VStack(spacing: 16) {
       Text("Mün")
-      Button("Toggle") {
-        expanded.value = !expanded.value
-      }
+      Button("Toggle") { expanded.toggle() }
 
-      Rectangle()
-        .frame(width: expanded.value ? 320 : 160, height: 96)
-        .background("#6750A4")
-        .cornerRadius(18)
-        .animation(Animation.spring(0.48, 0.82), expanded.value)
+      RoundedRectangle(cornerRadius: 18)
+        .fill(Color(red: 0.4, green: 0.31, blue: 0.64))
+        .frame(width: expanded ? 320 : 160, height: 96)
+        .animation(.spring(response: 0.48, dampingFraction: 0.82), value: expanded)
 
-      if (expanded.value) {
+      if expanded {
         Text("Expanded")
       } else {
         Text("Collapsed")
@@ -38,8 +36,6 @@ struct App: View {
     .padding(24)
   }
 }
-
-export default App()
 ```
 
 `.mun` is the canonical source extension. Raw HTML is not valid Mün syntax.
@@ -73,11 +69,9 @@ Semantic UI IR boundary before the native runtime consumes it.
 State is a Mün concept:
 
 ```mun
-const enabled = State(false)
+@State private var enabled: Bool = false
 
-Button("Toggle") {
-  enabled.value = !enabled.value
-}
+Button("Toggle") { enabled.toggle() }
 ```
 
 The compiler records the state and action in the semantic program. The runtime
@@ -89,8 +83,8 @@ Animation is represented in the same semantic program:
 
 ```mun
 Rectangle()
-  .frame(width: enabled.value ? 280 : 140, height: 80)
-  .animation(Animation.spring(0.5, 0.82), enabled.value)
+  .frame(width: enabled ? 280 : 140, height: 80)
+  .animation(.spring(response: 0.5, dampingFraction: 0.82), value: enabled)
 ```
 
 The native runtime executes the shared renderer-neutral motion plan directly.

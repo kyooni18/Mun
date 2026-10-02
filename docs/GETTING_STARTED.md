@@ -14,24 +14,18 @@ pnpm native:build
 ## Create a screen
 
 ```mun
-import { Button, State, Text, VStack } from "@mun/core"
-
-const count = State(0)
-
+@main
 struct App: View {
+  @State private var count: Int = 0
+
   var body: some View {
     VStack(spacing: 12) {
-      Text("Mün")
-      Text(count.value)
-      Button("Increase") {
-        count.value = count.value + 1
-      }
+      Text("Count: \(count)")
+      Button("Increase") { count = count + 1 }
     }
     .padding(24)
   }
 }
-
-export default App()
 ```
 
 Save it as `App.mun`.

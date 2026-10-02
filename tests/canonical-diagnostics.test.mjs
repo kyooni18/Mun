@@ -87,5 +87,9 @@ test("Swift literals and entry points", () => {
   const program = compileMunUiProgram(view('Text("x")', '  @State var maybe: String? = nil\n  @State var table: [String: Int] = ["a": 1]'))
   assert.deepEqual(program.states.find(state => state.name.endsWith("/maybe"))?.initial, null)
   assert.deepEqual(program.states.find(state => state.name.endsWith("/table"))?.initial, { a: 1 })
+  // `\(…)` is interpolation, never an escaped parenthesis.
+  const text = compileMunUiProgram(view('Text("n = \\(amount)!")')).root.child.value
+  assert.equal(text.kind, "binary")
+  assert.equal(JSON.stringify(text).includes('"stringify"'), true)
   assert.throws(() => compileMunUiProgram(`${view('Text("x")')}\nexport default Other()\n`), /@main Probe and export default Other\(\) name different entry Views/)
 })

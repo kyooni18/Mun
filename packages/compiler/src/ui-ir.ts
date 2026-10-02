@@ -124,8 +124,16 @@ function swiftDictionaryLiterals(source: string): string {
     const character = source[index]
     if (character === "\"" || character === "'" || character === "`") {
       let end = index + 1
-      while (end < source.length && source[end] !== character) end += source[end] === "\\" ? 2 : 1
-      output += source.slice(index, end + 1)
+      while (end < source.length && source[end] !== character) {
+        // Swift interpolation `\(…)` may itself contain quotes.
+        if (character === "\"" && source[end] === "\\" && source[end + 1] === "(") {
+          end = matchingParenthesis(source, end + 1) + 1
+          continue
+        }
+        end += source[end] === "\\" ? 2 : 1
+      }
+      const literal = source.slice(index, end + 1)
+      output += character === "\"" ? swiftInterpolation(literal) : literal
       index = end
       continue
     }
@@ -166,6 +174,50 @@ function swiftDictionaryLiterals(source: string): string {
     index = close
   }
   return output
+}
+
+function matchingParenthesis(source: string, open: number): number {
+  let depth = 0
+  for (let index = open; index < source.length; index += 1) {
+    const character = source[index]
+    if (character === "\"") {
+      index += 1
+      while (index < source.length && source[index] !== "\"") {
+        if (source[index] === "\\" && source[index + 1] === "(") { index = matchingParenthesis(source, index + 1) + 1; continue }
+        index += source[index] === "\\" ? 2 : 1
+      }
+      continue
+    }
+    if (character === "(") depth += 1
+    else if (character === ")" && --depth === 0) return index
+  }
+  throw new SyntaxError(`Unclosed string interpolation in Mün source: ${source}`)
+}
+
+/** `"Total: \(count) items"` → `("Total: " + String(count) + " items")`. */
+function swiftInterpolation(literal: string): string {
+  if (!literal.includes("\\(")) return literal
+  const body = literal.slice(1, -1)
+  const parts: string[] = []
+  let segment = ""
+  for (let index = 0; index < body.length; index += 1) {
+    if (body[index] === "\\" && body[index + 1] === "(") {
+      const close = matchingParenthesis(body, index + 1)
+      if (segment) parts.push(`"${segment}"`)
+      segment = ""
+      parts.push(`String(${swiftDictionaryLiterals(body.slice(index + 2, close))})`)
+      index = close
+      continue
+    }
+    if (body[index] === "\\") {
+      segment += body.slice(index, index + 2)
+      index += 1
+      continue
+    }
+    segment += body[index]
+  }
+  if (segment) parts.push(`"${segment}"`)
+  return `(${parts.join(" + ")})`
 }
 
 function assertWellFormedValueSource(source: string, owner: string): void {
