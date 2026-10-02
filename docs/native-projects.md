@@ -43,10 +43,56 @@ source-analysis diagnostics retain mapped file/line/column positions.
 
 ## Development
 
-`mun dev` watches source and project configuration. Changes are debounced 80ms.
-Compilation failure does not terminate the loop or replace valid IR. Successful
-compilation stops the old process before launching a new one. State resets.
-`--verbose` reports changed paths and combined compile/IR duration.
+`mun dev` watches source and project configuration (changes are debounced 80ms),
+launches the native host once, and applies each successful edit to the **running
+process** over a loopback dev link. `--verbose` adds per-phase timings, the
+runtime round trip and the payload size.
+
+### Hot reload
+
+The toolchain listens on `127.0.0.1:0`; the host connects back with `mun-native
+--dev <ir>` plus `MUN_DEV_ENDPOINT` and `MUN_DEV_TOKEN`. Frames are a 4-byte
+big-endian length followed by JSON (16 MiB cap); the host's first message is a
+`hello` with protocol version, per-session token and IR version. Production
+launches ignore these variables. The host exits when the link drops, so no
+orphan process is left behind.
+
+`Runtime::hot_update` is atomic: the new program is loaded, validated and its
+collections materialized before anything is committed. If any step fails the
+running application is untouched and the update is reported as rejected.
+
+Preserved across a hot update: state whose semantic identity, declared type and
+keyed scope are all unchanged (globals and keyed list-row state), focus and the
+active text editor when the node still exists, scroll offsets, and the retained
+tree (so `onAppear`/`onDisappear` fire only on real presence changes). An active
+IME composition is committed first. Reset: state whose declared type or keyed
+scope changed (it takes its new initial value — incompatible state is never
+carried over), newly added state, and transient input, motion and presence
+animations.
+
+A **process restart** is required, and reported as a relaunch rather than a hot
+reload, when the IR version, the `@main` entry or the root window id changes, or
+when the app window has been closed. Typical output:
+
+```
+Hot reload applied in 14 ms  ·  Preserved 3  ·  Reset 1
+Structural change requires process restart: @main entry changed … Relaunched in 97 ms
+Compile failed … Running previous valid build
+```
+
+An invalid edit never replaces the running build; the next valid save applies
+normally. Declared state types are carried only in dev metadata, never in the
+production IR. Compilation is incremental at the file-read level (unchanged files
+are not re-read; byte-identical saves reuse the previous result) but semantic
+analysis still covers the whole project unit.
+
+### Inspecting a running app
+
+While `mun dev` runs it writes `.mun/dev/session.json` (mode 0600; loopback
+inspector endpoint and token) and removes it on exit. `mun inspect [--values]
+[--json]` prints the live node tree (kind, frame, component, scroll offset, focus)
+and state names. State values are included only with `--values`; `SecureField`
+state is always redacted.
 
 Ignored `mun.local.json` may contain local-only environment overrides:
 
@@ -60,26 +106,42 @@ command starts; restart dev to change them.
 ## Build and package
 
 `mun build` copies the resolved release host and Semantic UI IR into
-`.mun/build/<os>-<arch>/<name>/`. Unix uses `launch`; Windows uses `Run.cmd`.
-Resources are copied under `Resources/`, with project-relative paths preserved.
-The launcher locates IR independent of the original project working directory.
-`MUN_RESOURCE_DIR` identifies bundled resources for future renderer integration;
-arbitrary file access from Mün source is not yet a native language contract.
+`.mun/build/<os>-<arch>/<name>/`. The native host binary is itself the
+executable (there is no shell or `Run.cmd` launcher); `Resources/` sits next to it
+with project-relative resource paths preserved under `Resources/bundled/`. With no
+arguments the host loads `Resources/program.mun.ir.json` relative to its own
+executable — never the working directory — so it can be launched from anywhere.
+Arbitrary file access from Mün source is not yet a native language contract, and
+bundled fonts are rejected explicitly until the renderer supports them.
 
-`mun package` uses `.mun/package/<os>-<arch>/`. On macOS this is a `.app` with
-Contents/MacOS, Contents/Resources and Info.plist. Icons must be `.icns` on macOS.
-The launcher is currently a shell script: Finder behavior and distribution/signing
-need further real-machine validation. Other platforms receive a portable directory,
-not an installer. No command claims to sign or notarize the app.
+`mun package` uses `.mun/package/<os>-<arch>/`. On macOS this is a `.app` whose
+`CFBundleExecutable` is the native host, with `Contents/Resources` and a
+manifest-generated `Info.plist` that must pass `plutil -lint`. Bundle identifiers
+must be reverse-DNS segments of letters, digits and hyphens. Icons must be `.icns`
+on macOS and are copied to `Contents/Resources/<basename>`. Other platforms
+receive a portable directory, not an installer.
 
-The package command prints signing/notarization commands. With your credentials:
+Packages are **unsigned by default** and are never ad-hoc signed. An unsigned
+macOS app is not distribution-ready, and `codesign --verify` on it fails
+(the arm64 linker ad-hoc signs the bare executable, which does not match a bundle
+with resources). To sign and notarize with your credentials:
 
 ```sh
-codesign --force --deep --options runtime --sign "Developer ID Application: YOUR IDENTITY" App.app
-ditto -c -k --keepParent App.app App.zip
-xcrun notarytool submit App.zip --keychain-profile YOUR_PROFILE --wait
-xcrun stapler staple App.app
+mun package --sign "Developer ID Application: YOUR IDENTITY" --notarize-profile YOUR_PROFILE
 ```
+
+This runs `codesign` with the hardened runtime and a secure timestamp, then
+`codesign --verify --strict`, then (with `--notarize-profile`) `notarytool submit
+--wait` and `stapler staple`. The ad-hoc identity `-` is refused, and
+`--notarize-profile` requires `--sign`.
+
+### Platform status
+
+| Capability | Exercised |
+| --- | --- |
+| macOS arm64: `mun dev` hot reload, `mun inspect`, packaged `.app` launched from the executable and via `open` | Yes, locally |
+| macOS: Finder launch, signing and notarization with a real identity | Not exercised |
+| Windows, Linux: dev, build, package | Implemented but not exercised; no CI coverage yet |
 
 ## Editors and local framework development
 
