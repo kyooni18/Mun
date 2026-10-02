@@ -4,6 +4,7 @@ use std::{
     rc::Rc,
 };
 
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde_json::Value;
 use taffy::prelude::*;
@@ -369,6 +370,10 @@ pub(crate) fn evaluate_binary(operator: UiBinaryOperator, left: Value, right: Va
         }
     }
 }
+/// Semantic node id -> layout node of one frame. Keys are long node-id
+/// strings hashed for every node every frame, so a fast non-DoS hasher is used.
+type LayoutNodes = FxHashMap<String, NodeId>;
+
 /// Outcome of a committed [`Runtime::hot_update`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HotUpdateReport {
@@ -440,8 +445,8 @@ pub struct Runtime {
     geometry_stamp: Cell<Option<GeometryStamp>>,
     /// Flexible-frame intent ([width, height]) of layout nodes in the tree
     /// being built; consumed by each node's parent.
-    flexible_frames: RefCell<HashMap<NodeId, [bool; 2]>>,
-    axis_leaves: RefCell<HashMap<NodeId, AxisLeaf>>,
+    flexible_frames: RefCell<FxHashMap<NodeId, [bool; 2]>>,
+    axis_leaves: RefCell<FxHashMap<NodeId, AxisLeaf>>,
     /// Semantically present Views with lifecycle actions, in traversal order,
     /// with the disappear action to run when they leave.
     lifecycle_present: Vec<(String, Option<UiAction>)>,
@@ -532,8 +537,8 @@ impl Runtime {
             reveal_focus: Cell::new(false),
             reveal_request: RefCell::new(None),
             geometry_stamp: Cell::new(None),
-            flexible_frames: RefCell::new(HashMap::new()),
-            axis_leaves: RefCell::new(HashMap::new()),
+            flexible_frames: RefCell::new(FxHashMap::default()),
+            axis_leaves: RefCell::new(FxHashMap::default()),
             lifecycle_present: Vec::new(),
             lifecycle_running: false,
             scroll_views: RefCell::new(HashMap::new()),
@@ -2460,7 +2465,7 @@ impl Runtime {
     fn accessibility_from_layout(
         &self,
         taffy: &LayoutTree,
-        nodes: &HashMap<String, NodeId>,
+        nodes: &LayoutNodes,
         width: f32,
         height: f32,
         measurer: &dyn IntrinsicMeasurer,
@@ -2518,7 +2523,7 @@ impl Runtime {
         &self,
         width: f32,
         height: f32,
-    ) -> Result<(LayoutTree, HashMap<String, NodeId>), taffy::TaffyError> {
+    ) -> Result<(LayoutTree, LayoutNodes), taffy::TaffyError> {
         let measurer = self.measurer.clone();
         self.build_layout_tree_with_measurer(width, height, measurer.as_ref())
     }
@@ -2528,9 +2533,9 @@ impl Runtime {
         width: f32,
         height: f32,
         measurer: &dyn IntrinsicMeasurer,
-    ) -> Result<(LayoutTree, HashMap<String, NodeId>), taffy::TaffyError> {
+    ) -> Result<(LayoutTree, LayoutNodes), taffy::TaffyError> {
         let mut taffy: LayoutTree = TaffyTree::new();
-        let mut nodes = HashMap::new();
+        let mut nodes = LayoutNodes::default();
         self.flexible_frames.borrow_mut().clear();
         self.axis_leaves.borrow_mut().clear();
         let children =
@@ -3158,7 +3163,7 @@ impl Runtime {
         &self,
         taffy: &mut LayoutTree,
         node: &UiNode,
-        nodes: &mut HashMap<String, NodeId>,
+        nodes: &mut LayoutNodes,
         measurer: &dyn IntrinsicMeasurer,
     ) -> Result<Vec<NodeId>, taffy::TaffyError> {
         if matches!(node, UiNode::Conditional { .. }) {
@@ -3502,7 +3507,7 @@ impl Runtime {
     fn reveal_focused_layout(
         &self,
         taffy: &LayoutTree,
-        nodes: &HashMap<String, NodeId>,
+        nodes: &LayoutNodes,
     ) -> Result<(), taffy::TaffyError> {
         let requested = self.reveal_request.borrow_mut().take();
         let target = match requested {
@@ -3523,7 +3528,7 @@ impl Runtime {
             node: &UiNode,
             focused: &str,
             taffy: &LayoutTree,
-            nodes: &HashMap<String, NodeId>,
+            nodes: &LayoutNodes,
             x: f32,
             y: f32,
         ) -> Result<Option<SceneBounds>, taffy::TaffyError> {
@@ -3599,13 +3604,13 @@ impl Runtime {
     fn reconcile_scroll_layout(
         &self,
         taffy: &LayoutTree,
-        nodes: &HashMap<String, NodeId>,
+        nodes: &LayoutNodes,
     ) -> Result<(), taffy::TaffyError> {
         fn visit(
             runtime: &Runtime,
             node: &UiNode,
             taffy: &LayoutTree,
-            nodes: &HashMap<String, NodeId>,
+            nodes: &LayoutNodes,
             active: &mut HashSet<String>,
         ) -> Result<(), taffy::TaffyError> {
             if let UiNode::Scroll { base, axis, .. } = node {
@@ -3648,7 +3653,7 @@ impl Runtime {
         &self,
         taffy: &LayoutTree,
         node: &UiNode,
-        nodes: &HashMap<String, NodeId>,
+        nodes: &LayoutNodes,
         parent_x: f32,
         parent_y: f32,
         inherited_opacity: f32,
@@ -4265,7 +4270,7 @@ impl Runtime {
         &self,
         taffy: &LayoutTree,
         node: &UiNode,
-        nodes: &HashMap<String, NodeId>,
+        nodes: &LayoutNodes,
         parent_x: f32,
         parent_y: f32,
         measurer: &dyn IntrinsicMeasurer,
