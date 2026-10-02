@@ -49,6 +49,8 @@ try {
     else if (argument === '--help' || argument === '-h') options.help = true
     else if (argument === '--check') options.check = true
     else if (argument === '--verbose') options.verbose = true
+    else if (argument === '--values') options.values = true
+    else if (argument === '--json') options.json = true
     else if (argument === '--version' || argument === '-v') options.version = true
     else {
       const packageManager = takeValue(argument, index, '--package-manager') ?? takeValue(argument, index, '--pm')
@@ -57,7 +59,11 @@ try {
       const editor = takeValue(argument, index, '--editor')
       const project = takeValue(argument, index, '--project')
       const target = takeValue(argument, index, '--target')
-      if (target) {
+      const sign = takeValue(argument, index, '--sign')
+      const notarize = takeValue(argument, index, '--notarize-profile')
+      if (sign) { options.sign = sign.value; index += sign.consumed }
+      else if (notarize) { options.notarizeProfile = notarize.value; index += notarize.consumed }
+      else if (target) {
         options.target = target.value
         index += target.consumed
       } else if (packageManager) {
@@ -312,11 +318,12 @@ Usage:
   mun create <directory> [--target native|web]
   mun init [--target native|web]
   mun dev [--verbose]
+  mun inspect [--values] [--json]
   mun run [input.mun]
   mun check
   mun fmt [--check]
   mun build
-  mun package
+  mun package [--sign <identity>] [--notarize-profile <keychain-profile>]
   mun doctor
   mun compile <input.mun> [output.json]
   mun link <project> [--renderer astro|react|vue|web] [--pm <manager>] [--no-install] [--local-root <path>]
@@ -453,7 +460,7 @@ function main() {
   if (command === '--help' || command === '-h') { printHelp(); return 0 }
   if (options.help || !command) { printHelp(); return 0 }
   if (options.version) { console.log(packageManifest.version); return 0 }
-  if (['check', 'fmt', 'build', 'package', 'doctor', 'dev'].includes(command)) {
+  if (['check', 'fmt', 'build', 'package', 'doctor', 'dev', 'inspect'].includes(command)) {
     if (positionals.length) throw new Error(`Usage: mun ${command} [--project <directory>]`)
     return projectCommand(command, options)
   }

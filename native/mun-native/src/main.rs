@@ -2,6 +2,8 @@ use std::{env, error::Error, fs, io, path::PathBuf};
 
 enum Mode {
     Run,
+    /// `--dev <ir>`: development launch connected to `mun dev`.
+    Dev,
     Smoke,
     /// Offscreen realization: `--render <ir> <out.png> [script.json]`.
     Render {
@@ -14,18 +16,47 @@ fn usage(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message.to_owned())
 }
 
+/// Resources of a packaged application, located relative to the executable:
+/// `App.app/Contents/MacOS/<exe>` uses `Contents/Resources`; a portable
+/// directory uses `Resources` next to the executable. Never the CWD.
+fn bundled_program() -> Result<PathBuf, io::Error> {
+    let executable = env::current_exe()?.canonicalize()?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| usage("executable has no parent directory"))?;
+    let candidates = [
+        directory.join("../Resources/program.mun.ir.json"),
+        directory.join("Resources/program.mun.ir.json"),
+    ];
+    let macos_bundle = directory.ends_with("Contents/MacOS");
+    candidates
+        .into_iter()
+        .skip(if macos_bundle { 0 } else { 1 })
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            usage(
+                "usage: mun-native [--dev | --smoke | --render <out.png> [script.json]] <semantic-ui-ir.json>\n\
+                 (no packaged Resources/program.mun.ir.json next to this executable)",
+            )
+        })
+}
+
 fn program_path() -> Result<(PathBuf, Mode), io::Error> {
     let mut arguments = env::args_os().skip(1).collect::<Vec<_>>().into_iter();
     let Some(first) = arguments.next() else {
-        return Err(usage(
-            "usage: mun-native [--smoke | --render <out.png> [script.json]] <semantic-ui-ir.json>",
-        ));
+        // No arguments: packaged application mode.
+        return Ok((bundled_program()?, Mode::Run));
     };
     let (path, mode) = if first == "--smoke" {
         let path = arguments
             .next()
             .ok_or_else(|| usage("--smoke requires an IR path"))?;
         (path, Mode::Smoke)
+    } else if first == "--dev" {
+        let path = arguments
+            .next()
+            .ok_or_else(|| usage("--dev requires an IR path"))?;
+        (path, Mode::Dev)
     } else if first == "--render" {
         let path = arguments
             .next()
@@ -41,6 +72,9 @@ fn program_path() -> Result<(PathBuf, Mode), io::Error> {
                 script,
             },
         )
+    } else if first.to_string_lossy().starts_with("-psn_") {
+        // Finder/LaunchServices may pass a process serial number on old macOS.
+        return Ok((bundled_program()?, Mode::Run));
     } else {
         (first, Mode::Run)
     };
@@ -97,6 +131,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     match mode {
         Mode::Run => mun_native::run_program(&source).map_err(failed),
+        Mode::Dev => {
+            // The endpoint is honored only in this explicit development mode;
+            // production launches ignore these variables entirely.
+            let endpoint = env::var("MUN_DEV_ENDPOINT")
+                .map_err(|_| usage("--dev requires MUN_DEV_ENDPOINT (started by mun dev)"))?;
+            let token = env::var("MUN_DEV_TOKEN")
+                .map_err(|_| usage("--dev requires MUN_DEV_TOKEN (started by mun dev)"))?;
+            mun_native::run_program_dev(&source, &endpoint, &token).map_err(failed)
+        }
         Mode::Smoke => mun_native::smoke_program(&source).map_err(failed),
         Mode::Render { output, script } => {
             let script = match script {

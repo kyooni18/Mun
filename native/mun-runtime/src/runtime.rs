@@ -368,6 +368,41 @@ pub(crate) fn evaluate_binary(operator: UiBinaryOperator, left: Value, right: Va
         }
     }
 }
+/// Outcome of a committed [`Runtime::hot_update`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HotUpdateReport {
+    /// State instances (global or keyed-row) whose values were carried over.
+    pub preserved_states: usize,
+    /// Previously live global states that restarted from their initial value.
+    pub reset_states: usize,
+    pub inserted_nodes: usize,
+    pub removed_nodes: usize,
+    /// State mutations made by onAppear/onDisappear for real presence changes.
+    pub lifecycle_mutations: usize,
+}
+
+fn collect_secure_states(node: &UiNode, output: &mut HashSet<String>) {
+    if let UiNode::TextField {
+        state,
+        secure: true,
+        ..
+    } = node
+    {
+        output.insert(state.clone());
+    }
+    let branches: &[&[UiNode]] = match node {
+        UiNode::Conditional {
+            then_nodes,
+            otherwise,
+            ..
+        } => &[then_nodes, otherwise],
+        _ => &[node.children()],
+    };
+    for child in branches.iter().flat_map(|nodes| nodes.iter()) {
+        collect_secure_states(child, output);
+    }
+}
+
 pub struct Runtime {
     /// Materialized program: `root.child` has every `forEach` instantiated per
     /// item key. The authored template is kept separately in `template`.
@@ -418,6 +453,15 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn from_json(source: &str) -> Result<Self, RuntimeLoadError> {
+        let mut runtime = Self::load(source)?;
+        runtime.reconcile_retained_tree();
+        runtime.reconcile_lifecycle();
+        Ok(runtime)
+    }
+
+    /// Parse, validate and materialize a program without reconciling the
+    /// retained tree or running lifecycle actions.
+    fn load(source: &str) -> Result<Self, RuntimeLoadError> {
         let raw: Value = serde_json::from_str(source)?;
         // Version and language gate everything else: a future version must be
         // reported as such, not as a pile of unknown fields.
@@ -493,9 +537,187 @@ impl Runtime {
         runtime
             .materialize()
             .map_err(RuntimeLoadError::Collection)?;
-        runtime.reconcile_retained_tree();
-        runtime.reconcile_lifecycle();
         Ok(runtime)
+    }
+
+    /// Development hot update: replace the program while carrying runtime-owned
+    /// state across by semantic identity. `preserve` names the global or
+    /// item-scoped state declarations the tooling proved compatible (same
+    /// identity, type and scope); every other state starts from its new initial
+    /// value. The new program is fully parsed, validated and materialized before
+    /// anything is committed: on error `self` is untouched.
+    ///
+    /// Transient interaction state (pointer capture, pressed/hover, gestures,
+    /// active animations, presence transitions) is deliberately reset. An active
+    /// IME composition is committed through the normal input contract first, so
+    /// preedit text is never duplicated or lost by the swap.
+    pub fn hot_update(
+        &mut self,
+        source: &str,
+        preserve: &[String],
+    ) -> Result<HotUpdateReport, RuntimeLoadError> {
+        let mut next = Self::load(source)?;
+        let preserved: HashSet<&str> = preserve.iter().map(String::as_str).collect();
+        let declared: HashMap<&str, bool> = next
+            .program
+            .states
+            .iter()
+            .map(|item| (item.name.as_str(), item.scope.is_some()))
+            .collect();
+        let mut carried = HashMap::new();
+        let mut preserved_scopes = 0;
+        for (name, value) in &self.state {
+            let template = name.split('[').next().unwrap_or(name);
+            if !preserved.contains(template) || !declared.contains_key(template) {
+                continue;
+            }
+            if declared[template] != (template != name) {
+                continue;
+            }
+            carried.insert(name.clone(), value.clone());
+            preserved_scopes += 1;
+        }
+        let reset_scopes = next
+            .program
+            .states
+            .iter()
+            .filter(|item| item.scope.is_none() && !carried.contains_key(&item.name))
+            .filter(|item| self.state.contains_key(&item.name))
+            .count();
+        next.state.extend(carried.clone());
+        next.materialize().map_err(RuntimeLoadError::Collection)?;
+
+        // Validation is complete. Commit any IME preedit through the input
+        // contract, then re-read carried values so committed text is kept.
+        self.finish_composition();
+        for (name, value) in &self.state {
+            if carried.contains_key(name) {
+                next.state.insert(name.clone(), value.clone());
+            }
+        }
+        next.materialize().map_err(RuntimeLoadError::Collection)?;
+        next.measurer = self.measurer.clone();
+        next.conventions = self.conventions;
+        next.revision = self.revision + 1;
+        next.retained = std::mem::take(&mut self.retained);
+        next.lifecycle_present = std::mem::take(&mut self.lifecycle_present);
+        next.ime_requests = std::mem::take(&mut self.ime_requests);
+        next.clipboard_revision = self.clipboard_revision;
+        next.reconcile_retained_tree();
+        let exists = |id: &str| next.retained.node(id).is_some();
+        let scrolls = std::mem::take(&mut *self.scroll_views.borrow_mut());
+        next.scroll_views
+            .borrow_mut()
+            .extend(scrolls.into_iter().filter(|(id, _)| exists(id)));
+        let text_scroll = std::mem::take(&mut *self.text_scroll.borrow_mut());
+        next.text_scroll
+            .borrow_mut()
+            .extend(text_scroll.into_iter().filter(|(id, _)| exists(id)));
+        if let Some(focused) = self.focused_action.take().filter(|id| exists(id)) {
+            next.focused_action = Some(focused.clone());
+            if let Some((owner, editor)) = self.text_editor.take() {
+                if owner == focused
+                    && find_text_field(&next.program.root.child, &next, &owner).is_some()
+                {
+                    next.text_editor = Some((owner, editor));
+                }
+            }
+        }
+        let _ = next.reset_replaced_runtime_state();
+        next.reconcile_pointer_captures();
+        let lifecycle = next.reconcile_lifecycle();
+        let report = HotUpdateReport {
+            preserved_states: preserved_scopes,
+            reset_states: reset_scopes,
+            inserted_nodes: next.last_reconciliation.inserted.len(),
+            removed_nodes: next.last_reconciliation.removed.len(),
+            lifecycle_mutations: lifecycle.len(),
+        };
+        *self = next;
+        Ok(report)
+    }
+
+    /// Development inspection of the running semantic application. State
+    /// values are included only on request and SecureField bindings are
+    /// always redacted.
+    pub fn inspect(&self, width: f32, height: f32, include_values: bool) -> Value {
+        let mut secure = HashSet::new();
+        collect_secure_states(&self.program.root.child, &mut secure);
+        let frame = self.build_frame(width, height).ok();
+        let bounds: HashMap<&str, &AccessibilityBounds> = frame
+            .as_ref()
+            .map(|frame| {
+                frame
+                    .accessibility
+                    .nodes
+                    .iter()
+                    .map(|node| (node.id.as_str(), &node.bounds))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let nodes: Vec<Value> = self
+            .retained
+            .iter()
+            .map(|node| {
+                let mut item = serde_json::json!({
+                    "id": node.id,
+                    "kind": format!("{:?}", node.kind),
+                    "instance": node.instance_id,
+                    "parent": node.parent,
+                    "children": node.children,
+                });
+                if let Some(component) = node
+                    .id
+                    .rsplit("/component/")
+                    .nth(0)
+                    .filter(|_| node.id.contains("/component/"))
+                {
+                    item["component"] =
+                        Value::String(component.split('/').next().unwrap_or("").to_owned());
+                }
+                if let Some(bounds) = bounds.get(node.id.as_str()) {
+                    item["frame"] =
+                        serde_json::json!([bounds.x, bounds.y, bounds.width, bounds.height]);
+                }
+                if let Some(scroll) = self.scroll_views.borrow().get(&node.id) {
+                    item["scrollOffset"] = serde_json::json!(scroll.offset);
+                }
+                item
+            })
+            .collect();
+        let mut states: Vec<Value> = self
+            .state
+            .iter()
+            .map(|(name, value)| {
+                let template = name.split('[').next().unwrap_or(name);
+                let kind = match value {
+                    Value::Null => "null",
+                    Value::Bool(_) => "bool",
+                    Value::Number(_) => "number",
+                    Value::String(_) => "string",
+                    Value::Array(_) => "array",
+                    Value::Object(_) => "object",
+                };
+                let mut item = serde_json::json!({ "name": name, "valueKind": kind });
+                if secure.contains(template) {
+                    item["redacted"] = Value::Bool(true);
+                } else if include_values {
+                    item["value"] = value.clone();
+                }
+                item
+            })
+            .collect();
+        states.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+        serde_json::json!({
+            "revision": self.revision,
+            "title": self.program.root.title,
+            "entry": self.program.entry,
+            "focus": self.focused_action,
+            "nodes": nodes,
+            "states": states,
+            "primitives": frame.as_ref().map(|frame| frame.scene.rects.len() + frame.scene.texts.len()),
+            "activeAnimations": self.has_active_motion(),
+        })
     }
 
     /// Re-instantiate keyed collections from the template and current state.

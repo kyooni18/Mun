@@ -17,6 +17,8 @@ use winit::{
 #[derive(Clone, Debug)]
 pub enum NativeEvent {
     AccessibilityAction(ActionRequest),
+    /// Development toolchain command (only in `--dev` launches).
+    Dev(crate::dev::DevCommand),
 }
 
 #[derive(Clone)]

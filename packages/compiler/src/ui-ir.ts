@@ -1842,6 +1842,8 @@ class UiLowerer {
   readonly #componentStack: string[] = []
   readonly #states: MunUiState[]
   readonly #stateTypes: Map<string, string>
+  /** Declared Mün type per state identity; development metadata only. */
+  readonly #declaredTypes = new Map<string, string>()
   /** Enclosing ForEach templates; View-local state inside them is item-scoped. */
   readonly #forEachScopes: string[] = []
   /** Key path per collection state, recorded by the ForEach that renders it. */
@@ -1870,6 +1872,10 @@ class UiLowerer {
     const qualifiedName = this.#qualifiedNameByDeclaration.get(declaration)
     if (!qualifiedName) throw new SyntaxError(`Native View '${declaration.name}' has no qualified semantic identity`)
     return qualifiedName
+  }
+
+  declaredStateTypes(): ReadonlyMap<string, string> {
+    return this.#declaredTypes
   }
 
   states(): readonly MunUiState[] {
@@ -1956,15 +1962,18 @@ class UiLowerer {
           `Native @State member '${declaration.name}.${field.name}' requires a scalar initial value for now`,
         )
       }
+      const stateName = `@component/${instanceId}/${field.name}`
       if (field.type) {
         const declared = parseMunType(field.type, { canonical: false, what: `${declaration.name}.${field.name}` })
+        this.#declaredTypes.set(stateName, displayMunType(declared))
         if (!valueMatchesType(initial.value, declared)) {
           throw new SyntaxError(
             `@State '${declaration.name}.${field.name}' is declared ${displayMunType(declared)} but its initial value is ${describeValueType(initial.value)}`,
           )
         }
+      } else {
+        this.#declaredTypes.set(stateName, initial.value === null ? "nil" : Array.isArray(initial.value) ? "Array" : typeof initial.value)
       }
-      const stateName = `@component/${instanceId}/${field.name}`
       const scope = this.#forEachScopes.at(-1)
       this.#states.push({ name: stateName, initial: initial.value, ...(scope ? { scope } : {}) })
       this.#stateTypes.set(
@@ -2451,6 +2460,42 @@ export function compileMunUiProgram(
   fileName = "mun-source.mun",
   options: MunUiCompileOptions = {},
 ): MunUiProgram {
+  return lowerMunUiProgram(source, fileName, options).program
+}
+
+/** Development-only facts about a compiled program, never part of the IR. */
+export interface MunDevProgramMetadata {
+  readonly states: readonly { readonly name: string; readonly type: string; readonly scope?: string }[]
+}
+
+/**
+ * Compile for the development toolchain: the canonical production IR plus
+ * separate metadata (declared state types) used for hot-reload compatibility.
+ */
+export function compileMunDevProgram(
+  source: string,
+  fileName = "mun-source.mun",
+  options: MunUiCompileOptions = {},
+): { program: MunUiProgram; metadata: MunDevProgramMetadata } {
+  const { program, lowerer } = lowerMunUiProgram(source, fileName, options)
+  const types = lowerer.declaredStateTypes()
+  return {
+    program,
+    metadata: {
+      states: program.states.map(state => ({
+        name: state.name,
+        type: types.get(state.name) ?? (state.initial === null ? "nil" : typeof state.initial),
+        ...(state.scope ? { scope: state.scope } : {}),
+      })),
+    },
+  }
+}
+
+function lowerMunUiProgram(
+  source: string,
+  fileName: string,
+  options: MunUiCompileOptions,
+): { program: MunUiProgram; lowerer: UiLowerer } {
   assertCanonicalMunSource(source, fileName)
   const structs = parseMunStructs(source)
   if (structs.length === 0) throw new SyntaxError("Native Mün requires a View struct entry point")
@@ -2479,10 +2524,13 @@ export function compileMunUiProgram(
       }
 
   return {
-    version: 1,
-    sourceLanguage: "mun",
-    entry: entry.name,
-    states: lowerer.states(),
-    root,
+    program: {
+      version: 1,
+      sourceLanguage: "mun",
+      entry: entry.name,
+      states: lowerer.states(),
+      root,
+    },
+    lowerer,
   }
 }

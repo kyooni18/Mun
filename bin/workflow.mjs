@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, resolve } from 'node:path'
+import { connect } from 'node:net'
+import { basename, dirname, resolve } from 'node:path'
+import { createFrameDecoder, encodeFrame } from './dev-protocol.mjs'
 import { fileURLToPath } from 'node:url'
 import { discoverProject, compileProject, sourceFiles, validateAssets, requirePlatform, projectPath } from './project.mjs'
 import { resolveNativeHost, nativeBinaryName } from './native.mjs'
@@ -44,10 +46,45 @@ export function launchProgram(project, program, env) {
 
 function xml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;') }
 
-export function buildProject(project, program, env, packageApp = false) {
+function plistValue(value) {
+  if (typeof value === 'boolean') return value ? '<true/>' : '<false/>'
+  return `<string>${xml(value)}</string>`
+}
+
+/** Info.plist for a macOS bundle whose CFBundleExecutable is the real native binary. */
+export function macInfoPlist(manifest, executable, iconFile) {
+  const entries = {
+    CFBundleDevelopmentRegion: 'en',
+    CFBundleExecutable: executable,
+    CFBundleIdentifier: manifest.identifier,
+    CFBundleInfoDictionaryVersion: '6.0',
+    CFBundleName: manifest.name.slice(0, 15),
+    CFBundleDisplayName: manifest.window_title ?? manifest.name,
+    CFBundlePackageType: 'APPL',
+    CFBundleShortVersionString: manifest.version,
+    CFBundleVersion: manifest.version,
+    LSMinimumSystemVersion: '11.0',
+    NSHighResolutionCapable: true,
+    NSPrincipalClass: 'NSApplication',
+    ...(iconFile ? { CFBundleIconFile: iconFile } : {}),
+  }
+  const body = Object.entries(entries).map(([key, value]) => `\t<key>${key}</key>\n\t${plistValue(value)}`).join('\n')
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n${body}\n</dict>\n</plist>\n`
+}
+
+/** Executable file name for a packaged app: the manifest name, filesystem-safe. */
+export function packagedExecutableName(manifest, platform = process.platform) {
+  const base = manifest.name.replace(/[^\p{L}\p{N} _-]/gu, '_').trim() || 'MunApp'
+  return platform === 'win32' ? `${base}.exe` : base
+}
+
+export function buildProject(project, program, env, packageApp = false, options = {}) {
   requirePlatform(project)
   validateAssets(project)
   if (project.manifest.fonts?.length) throw new Error('Bundled font registration is not yet supported by the native renderer. Remove fonts until the renderer exposes this contract.')
+  if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/u.test(project.manifest.identifier)) throw new Error(`Invalid bundle identifier ${JSON.stringify(project.manifest.identifier)}: use reverse-DNS segments of letters, digits and hyphens (e.g. com.example.App).`)
+  if ((options.sign || options.notarizeProfile) && !(packageApp && process.platform === 'darwin')) throw new Error('--sign/--notarize-profile apply to macOS mun package only.')
+  if (options.notarizeProfile && !options.sign) throw new Error('Notarization requires --sign with a Developer ID Application identity.')
   const binary = hostBinary(project, program, env)
   const parent = projectPath(project.root, `.mun/${packageApp ? 'package' : 'build'}/${process.platform}-${process.arch}`)
   mkdirSync(parent, { recursive: true })
@@ -55,37 +92,112 @@ export function buildProject(project, program, env, packageApp = false) {
   const name = project.manifest.name.replace(/[^A-Za-z0-9_-]/gu, '_') || 'MunApp'
   const isApp = packageApp && process.platform === 'darwin'
   const destination = projectPath(project.root, `.mun/${packageApp ? 'package' : 'build'}/${process.platform}-${process.arch}/${isApp ? `${name}.app` : name}`)
+  const executable = packagedExecutableName(project.manifest)
   try {
     const executableDir = isApp ? resolve(stage, 'Contents/MacOS') : stage
     const resources = isApp ? resolve(stage, 'Contents/Resources') : resolve(stage, 'Resources')
     mkdirSync(executableDir, { recursive: true })
     mkdirSync(resources, { recursive: true })
-    cpSync(binary, resolve(executableDir, nativeBinaryName()))
-    chmodSync(resolve(executableDir, nativeBinaryName()), 0o755)
-    writeFileSync(resolve(resources, 'program.mun.ir.json'), `${JSON.stringify(program, null, 2)}\n`)
+    // The native host itself is the application executable: with no
+    // arguments it loads Resources/program.mun.ir.json relative to its own
+    // location (bundle- or directory-relative, never the working directory).
+    cpSync(binary, resolve(executableDir, executable))
+    chmodSync(resolve(executableDir, executable), 0o755)
+    writeFileSync(resolve(resources, 'program.mun.ir.json'), `${JSON.stringify(program)}\n`)
     writeFileSync(resolve(resources, 'application.json'), `${JSON.stringify(project.manifest, null, 2)}\n`)
-    for (const resource of [...(project.manifest.resources ?? []), ...(project.manifest.icon ? [project.manifest.icon] : [])]) {
+    for (const resource of project.manifest.resources ?? []) {
       cpSync(projectPath(project.root, resource), resolve(resources, 'bundled', resource), { recursive: true })
     }
-    if (process.platform === 'win32') {
-      writeFileSync(resolve(stage, 'Run.cmd'), '@echo off\r\n"%~dp0mun-native.exe" "%~dp0Resources\\program.mun.ir.json"\r\n')
-    } else {
-      const launcher = isApp ? resolve(executableDir, 'launch') : resolve(stage, 'launch')
-      const resourcePath = isApp ? '../Resources' : 'Resources'
-      writeFileSync(launcher, `#!/bin/sh\nHERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexport MUN_RESOURCE_DIR="$HERE/${resourcePath}"\nexec "$HERE/mun-native" "$HERE/${resourcePath}/program.mun.ir.json"\n`)
-      chmodSync(launcher, 0o755)
+    let iconFile
+    if (project.manifest.icon) {
+      if (isApp && !project.manifest.icon.endsWith('.icns')) throw new Error('macOS application icons must be .icns files.')
+      iconFile = basename(project.manifest.icon)
+      cpSync(projectPath(project.root, project.manifest.icon), resolve(resources, iconFile))
     }
-    if (isApp) {
-      if (project.manifest.icon && !project.manifest.icon.endsWith('.icns')) throw new Error('macOS application icons must be .icns files.')
-      const icon = project.manifest.icon ? `<key>CFBundleIconFile</key><string>bundled/${xml(project.manifest.icon)}</string>` : ''
-      writeFileSync(resolve(stage, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleExecutable</key><string>launch</string><key>CFBundleIdentifier</key><string>${xml(project.manifest.identifier)}</string><key>CFBundleName</key><string>${xml(project.manifest.name)}</string><key>CFBundleShortVersionString</key><string>${xml(project.manifest.version)}</string><key>CFBundleVersion</key><string>${xml(project.manifest.version)}</string><key>CFBundlePackageType</key><string>APPL</string>${icon}</dict></plist>\n`)
-    }
+    if (isApp) writeFileSync(resolve(stage, 'Contents/Info.plist'), macInfoPlist(project.manifest, executable, iconFile))
     rmSync(destination, { recursive: true, force: true })
     renameSync(stage, destination)
-    console.log(`${packageApp ? 'Packaged (unsigned)' : 'Built'} native application: ${destination}`)
-    if (isApp) console.log(`Signing: codesign --force --deep --options runtime --sign "Developer ID Application: YOUR IDENTITY" "${destination}"\nNotarization: ditto -c -k --keepParent "${destination}" "${destination}.zip" && xcrun notarytool submit "${destination}.zip" --keychain-profile YOUR_PROFILE --wait\nThen: xcrun stapler staple "${destination}"`)
-    return destination
   } finally { rmSync(stage, { recursive: true, force: true }) }
+
+  if (isApp) {
+    const lint = spawnSync('plutil', ['-lint', resolve(destination, 'Contents/Info.plist')], { encoding: 'utf8' })
+    if (lint.status !== 0) throw new Error(`Generated Info.plist failed plutil -lint: ${lint.stdout}${lint.stderr}`)
+  }
+  if (options.sign) {
+    signMacApp(destination, options.sign, env)
+    console.log(`Packaged and signed (${options.sign}) native application: ${destination}`)
+    if (options.notarizeProfile) notarizeMacApp(destination, options.notarizeProfile, env)
+  } else {
+    console.log(`${packageApp ? 'Packaged (unsigned — not distribution-ready)' : 'Built'} native application: ${destination}`)
+    if (isApp) console.log('To sign: mun package --sign "Developer ID Application: …" [--notarize-profile <notarytool keychain profile>]')
+  }
+  return destination
+}
+
+function run(command, args, env, what) {
+  const result = spawnSync(command, args, { encoding: 'utf8', env })
+  if (result.error || result.status !== 0) throw new Error(`${what} failed: ${result.error?.message ?? `${result.stdout}${result.stderr}`.trim()}`)
+  return result
+}
+
+function signMacApp(app, identity, env) {
+  if (identity === '-') throw new Error('Ad-hoc signing is not distribution signing; pass a Developer ID Application identity to --sign.')
+  run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, app], env, 'codesign')
+  run('codesign', ['--verify', '--strict', '--verbose=2', app], env, 'codesign --verify')
+}
+
+function notarizeMacApp(app, profile, env) {
+  const archive = `${app}.zip`
+  try {
+    run('ditto', ['-c', '-k', '--keepParent', app, archive], env, 'ditto')
+    run('xcrun', ['notarytool', 'submit', archive, '--keychain-profile', profile, '--wait'], env, 'notarytool submit')
+    run('xcrun', ['stapler', 'staple', app], env, 'stapler staple')
+    console.log(`Notarized and stapled: ${app}`)
+  } finally { rmSync(archive, { force: true }) }
+}
+
+/** `mun inspect`: query the running `mun dev` session's native app. */
+export async function inspectProject(project, { values = false, json = false } = {}) {
+  const file = resolve(project.root, '.mun', 'dev', 'session.json')
+  if (!existsSync(file)) throw new Error('No running mun dev session for this project.')
+  const session = JSON.parse(readFileSync(file, 'utf8'))
+  const [host, port] = session.endpoint.split(':')
+  if (host !== '127.0.0.1') throw new Error('Refusing non-loopback inspector endpoint.')
+  const socket = connect({ host, port: Number(port) })
+  const reply = await new Promise((resolvePromise, reject) => {
+    socket.once('error', error => reject(new Error(`Could not reach mun dev (${error.message}); is it still running?`)))
+    socket.on('data', createFrameDecoder(message => { resolvePromise(message); socket.end() }))
+    socket.once('connect', () => {
+      socket.write(encodeFrame({ type: 'hello', token: session.token }))
+      socket.write(encodeFrame({ type: 'inspect', id: 1, includeValues: values }))
+    })
+  })
+  if (reply.type === 'error') throw new Error(reply.message)
+  if (json) { console.log(JSON.stringify(reply.snapshot, null, 2)); return 0 }
+  console.log(formatSnapshot(reply.snapshot))
+  return 0
+}
+
+export function formatSnapshot(snapshot) {
+  const nodes = new Map(snapshot.nodes.map(node => [node.id, node]))
+  const lines = [`${snapshot.title} — entry ${snapshot.entry}, revision ${snapshot.revision}, ${snapshot.primitives ?? '?'} primitives${snapshot.activeAnimations ? ', animating' : ''}`]
+  if (snapshot.focus) lines.push(`focus: ${snapshot.focus}`)
+  const short = id => id.replace(/^@node\/entry\//u, '').replace(/\/kind\/[A-Za-z]+$/u, '')
+  const visit = (node, depth) => {
+    const frame = node.frame ? ` [${node.frame.map(value => Math.round(value)).join(', ')}]` : ''
+    const component = node.component ? ` <${node.component}>` : ''
+    const scroll = node.scrollOffset ? ` scroll=${node.scrollOffset.map(value => Math.round(value)).join(',')}` : ''
+    lines.push(`${'  '.repeat(depth)}${node.kind}${component}${frame}${scroll}  ${short(node.id)}`)
+    for (const child of node.children) if (nodes.has(child)) visit(nodes.get(child), depth + 1)
+  }
+  const root = snapshot.nodes.find(node => !node.parent)
+  if (root) visit(root, 0)
+  lines.push('state:')
+  for (const state of snapshot.states) {
+    const value = state.redacted ? '<redacted>' : 'value' in state ? JSON.stringify(state.value) : `<${state.valueKind}>`
+    lines.push(`  ${state.name} = ${value}`)
+  }
+  return lines.join('\n')
 }
 
 export async function projectCommand(command, options) {
@@ -112,6 +224,7 @@ export async function projectCommand(command, options) {
     return options.check && changed ? 1 : 0
   }
   if (command === 'dev') return develop(project, { env, verbose: options.verbose })
+  if (command === 'inspect') return inspectProject(project, options)
   const program = compileProject(project)
   if (command === 'check') { console.log(`Checked ${sourceFiles(project).length} Mün source file(s).`); return 0 }
   if (command === 'doctor') {
@@ -132,7 +245,7 @@ export async function projectCommand(command, options) {
     }
     return fatal ? 1 : 0
   }
-  if (command === 'build' || command === 'package') { buildProject(project, program, env, command === 'package'); return 0 }
+  if (command === 'build' || command === 'package') { buildProject(project, program, env, command === 'package', { sign: options.sign, notarizeProfile: options.notarizeProfile }); return 0 }
   if (command === 'run') {
     requirePlatform(project)
     const child = launchProgram(project, program, env)

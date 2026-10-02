@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { compileMunUiProgram, diagnoseMunSource } from '@mun/compiler'
+import { compileMunDevProgram, compileMunUiProgram, diagnoseMunSource } from '@mun/compiler'
 
 const fields = new Set(['manifest_version', 'name', 'entry', 'identifier', 'version', 'minimum_mun_version', 'platforms', 'resources', 'fonts', 'icon', 'window_title'])
 const platforms = { darwin: 'macos', win32: 'windows', linux: 'linux' }
@@ -93,11 +93,16 @@ export function validateAssets(project) {
 }
 
 export function compileProject(project) {
+  return compileSources(project, sourceFiles(project).map(path => ({ path, source: readFileSync(path, 'utf8') }))).program
+}
+
+function compileSources(project, sources, development = false) {
+  const timings = {}
+  let started = performance.now()
   const errors = []
-  const sources = sourceFiles(project).map(path => ({ path, source: readFileSync(path, 'utf8') }))
   // Diagnose the same compilation unit used for lowering: cross-file custom
   // Views must be visible to diagnostics, not independently treated as unknown.
-  sources.sort((a, b) => a.path === project.entry ? -1 : b.path === project.entry ? 1 : a.path.localeCompare(b.path))
+  sources = [...sources].sort((a, b) => a.path === project.entry ? -1 : b.path === project.entry ? 1 : a.path.localeCompare(b.path))
   const combined = sources.map(item => item.source).join('\n')
   for (const diagnostic of diagnoseMunSource(combined, project.entry)) {
     let line = diagnostic.line ?? 1
@@ -111,9 +116,15 @@ export function compileProject(project) {
     const text = `${owner.path}:${line}:${diagnostic.column ?? 1}: ${diagnostic.code}: ${diagnostic.message}`
     if (diagnostic.severity !== 'warning') errors.push(text)
   }
+  timings.analyze = performance.now() - started
   if (errors.length) throw new Error(errors.join('\n'))
-  try { return compileMunUiProgram(combined, project.entry) }
-  catch (error) {
+  started = performance.now()
+  try {
+    if (!development) return { program: compileMunUiProgram(combined, project.entry), timings }
+    const result = compileMunDevProgram(combined, project.entry)
+    timings.lower = performance.now() - started
+    return { ...result, timings }
+  } catch (error) {
     let offset = typeof error.offset === 'number' ? error.offset : 0
     let owner = sources[0]
     for (const item of sources) {
@@ -123,6 +134,44 @@ export function compileProject(project) {
     }
     const before = owner.source.slice(0, offset)
     throw new Error(`${owner.path}:${before.split('\n').length}:${before.length - before.lastIndexOf('\n')}: ${error.message}`)
+  }
+}
+
+/**
+ * Development project compiler with per-file snapshots. Unchanged files (same
+ * mtime and size) are not re-read; an edit that leaves every source byte-equal
+ * (editors often save twice) reuses the previous compilation outright.
+ *
+ * Semantic analysis and lowering still run over the whole project unit when
+ * any source changes: the compiler does not yet expose per-file invalidation.
+ */
+export function createProjectCompiler(project, { fs = { readFileSync, statSync } } = {}) {
+  const snapshots = new Map()
+  let last
+  return {
+    compile() {
+      const started = performance.now()
+      const paths = sourceFiles(project)
+      let filesRead = 0
+      const changedFiles = []
+      for (const path of [...snapshots.keys()]) if (!paths.includes(path)) { snapshots.delete(path); changedFiles.push(path) }
+      for (const path of paths) {
+        const { mtimeMs, size } = fs.statSync(path)
+        const previous = snapshots.get(path)
+        if (previous && previous.mtimeMs === mtimeMs && previous.size === size) continue
+        const source = fs.readFileSync(path, 'utf8'); filesRead++
+        if (previous?.source !== source) changedFiles.push(path)
+        snapshots.set(path, { mtimeMs, size, source })
+      }
+      const read = performance.now() - started
+      if (last && changedFiles.length === 0) return { ...last, timings: { read }, stats: { filesRead, changedFiles, reused: true } }
+      last = undefined // a failed compile must never fall back to an older result
+      const result = compileSources(project, paths.map(path => ({ path, source: snapshots.get(path).source })), true)
+      last = result
+      return { ...result, timings: { read, ...result.timings }, stats: { filesRead, changedFiles, reused: false } }
+    },
+    /** Forget the last successful result (e.g. after the manifest changed). */
+    invalidate() { last = undefined; snapshots.clear() },
   }
 }
 

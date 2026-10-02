@@ -1,4 +1,5 @@
 mod accessibility;
+pub mod dev;
 pub mod offscreen;
 mod text;
 
@@ -39,6 +40,8 @@ pub enum NativeBackendError {
     Window(winit::error::OsError),
     /// GPU initialization failed or the device was lost; names the subsystem.
     Gpu(GpuError),
+    /// The development link to `mun dev` could not be established.
+    DevLink(std::io::Error),
 }
 
 impl fmt::Display for NativeBackendError {
@@ -48,6 +51,7 @@ impl fmt::Display for NativeBackendError {
             Self::EventLoop(error) => write!(formatter, "{error}"),
             Self::Window(error) => write!(formatter, "Mün window creation failed: {error}"),
             Self::Gpu(error) => write!(formatter, "{error}"),
+            Self::DevLink(error) => write!(formatter, "Mün dev link failed: {error}"),
         }
     }
 }
@@ -59,6 +63,7 @@ impl Error for NativeBackendError {
             Self::EventLoop(error) => Some(error),
             Self::Window(error) => Some(error),
             Self::Gpu(error) => Some(error),
+            Self::DevLink(error) => Some(error),
         }
     }
 }
@@ -1880,6 +1885,7 @@ struct Application {
     proxy: EventLoopProxy<NativeEvent>,
     runtime: Option<Runtime>,
     smoke_frames: Option<u32>,
+    dev: Option<dev::DevLink>,
 }
 
 impl Application {
@@ -1890,6 +1896,92 @@ impl Application {
             proxy,
             runtime: Some(runtime),
             smoke_frames: None,
+            dev: None,
+        }
+    }
+
+    fn runtime_mut(&mut self) -> Option<&mut Runtime> {
+        match &mut self.state {
+            Some(state) => Some(&mut state.runtime),
+            None => self.runtime.as_mut(),
+        }
+    }
+
+    /// Report runtime contract diagnostics to the dev toolchain.
+    fn forward_diagnostics(&mut self) {
+        let Some(link) = self.dev.clone() else { return };
+        let Some(runtime) = self.runtime_mut() else {
+            return;
+        };
+        for diagnostic in runtime.take_diagnostics() {
+            link.send(&serde_json::json!({
+                "type": "diagnostic",
+                "severity": "error",
+                "message": format!("{diagnostic:?}"),
+                "node": match &diagnostic {
+                    mun_runtime::RuntimeDiagnostic::RejectedTransaction { action, .. } => action.clone(),
+                    _ => None,
+                },
+            }));
+        }
+    }
+
+    fn handle_dev(&mut self, event_loop: &ActiveEventLoop, command: dev::DevCommand) {
+        let Some(link) = self.dev.clone() else { return };
+        match command {
+            dev::DevCommand::Update {
+                id,
+                program,
+                preserve,
+            } => {
+                let started = std::time::Instant::now();
+                let Some(runtime) = self.runtime_mut() else {
+                    return;
+                };
+                let result = runtime.hot_update(&program, &preserve);
+                let micros = started.elapsed().as_micros() as u64;
+                match result {
+                    Ok(report) => {
+                        if let Some(state) = &mut self.state {
+                            state.window.set_title(state.runtime.title());
+                            state.sync_text_input();
+                            state.window.request_redraw();
+                        }
+                        link.send(&serde_json::json!({
+                            "type": "update-applied",
+                            "id": id,
+                            "applyMicros": micros,
+                            "preservedStates": report.preserved_states,
+                            "resetStates": report.reset_states,
+                            "insertedNodes": report.inserted_nodes,
+                            "removedNodes": report.removed_nodes,
+                            "lifecycleMutations": report.lifecycle_mutations,
+                        }));
+                    }
+                    Err(error) => link.send(&serde_json::json!({
+                        "type": "update-rejected",
+                        "id": id,
+                        "message": error.to_string(),
+                    })),
+                }
+                self.forward_diagnostics();
+            }
+            dev::DevCommand::Inspect { id, include_values } => {
+                let size = self
+                    .state
+                    .as_ref()
+                    .map(|state| state.logical_size())
+                    .unwrap_or((640.0, 420.0));
+                let Some(runtime) = self.runtime_mut() else {
+                    return;
+                };
+                let snapshot = runtime.inspect(size.0, size.1, include_values);
+                link.send(
+                    &serde_json::json!({ "type": "snapshot", "id": id, "snapshot": snapshot }),
+                );
+            }
+            // The toolchain owns a dev app: when it goes away, so does the app.
+            dev::DevCommand::Disconnected(_) => event_loop.exit(),
         }
     }
 }
@@ -2116,15 +2208,18 @@ impl ApplicationHandler<NativeEvent> for Application {
         if let (Some(Some(platform)), Some(state)) = (traced, &self.state) {
             state.trace_event(&platform);
         }
+        self.forward_diagnostics();
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: NativeEvent) {
-        let Some(state) = &mut self.state else { return };
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: NativeEvent) {
         match event {
+            NativeEvent::Dev(command) => self.handle_dev(event_loop, command),
             NativeEvent::AccessibilityAction(request) => {
+                let Some(state) = &mut self.state else { return };
                 let platform = format!("AccessKit {:?} {:?}", request.action, request.data);
                 state.handle_accessibility_action(request);
                 state.trace_event(&platform);
+                self.forward_diagnostics();
             }
         }
     }
@@ -2196,6 +2291,24 @@ pub fn smoke_program(program: &str) -> Result<(), NativeBackendError> {
     let event_loop = EventLoop::<NativeEvent>::with_user_event().build()?;
     let mut application = Application::new(event_loop.create_proxy(), runtime);
     application.smoke_frames = Some(3);
+    event_loop.run_app(&mut application)?;
+    application.failure.map_or(Ok(()), Err)
+}
+
+/// Development launch: run the program and accept hot updates/inspection from
+/// the `mun dev` toolchain at a loopback `endpoint`. Never used by packaged apps.
+pub fn run_program_dev(
+    program: &str,
+    endpoint: &str,
+    token: &str,
+) -> Result<(), NativeBackendError> {
+    let runtime = Runtime::from_json(program)?;
+    let event_loop = EventLoop::<NativeEvent>::with_user_event().build()?;
+    let proxy = event_loop.create_proxy();
+    let link = dev::DevLink::connect(endpoint, token, proxy.clone())
+        .map_err(NativeBackendError::DevLink)?;
+    let mut application = Application::new(proxy, runtime);
+    application.dev = Some(link);
     event_loop.run_app(&mut application)?;
     application.failure.map_or(Ok(()), Err)
 }
