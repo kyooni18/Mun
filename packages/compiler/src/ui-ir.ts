@@ -96,7 +96,35 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return current
 }
 
+/**
+ * Parsed expressions keyed by source text. TypeScript nodes are immutable, so
+ * an identical expression (within one compile or across development
+ * recompiles) is parsed once. Bounded: cleared when it grows past the limit.
+ */
+const parsedExpressions = new Map<string, ts.Expression>()
+const parsedExpressionLimit = 8192
+let parsedExpressionHits = 0
+let parsedExpressionMisses = 0
+
+/** Development counters for the expression cache; never part of the IR. */
+export function parsedExpressionCacheStats(): { readonly hits: number; readonly misses: number; readonly size: number } {
+  return { hits: parsedExpressionHits, misses: parsedExpressionMisses, size: parsedExpressions.size }
+}
+
 function parsedExpression(source: string): ts.Expression {
+  const cached = parsedExpressions.get(source)
+  if (cached) {
+    parsedExpressionHits += 1
+    return cached
+  }
+  parsedExpressionMisses += 1
+  const expression = parseExpressionUncached(source)
+  if (parsedExpressions.size >= parsedExpressionLimit) parsedExpressions.clear()
+  parsedExpressions.set(source, expression)
+  return expression
+}
+
+function parseExpressionUncached(source: string): ts.Expression {
   const file = ts.createSourceFile(
     "mun-ui-expression.ts",
     `(${swiftDictionaryLiterals(source)})`,

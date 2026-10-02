@@ -127,21 +127,45 @@ function sourceError(path, source, error) {
   return new Error(`${path}:${before.split('\n').length}:${before.length - before.lastIndexOf('\n')}: ${error.message}`)
 }
 
+/** Offsets at which each line of `source` starts; built once per file version. */
+const lineIndexes = new Map()
+function lineStarts(source) {
+  let starts = lineIndexes.get(source)
+  if (starts) return starts
+  starts = [0]
+  for (let index = source.indexOf('\n'); index !== -1; index = source.indexOf('\n', index + 1)) starts.push(index + 1)
+  if (lineIndexes.size > 256) lineIndexes.clear()
+  lineIndexes.set(source, starts)
+  return starts
+}
+
 function sourcePoint(source, offset) {
   const bounded = Math.max(0, Math.min(source.length, offset))
-  const before = source.slice(0, bounded)
-  return { line: before.split('\n').length, column: before.length - before.lastIndexOf('\n') }
+  const starts = lineStarts(source)
+  let low = 0, high = starts.length - 1
+  while (low < high) {
+    const middle = (low + high + 1) >> 1
+    if (starts[middle] <= bounded) low = middle
+    else high = middle - 1
+  }
+  return { line: low + 1, column: bounded - starts[low] + 1 }
 }
 
 function mapDevMetadata(project, sources, metadata) {
   const ranges = []
   let base = 0
   for (const item of sources) {
-    ranges.push({ ...item, base, end: base + item.source.length })
+    ranges.push({ ...item, base, end: base + item.source.length, file: relative(project.root, item.path).split(sep).join('/') })
     base += item.source.length + 1
   }
   const locate = offset => {
-    const owner = ranges.find(item => offset <= item.end) ?? ranges.at(-1)
+    let low = 0, high = ranges.length - 1
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (offset <= ranges[middle].end) high = middle
+      else low = middle + 1
+    }
+    const owner = ranges[low]
     if (!owner) return undefined
     const local = Math.max(0, Math.min(owner.source.length, offset - owner.base))
     return { owner, local, ...sourcePoint(owner.source, local) }
@@ -155,7 +179,7 @@ function mapDevMetadata(project, sources, metadata) {
       const sameFileEnd = end?.owner.path === start.owner.path ? end : start
       return {
         ...span,
-        file: relative(project.root, start.owner.path).split(sep).join('/'),
+        file: start.owner.file,
         line: start.line,
         column: start.column,
         endLine: sameFileEnd.line,
