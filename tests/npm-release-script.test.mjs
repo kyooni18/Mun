@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,7 +7,7 @@ import test from 'node:test'
 import { resolve } from 'node:path'
 import { discoverReleaseTargets } from '../scripts/release-targets.mjs'
 
-const root = resolve(new URL('..', import.meta.url).pathname)
+const root = fileURLToPath(new URL('..', import.meta.url))
 const script = resolve(root, 'scripts/publish-npm.mjs')
 
 function run(args) {

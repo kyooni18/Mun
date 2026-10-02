@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -5,7 +6,7 @@ import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-const root = resolve(new URL('..', import.meta.url).pathname)
+const root = fileURLToPath(new URL('..', import.meta.url))
 const cli = resolve(root, 'bin/mun.mjs')
 
 test('editor install generates project-local integrations for every supported client', () => {

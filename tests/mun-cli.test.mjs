@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -5,7 +6,7 @@ import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-const root = resolve(new URL('..', import.meta.url).pathname)
+const root = fileURLToPath(new URL('..', import.meta.url))
 const cli = resolve(root, 'bin/mun.mjs')
 const initializer = resolve(root, 'packages/create-mun/bin/create-mun.mjs')
 const currentVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
