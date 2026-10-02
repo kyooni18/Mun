@@ -1,10 +1,10 @@
-// Mün development protocol v1 (toolchain side). See native/mun-native/src/dev.rs.
+// Mün development protocol v2 (toolchain side). See native/mun-native/src/dev.rs.
 // Frames: 4-byte big-endian length + UTF-8 JSON. Loopback TCP only; the host
 // connects back and must present the per-session token in its hello.
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:net'
 
-export const DEV_PROTOCOL_VERSION = 1
+export const DEV_PROTOCOL_VERSION = 2
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024
 
 export function encodeFrame(message) {

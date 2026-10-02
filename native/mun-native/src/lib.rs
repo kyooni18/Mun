@@ -1886,6 +1886,8 @@ struct Application {
     runtime: Option<Runtime>,
     smoke_frames: Option<u32>,
     dev: Option<dev::DevLink>,
+    dev_program: Option<serde_json::Value>,
+    dev_revision: u64,
 }
 
 impl Application {
@@ -1897,6 +1899,8 @@ impl Application {
             runtime: Some(runtime),
             smoke_frames: None,
             dev: None,
+            dev_program: None,
+            dev_revision: 0,
         }
     }
 
@@ -1926,45 +1930,120 @@ impl Application {
         }
     }
 
+    fn apply_dev_program_update(
+        &mut self,
+        link: &dev::DevLink,
+        id: u64,
+        base_revision: u64,
+        revision: u64,
+        program: serde_json::Value,
+        preserve: Vec<String>,
+    ) {
+        if base_revision != self.dev_revision || revision != base_revision.saturating_add(1) {
+            link.send(&serde_json::json!({
+                "type": "update-rejected",
+                "id": id,
+                "code": "revision-mismatch",
+                "message": format!("dev revision mismatch: host is {}, update is {} -> {}", self.dev_revision, base_revision, revision),
+                "currentRevision": self.dev_revision,
+            }));
+            return;
+        }
+        let started = std::time::Instant::now();
+        let text = program.to_string();
+        let result = {
+            let Some(runtime) = self.runtime_mut() else {
+                return;
+            };
+            runtime.hot_update(&text, &preserve)
+        };
+        let micros = started.elapsed().as_micros() as u64;
+        match result {
+            Ok(report) => {
+                self.dev_program = Some(program);
+                self.dev_revision = revision;
+                if let Some(state) = &mut self.state {
+                    state.window.set_title(state.runtime.title());
+                    state.sync_text_input();
+                    state.window.request_redraw();
+                }
+                link.send(&serde_json::json!({
+                    "type": "update-applied",
+                    "id": id,
+                    "revision": revision,
+                    "applyMicros": micros,
+                    "preservedStates": report.preserved_states,
+                    "resetStates": report.reset_states,
+                    "insertedNodes": report.inserted_nodes,
+                    "removedNodes": report.removed_nodes,
+                    "lifecycleMutations": report.lifecycle_mutations,
+                }));
+            }
+            Err(error) => link.send(&serde_json::json!({
+                "type": "update-rejected",
+                "id": id,
+                "code": "runtime-rejected",
+                "currentRevision": self.dev_revision,
+                "message": error.to_string(),
+            })),
+        }
+        self.forward_diagnostics();
+    }
+
     fn handle_dev(&mut self, event_loop: &ActiveEventLoop, command: dev::DevCommand) {
         let Some(link) = self.dev.clone() else { return };
         match command {
             dev::DevCommand::Update {
                 id,
+                base_revision,
+                revision,
                 program,
                 preserve,
             } => {
-                let started = std::time::Instant::now();
-                let Some(runtime) = self.runtime_mut() else {
-                    return;
-                };
-                let result = runtime.hot_update(&program, &preserve);
-                let micros = started.elapsed().as_micros() as u64;
-                match result {
-                    Ok(report) => {
-                        if let Some(state) = &mut self.state {
-                            state.window.set_title(state.runtime.title());
-                            state.sync_text_input();
-                            state.window.request_redraw();
-                        }
-                        link.send(&serde_json::json!({
-                            "type": "update-applied",
-                            "id": id,
-                            "applyMicros": micros,
-                            "preservedStates": report.preserved_states,
-                            "resetStates": report.reset_states,
-                            "insertedNodes": report.inserted_nodes,
-                            "removedNodes": report.removed_nodes,
-                            "lifecycleMutations": report.lifecycle_mutations,
-                        }));
-                    }
-                    Err(error) => link.send(&serde_json::json!({
+                self.apply_dev_program_update(&link, id, base_revision, revision, program, preserve)
+            }
+            dev::DevCommand::Patch {
+                id,
+                base_revision,
+                revision,
+                operations,
+                preserve,
+            } => {
+                if base_revision != self.dev_revision || revision != base_revision.saturating_add(1)
+                {
+                    link.send(&serde_json::json!({
                         "type": "update-rejected",
                         "id": id,
-                        "message": error.to_string(),
-                    })),
+                        "code": "revision-mismatch",
+                        "message": format!("dev revision mismatch: host is {}, patch is {} -> {}", self.dev_revision, base_revision, revision),
+                        "currentRevision": self.dev_revision,
+                    }));
+                } else {
+                    let Some(current) = self.dev_program.as_ref() else {
+                        link.send(&serde_json::json!({
+                            "type": "update-rejected", "id": id, "code": "patch-unavailable",
+                            "currentRevision": self.dev_revision, "message": "native host has no dev program snapshot"
+                        }));
+                        return;
+                    };
+                    match dev::apply_program_patch(current, &operations) {
+                        Ok(program) => self.apply_dev_program_update(
+                            &link,
+                            id,
+                            base_revision,
+                            revision,
+                            program,
+                            preserve,
+                        ),
+                        Err(error) => link.send(&serde_json::json!({
+                            "type": "update-rejected",
+                            "id": id,
+                            "code": "patch-invalid",
+                            "currentRevision": self.dev_revision,
+                            "message": error,
+                        })),
+                    }
                 }
-                self.forward_diagnostics();
             }
             dev::DevCommand::Inspect { id, include_values } => {
                 let size = self
@@ -2303,12 +2382,16 @@ pub fn run_program_dev(
     token: &str,
 ) -> Result<(), NativeBackendError> {
     let runtime = Runtime::from_json(program)?;
+    let dev_program: serde_json::Value = serde_json::from_str(program)
+        .expect("Runtime::from_json accepted a program that serde_json then rejected");
     let event_loop = EventLoop::<NativeEvent>::with_user_event().build()?;
     let proxy = event_loop.create_proxy();
     let link = dev::DevLink::connect(endpoint, token, proxy.clone())
         .map_err(NativeBackendError::DevLink)?;
     let mut application = Application::new(proxy, runtime);
     application.dev = Some(link);
+    application.dev_program = Some(dev_program);
+    application.dev_revision = 0;
     event_loop.run_app(&mut application)?;
     application.failure.map_or(Ok(()), Err)
 }

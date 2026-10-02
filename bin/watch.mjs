@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { DEV_PROTOCOL_VERSION, createFrameDecoder, encodeFrame, listenForHost } from './dev-protocol.mjs'
 import { analyzeCompatibility } from './hot-reload.mjs'
+import { createProgramUpdate } from './program-patch.mjs'
 import { createProjectCompiler, discoverProject, requirePlatform } from './project.mjs'
 import { hostBinary } from './workflow.mjs'
 
@@ -112,7 +113,7 @@ async function launchDevHost(project, compiled, env, onEvent) {
       stdio: 'inherit',
     })
   } catch (error) { listener.close(); rmSync(directory, { recursive: true, force: true }); throw error }
-  const running = { child, exited: false }
+  const running = { child, exited: false, program: compiled.program, revision: 0 }
   child.once('close', () => { running.exited = true; listener.close(); rmSync(directory, { recursive: true, force: true }) })
   const failed = new Promise((_, reject) => {
     child.once('error', reject)
@@ -149,9 +150,33 @@ export async function develop(project, { env, verbose = false }) {
     analyze: analyzeCompatibility,
     update: async (running, compiled, analysis) => {
       const started = performance.now()
-      const reply = await running.channel.request('update', { program: compiled.program, preserve: analysis.preserve })
+      const baseRevision = running.revision
+      const revision = baseRevision + 1
+      let update = createProgramUpdate(running.program, compiled.program, {
+        baseRevision,
+        revision,
+        preserve: analysis.preserve,
+      })
+      let reply = await running.channel.request(update.type, update.payload)
+      // A malformed/stale patch is safe to recover from: the host has not
+      // advanced its revision, so resend the exact same semantic update in full.
+      if (reply.type === 'update-rejected' && update.type === 'patch' && ['patch-invalid', 'patch-unavailable'].includes(reply.code) && reply.currentRevision === baseRevision) {
+        update = createProgramUpdate(running.program, compiled.program, {
+          baseRevision,
+          revision,
+          preserve: analysis.preserve,
+          patchRatio: 0,
+        })
+        reply = await running.channel.request('update', update.payload)
+      }
       if (reply.type === 'update-rejected') throw new HotUpdateRejected(reply.message)
-      if (verbose) log(`Runtime round trip ${(performance.now() - started).toFixed(1)} ms; payload ${(JSON.stringify(compiled.program).length / 1024).toFixed(1)} KiB`)
+      if (reply.type !== 'update-applied' || reply.revision !== revision) throw new Error(`Native host returned invalid dev revision ${reply.revision ?? '<missing>'}; expected ${revision}`)
+      running.program = compiled.program
+      running.revision = revision
+      if (verbose) {
+        const reduction = update.fullBytes > 0 ? (100 * (1 - update.bytes / update.fullBytes)).toFixed(1) : '0.0'
+        log(`Runtime round trip ${(performance.now() - started).toFixed(1)} ms; ${update.type} ${(update.bytes / 1024).toFixed(1)} KiB vs full ${(update.fullBytes / 1024).toFixed(1)} KiB (${reduction}% smaller); ${update.operationCount} patch op(s); revision ${revision}`)
+      }
       return reply
     },
     stop: async running => { running.channel?.close(); await stopChild(running.child) },

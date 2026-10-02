@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { compileMunDevProgram } from '@mun/compiler'
-import { MAX_FRAME_BYTES, createFrameDecoder, encodeFrame, listenForHost } from '../bin/dev-protocol.mjs'
+import { DEV_PROTOCOL_VERSION, MAX_FRAME_BYTES, createFrameDecoder, encodeFrame, listenForHost } from '../bin/dev-protocol.mjs'
 import { analyzeCompatibility } from '../bin/hot-reload.mjs'
+import { applyProgramPatch, createProgramUpdate } from '../bin/program-patch.mjs'
 import { createProjectCompiler } from '../bin/project.mjs'
 import { HotUpdateRejected, createDevLoop } from '../bin/watch.mjs'
 import { formatSnapshot, macInfoPlist, packagedExecutableName } from '../bin/workflow.mjs'
@@ -79,9 +80,9 @@ function fakeHost(endpoint, hello, handler = () => {}) {
 test('the dev listener is loopback-only, authenticates the host and correlates replies', async () => {
   const listener = await listenForHost({ irVersion: 1 })
   assert.match(listener.endpoint, /^127\.0\.0\.1:\d+$/u)
-  const intruder = fakeHost(listener.endpoint, { type: 'hello', protocol: 1, token: 'wrong', semanticUiIrVersion: 1 })
+  const intruder = fakeHost(listener.endpoint, { type: 'hello', protocol: DEV_PROTOCOL_VERSION, token: 'wrong', semanticUiIrVersion: 1 })
   await new Promise(resolve => intruder.once('close', resolve))
-  const host = fakeHost(listener.endpoint, { type: 'hello', protocol: 1, token: listener.token, semanticUiIrVersion: 1, pid: 7 }, (message, reply) => {
+  const host = fakeHost(listener.endpoint, { type: 'hello', protocol: DEV_PROTOCOL_VERSION, token: listener.token, semanticUiIrVersion: 1, pid: 7 }, (message, reply) => {
     reply(message.program.ok ? { type: 'update-applied', id: message.id, preservedStates: 1 } : { type: 'update-rejected', id: message.id, message: 'bad' })
   })
   const channel = await listener.connection
@@ -94,6 +95,17 @@ test('the dev listener is loopback-only, authenticates the host and correlates r
   host.destroy()
   await channel.closed
   await assert.rejects(channel.request('inspect'), /disconnected|EPIPE|destroyed|write after end/iu)
+})
+
+
+test('dev patch reconstructs the exact next program and is smaller for local edits', () => {
+  const before = compile().program
+  const after = compile({ label: 'Current count' }).program
+  const update = createProgramUpdate(before, after, { baseRevision: 0, revision: 1, preserve: [] })
+  assert.equal(update.type, 'patch')
+  assert.deepEqual(applyProgramPatch(before, update.payload.operations), after)
+  assert.ok(update.bytes < update.fullBytes, `${update.bytes} should be smaller than ${update.fullBytes}`)
+  assert.throws(() => createProgramUpdate(before, after, { baseRevision: 2, revision: 4, preserve: [] }), /advance exactly by one/u)
 })
 
 test('a host speaking another protocol version is refused', async () => {

@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { analyzeCompatibility } from '../bin/hot-reload.mjs'
+import { createProgramUpdate } from '../bin/program-patch.mjs'
 import { listenForHost } from '../bin/dev-protocol.mjs'
 import { createProjectCompiler, discoverProject } from '../bin/project.mjs'
 import { stopChild } from '../bin/watch.mjs'
@@ -70,7 +71,7 @@ async function runCase(name, build) {
     const project = discoverProject(directory)
     const compiler = createProjectCompiler(project)
     const initial = compiler.compile()
-    let channel, running = initial
+    let channel, running = initial, revision = 0
     if (!compileOnly) {
       listener = await listenForHost({ irVersion: initial.program.version })
       const ir = resolve(directory, 'program.mun.ir.json')
@@ -83,8 +84,8 @@ async function runCase(name, build) {
         })])
       } finally { clearTimeout(timer) }
     }
-    const compile = [], roundTrip = [], payload = [], read = [], lower = [], compatibility = [], serialization = [], filesRead = []
-    const filesReparsed = [], declarationsReparsed = [], declarationsRechecked = [], viewsRelowered = []
+    const compile = [], roundTrip = [], payload = [], wirePayload = [], read = [], lower = [], compatibility = [], serialization = [], filesRead = []
+    const filesReparsed = [], declarationsReparsed = [], declarationsRechecked = [], viewsRelowered = [], updateModes = [], patchOps = []
     for (let i = 1; i <= edits; i++) {
       write(directory, spec.files(i))
       const started = performance.now()
@@ -101,22 +102,33 @@ async function runCase(name, build) {
       const analysis = analyzeCompatibility(running, next)
       compatibility.push(performance.now() - compatibilityStart)
       const serializeStart = performance.now()
-      const bytes = Buffer.byteLength(JSON.stringify(next.program), 'utf8')
+      const fullBytes = Buffer.byteLength(JSON.stringify(next.program), 'utf8')
+      const update = createProgramUpdate(running.program, next.program, {
+        baseRevision: revision,
+        revision: revision + 1,
+        preserve: analysis.preserve,
+      })
       serialization.push(performance.now() - serializeStart)
       if (analysis.mode !== 'hot') throw new Error(`${name}: edit ${i} unexpectedly needs a restart: ${analysis.reason}`)
       if (channel) {
         const sent = performance.now()
-        const reply = await channel.request('update', { program: next.program, preserve: analysis.preserve })
+        const reply = await channel.request(update.type, update.payload)
         if (reply.type !== 'update-applied') throw new Error(`${name}: edit ${i} rejected: ${reply.message}`)
+        if (reply.revision !== revision + 1) throw new Error(`${name}: edit ${i} returned revision ${reply.revision}, expected ${revision + 1}`)
         roundTrip.push(performance.now() - sent)
       }
-      payload.push(bytes / 1024)
+      revision += 1
+      payload.push(fullBytes / 1024)
+      wirePayload.push(update.bytes / 1024)
+      updateModes.push(update.type)
+      patchOps.push(update.operationCount)
       running = next
     }
     console.log(`${name}`)
     console.log(`  compile     ${summary(compile)}`)
     console.log(`  host apply  ${compileOnly ? 'skipped (--compile-only)' : summary(roundTrip)}`)
-    console.log(`  IR payload  ${payload.at(-1).toFixed(1)} KiB`)
+    console.log(`  full IR     ${payload.at(-1).toFixed(1)} KiB`)
+    console.log(`  wire update ${wirePayload.at(-1).toFixed(1)} KiB (${(100 * (1 - wirePayload.at(-1) / payload.at(-1))).toFixed(1)}% smaller); modes ${updateModes.join(', ')}; patch ops ${patchOps.join(', ')}`)
     console.log(`  file read   ${summary(read)}`)
     console.log(`  native compile (parse + semantics + lowering) ${summary(lower)}`)
     console.log(`  compatibility ${summary(compatibility)}`)
@@ -126,7 +138,6 @@ async function runCase(name, build) {
     console.log(`  declarations reparsed/rechecked per edit ${declarationsReparsed.map((value, index) => `${value}/${declarationsRechecked[index]}`).join(', ')}`)
     console.log(`  View declarations relowered per edit ${viewsRelowered.join(', ')}`)
     console.log('  watcher/debounce, transfer, runtime, layout, presentation: not separately instrumented; host apply is request/ack round trip, not edit-to-screen')
-    console.log('  patch comparison: unavailable (full-program updates only)')
   } finally {
     listener?.close()
     if (child) await stopChild(child)

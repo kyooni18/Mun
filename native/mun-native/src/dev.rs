@@ -18,7 +18,7 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::accessibility::NativeEvent;
 
-pub const DEV_PROTOCOL_VERSION: u64 = 1;
+pub const DEV_PROTOCOL_VERSION: u64 = 2;
 /// Largest accepted frame. Semantic programs are far smaller; anything larger
 /// is a protocol error, not a reason to allocate.
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -27,7 +27,16 @@ pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 pub enum DevCommand {
     Update {
         id: u64,
-        program: String,
+        base_revision: u64,
+        revision: u64,
+        program: Value,
+        preserve: Vec<String>,
+    },
+    Patch {
+        id: u64,
+        base_revision: u64,
+        revision: u64,
+        operations: Vec<Value>,
         preserve: Vec<String>,
     },
     Inspect {
@@ -71,29 +80,159 @@ pub fn write_frame(writer: &mut impl Write, message: &Value) -> io::Result<()> {
     writer.flush()
 }
 
+fn revisions(message: &Value) -> Result<(u64, u64), String> {
+    let base_revision = message
+        .get("baseRevision")
+        .and_then(Value::as_u64)
+        .ok_or("dev update without baseRevision")?;
+    let revision = message
+        .get("revision")
+        .and_then(Value::as_u64)
+        .ok_or("dev update without revision")?;
+    if revision != base_revision.saturating_add(1) {
+        return Err(format!(
+            "dev revision must advance by one: {base_revision} -> {revision}"
+        ));
+    }
+    Ok((base_revision, revision))
+}
+
+fn preserve_states(message: &Value) -> Vec<String> {
+    message
+        .get("preserve")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn patch_parent_mut<'a>(root: &'a mut Value, path: &[Value]) -> Result<&'a mut Value, String> {
+    let mut current = root;
+    for part in path {
+        current = match part {
+            Value::String(key) => current
+                .as_object_mut()
+                .and_then(|object| object.get_mut(key))
+                .ok_or_else(|| format!("patch object path is missing: {key}"))?,
+            Value::Number(index) => {
+                let index = index.as_u64().ok_or("patch array index must be unsigned")? as usize;
+                current
+                    .as_array_mut()
+                    .and_then(|array| array.get_mut(index))
+                    .ok_or_else(|| format!("patch array index out of range: {index}"))?
+            }
+            _ => return Err("patch path segments must be strings or array indices".into()),
+        };
+    }
+    Ok(current)
+}
+
+/// Apply a dev-only JSON path patch to a clone. The caller commits it only
+/// after `Runtime::hot_update` accepts the reconstructed full program.
+pub fn apply_program_patch(program: &Value, operations: &[Value]) -> Result<Value, String> {
+    let mut result = program.clone();
+    for operation in operations {
+        let kind = operation
+            .get("op")
+            .and_then(Value::as_str)
+            .ok_or("patch operation without op")?;
+        let path = operation
+            .get("path")
+            .and_then(Value::as_array)
+            .ok_or("patch operation without path")?;
+        if path.is_empty() {
+            if kind != "set" {
+                return Err("cannot remove the program root".into());
+            }
+            result = operation
+                .get("value")
+                .cloned()
+                .ok_or("root set without value")?;
+            continue;
+        }
+        let (parent_path, tail) = path.split_at(path.len() - 1);
+        let parent = patch_parent_mut(&mut result, parent_path)?;
+        match (kind, &tail[0]) {
+            ("set", Value::String(key)) => {
+                let value = operation
+                    .get("value")
+                    .cloned()
+                    .ok_or("patch set without value")?;
+                parent
+                    .as_object_mut()
+                    .ok_or("patch object parent is invalid")?
+                    .insert(key.clone(), value);
+            }
+            ("set", Value::Number(index)) => {
+                let index = index.as_u64().ok_or("patch array index must be unsigned")? as usize;
+                let array = parent
+                    .as_array_mut()
+                    .ok_or("patch array parent is invalid")?;
+                if index >= array.len() {
+                    return Err(format!("patch array index out of range: {index}"));
+                }
+                array[index] = operation
+                    .get("value")
+                    .cloned()
+                    .ok_or("patch set without value")?;
+            }
+            ("remove", Value::String(key)) => {
+                let object = parent
+                    .as_object_mut()
+                    .ok_or("patch object parent is invalid")?;
+                if object.remove(key).is_none() {
+                    return Err(format!("patch remove path is missing: {key}"));
+                }
+            }
+            ("remove", Value::Number(_)) => {
+                return Err(
+                    "array element removal is unsupported; replace the array atomically".into(),
+                );
+            }
+            (_, _) if kind != "set" && kind != "remove" => {
+                return Err(format!("unsupported patch operation: {kind}"));
+            }
+            _ => return Err("patch path segments must be strings or array indices".into()),
+        }
+    }
+    Ok(result)
+}
+
 fn parse_command(message: &Value) -> Result<DevCommand, String> {
     let id = message.get("id").and_then(Value::as_u64).unwrap_or(0);
     match message.get("type").and_then(Value::as_str) {
         Some("update") => {
+            let (base_revision, revision) = revisions(message)?;
             let program = message
                 .get("program")
                 .filter(|program| program.is_object())
-                .ok_or("update without program")?
-                .to_string();
-            let preserve = message
-                .get("preserve")
-                .and_then(Value::as_array)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default();
+                .cloned()
+                .ok_or("update without program")?;
             Ok(DevCommand::Update {
                 id,
+                base_revision,
+                revision,
                 program,
-                preserve,
+                preserve: preserve_states(message),
+            })
+        }
+        Some("patch") => {
+            let (base_revision, revision) = revisions(message)?;
+            let operations = message
+                .get("operations")
+                .and_then(Value::as_array)
+                .cloned()
+                .ok_or("patch without operations")?;
+            Ok(DevCommand::Patch {
+                id,
+                base_revision,
+                revision,
+                operations,
+                preserve: preserve_states(message),
             })
         }
         Some("inspect") => Ok(DevCommand::Inspect {
@@ -201,7 +340,7 @@ mod tests {
     #[test]
     fn commands_parse_and_unknown_messages_are_rejected() {
         let command = parse_command(&json!({
-            "type": "update", "id": 7, "program": {"version": 1}, "preserve": ["a"]
+            "type": "update", "id": 7, "baseRevision": 2, "revision": 3, "program": {"version": 1}, "preserve": ["a"]
         }))
         .unwrap();
         assert!(
@@ -209,5 +348,32 @@ mod tests {
         );
         assert!(parse_command(&json!({"type": "eval"})).is_err());
         assert!(parse_command(&json!({"type": "update"})).is_err());
+        assert!(
+            parse_command(
+                &json!({"type": "patch", "baseRevision": 2, "revision": 4, "operations": []})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn dev_patch_reconstructs_program_and_rejects_invalid_paths() {
+        let program = json!({"root": {"children": [{"text": "old"}]}, "states": []});
+        let patched = apply_program_patch(
+            &program,
+            &[json!({
+                "op": "set", "path": ["root", "children", 0, "text"], "value": "new"
+            })],
+        )
+        .unwrap();
+        assert_eq!(patched["root"]["children"][0]["text"], "new");
+        assert_eq!(program["root"]["children"][0]["text"], "old");
+        assert!(
+            apply_program_patch(
+                &program,
+                &[json!({"op": "set", "path": ["missing", "x"], "value": 1})]
+            )
+            .is_err()
+        );
     }
 }

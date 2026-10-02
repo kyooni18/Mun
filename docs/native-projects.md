@@ -72,14 +72,36 @@ The pre-fix draft measured small/medium compile p50 at 147.5/269.0 ms
 keyed case. These are exploratory samples, not a controlled performance claim.
 The semantic-contract fix removes the unnecessary compatibility analysis pass.
 
-A real release host accepted five consecutive full updates in each case;
-request/ack p50 was 3.1/21.1/31.1/8.8 ms respectively. Initial-window samples
-increased maxima to 508.4/255.8/246.7/218.3 ms. These acknowledgments **do not
-measure presentation**. Watch/debounce, separate parse/semantic phases, runtime,
-layout and framebuffer presentation remain uninstrumented. The compiler still
-rechecks and lowers the whole project after changed source; only file reads are
-incremental. No development patch/revision protocol or patch comparison is
-implemented by this milestone. Existing full-update state guarantees apply.
+The project compiler now keeps a parsed struct forest per source file. A changed
+file is re-read and reparsed without reparsing unchanged files; byte-identical
+saves reuse the prior parse. Semantic validation and reachable-View lowering are
+still whole-project work and the benchmark reports that honestly. For example,
+a body edit in the 25-custom-View fixture reparses 1 declaration but currently
+rechecks and relowers all 26 declarations/Views.
+
+Development protocol v2 adds monotonic program revisions and a dev-only JSON
+path patch representation. The toolchain chooses a patch only when its encoded
+message is materially smaller than a full update. The native host validates the
+base revision, reconstructs the candidate program on a clone, then sends that
+full reconstructed program through the existing atomic `Runtime::hot_update`.
+A patch therefore changes transport cost, not state/lifecycle semantics. Invalid
+patches do not advance the host revision and may be retried as a full update;
+stale/out-of-order revisions are rejected.
+
+A darwin-arm64 release-host sample (10 compatible edits per case) measured the
+following wire reduction. These are exploratory local measurements, not CI
+performance thresholds:
+
+| Case | Compile p50 | Host request/ack p50 | Full IR | Wire update | Reduction |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Small app | 1.3 ms | 14.8 ms | 1.4 KiB | 0.2 KiB | 85.7% |
+| 25 custom Views | 3.6 ms | 8.9 ms | 25.1 KiB | 2.1 KiB | 91.5% |
+| 1,000 keyed rows | 16.1 ms | 19.1 ms | 33.2 KiB | 0.4 KiB | 98.8% |
+| Cross-file View body edit | 0.6 ms | 16.1 ms | 1.8 KiB | 0.3 KiB | 81.5% |
+
+Request/ack p95 still showed roughly 159–273 ms spikes. The benchmark does not
+yet split transfer, runtime reconciliation/layout, GPU submission and actual
+presentation, so those tails must not be attributed to transport alone.
 
 ## Development
 
@@ -93,9 +115,10 @@ runtime round trip and the payload size.
 The toolchain listens on `127.0.0.1:0`; the host connects back with `mun-native
 --dev <ir>` plus `MUN_DEV_ENDPOINT` and `MUN_DEV_TOKEN`. Frames are a 4-byte
 big-endian length followed by JSON (16 MiB cap); the host's first message is a
-`hello` with protocol version, per-session token and IR version. Production
-launches ignore these variables. The host exits when the link drops, so no
-orphan process is left behind.
+`hello` with development protocol v2, per-session token and IR version.
+Production launches ignore these variables. The host exits when the link drops,
+so no orphan process is left behind. Full and patch updates carry
+`baseRevision`/`revision`; only the next revision is accepted.
 
 `Runtime::hot_update` is atomic: the new program is loaded, validated and its
 collections materialized before anything is committed. If any step fails the
