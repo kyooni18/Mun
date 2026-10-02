@@ -41,6 +41,46 @@ compilation unit. Do not put independent applications in the same project.
 Cross-file diagnostic mapping is best-effort for compiler lowering errors;
 source-analysis diagnostics retain mapped file/line/column positions.
 
+Canonical `.mun` diagnostics now use the native compiler validity contract,
+including keyed `ForEach` over record arrays. The compatibility TypeScript
+transform is not a validity gate for native programs: it does not implement
+Swift key-path syntax. Compatibility snippets (diagnostics without a canonical
+filename) retain their existing TypeScript diagnostics. Project compilation
+performs native validation/lowering once rather than first running the
+compatibility transform.
+
+### Repeatable hot-reload measurements
+
+Run `pnpm benchmark:hot-reload` with a built native host, or
+`pnpm benchmark:hot-reload:compile` without a display. Pass `--edits N` to the
+script directly to change the sample count. The benchmark preserves unchanged
+files, reads one edited file per iteration, validates compatibility and reports
+p50/p95/max, UTF-8 IR bytes, file-read, native compile, serialization and
+compatibility timings. No performance threshold blocks CI.
+
+Initial darwin-arm64 compile-only samples (30 edits, milliseconds):
+
+| Case | p50 | p95 | max | Full IR KiB |
+| --- | ---: | ---: | ---: | ---: |
+| Small app | 0.6 | 1.3 | 1.7 | 1.4 |
+| 25 custom Views | 2.3 | 3.3 | 3.5 | 25.1 |
+| 1,000 keyed rows | 14.2 | 19.5 | 22.1 | 33.2 |
+| Cross-file View body edit | 0.2 | 0.3 | 0.5 | 1.8 |
+
+The pre-fix draft measured small/medium compile p50 at 147.5/269.0 ms
+(5 edits) and failed on the cross-file fixture. It bypassed diagnostics for the
+keyed case. These are exploratory samples, not a controlled performance claim.
+The semantic-contract fix removes the unnecessary compatibility analysis pass.
+
+A real release host accepted five consecutive full updates in each case;
+request/ack p50 was 3.1/21.1/31.1/8.8 ms respectively. Initial-window samples
+increased maxima to 508.4/255.8/246.7/218.3 ms. These acknowledgments **do not
+measure presentation**. Watch/debounce, separate parse/semantic phases, runtime,
+layout and framebuffer presentation remain uninstrumented. The compiler still
+rechecks and lowers the whole project after changed source; only file reads are
+incremental. No development patch/revision protocol or patch comparison is
+implemented by this milestone. Existing full-update state guarantees apply.
+
 ## Development
 
 `mun dev` watches source and project configuration (changes are debounced 80ms),
