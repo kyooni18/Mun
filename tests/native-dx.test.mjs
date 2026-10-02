@@ -115,7 +115,7 @@ test('fmt --check accepts a CRLF checkout and keeps its line endings', t => {
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   assert.equal(run(['create', 'Crlf'], directory).status, 0)
   const file = resolve(directory, 'Crlf/Sources/App.mun')
-  writeFileSync(file, readFileSync(file, 'utf8').replace(/\n/gu, '\r\n'))
+  writeFileSync(file, readFileSync(file, 'utf8').replace(/\r?\n/gu, '\r\n'))
   const checked = run(['fmt', '--check'], resolve(directory, 'Crlf'))
   assert.equal(checked.status, 0, checked.stdout + checked.stderr)
   assert.ok(readFileSync(file, 'utf8').includes('\r\n'))
