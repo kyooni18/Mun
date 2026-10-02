@@ -37,6 +37,7 @@ test('reused View instances produce the same IR and metadata as a full compile',
     app('      Text("B")\n      Card(title: "uno")\n      Extra()') + cards + 'struct Extra: View {\n  var body: some View { Text("x") }\n}\n',
     // Errors are never cached; the next valid compile is still exact.
     app('      Text("B")\n      Card(title: 3)') + cards,
+    app('      Text("B")\n      Card(title: "one")') + cards.replace('var title: String', 'var title: string'),
     app('      Text("B")\n      Card(title: "one")\n      Other(title: "two")') + cards,
   ])
   assert.equal(stats[1].instancesReused, 2)

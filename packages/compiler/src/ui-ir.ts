@@ -2885,6 +2885,7 @@ export interface MunDevProgramMetadata {
  * separate metadata (declared state types) used for hot-reload compatibility.
  */
 export interface MunDevCompileStats {
+  /** View declarations canonically validated (unchanged, previously valid ones are skipped). */
   readonly declarationsChecked: number
   /** Distinct custom View declarations present in the lowered program. */
   readonly viewDeclarationsLowered: number
@@ -2899,7 +2900,7 @@ function countStructDeclarations(structs: readonly MunStructDeclaration[]): numb
 function devCompileResult(
   program: MunUiProgram,
   lowerer: UiLowerer,
-  structs: readonly MunStructDeclaration[],
+  declarationsChecked: number,
   lowering?: MunLoweringCacheStats,
 ): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
   const types = lowerer.declaredStateTypes()
@@ -2914,7 +2915,7 @@ function devCompileResult(
       nodes: lowerer.sourceSpans(),
     },
     stats: {
-      declarationsChecked: countStructDeclarations(structs),
+      declarationsChecked,
       viewDeclarationsLowered: lowerer.loweredViewDeclarations().size,
       ...(lowering ? { lowering } : {}),
     },
@@ -2927,8 +2928,8 @@ export function compileMunDevProgram(
   options: MunUiCompileOptions = {},
 ): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
   const structs = parseMunStructs(source)
-  const { program, lowerer, lowering } = lowerMunUiProgram(source, fileName, options, structs)
-  return devCompileResult(program, lowerer, structs, lowering)
+  const { program, lowerer, declarationsChecked, lowering } = lowerMunUiProgram(source, fileName, options, structs)
+  return devCompileResult(program, lowerer, declarationsChecked, lowering)
 }
 
 /**
@@ -2942,8 +2943,28 @@ export function compileMunDevProgramFromStructs(
   fileName = "mun-source.mun",
   options: MunUiCompileOptions = {},
 ): { program: MunUiProgram; metadata: MunDevProgramMetadata; stats: MunDevCompileStats } {
-  const { program, lowerer, lowering } = lowerMunUiProgram(source, fileName, options, structs)
-  return devCompileResult(program, lowerer, structs, lowering)
+  const { program, lowerer, declarationsChecked, lowering } = lowerMunUiProgram(source, fileName, options, structs)
+  return devCompileResult(program, lowerer, declarationsChecked, lowering)
+}
+
+/**
+ * Declaration texts that passed canonical validation. Validation of a
+ * declaration depends only on its own text (offsets matter only for errors,
+ * and failures are never cached), so unchanged declarations are not rechecked.
+ */
+const validatedDeclarations = new Set<string>()
+
+/** Validate declarations not already proven valid; returns how many were checked. */
+function validateChangedDeclarations(structs: readonly MunStructDeclaration[]): number {
+  let checked = 0
+  for (const declaration of structs) {
+    if (validatedDeclarations.has(declaration.source)) continue
+    validateCanonicalDeclarations([declaration])
+    checked += countStructDeclarations([declaration])
+    if (validatedDeclarations.size >= parsedExpressionLimit) validatedDeclarations.clear()
+    validatedDeclarations.add(declaration.source)
+  }
+  return checked
 }
 
 function lowerMunUiProgram(
@@ -2951,13 +2972,13 @@ function lowerMunUiProgram(
   fileName: string,
   options: MunUiCompileOptions,
   preparedStructs?: readonly MunStructDeclaration[],
-): { program: MunUiProgram; lowerer: UiLowerer; lowering?: MunLoweringCacheStats } {
+): { program: MunUiProgram; lowerer: UiLowerer; declarationsChecked: number; lowering?: MunLoweringCacheStats } {
   assertCanonicalMunSource(source, fileName)
   const structs = preparedStructs ?? parseMunStructs(source)
   if (structs.length === 0) throw new SyntaxError("Native Mün requires a View struct entry point")
   // Canonical declaration rules (Swift type spellings, access levels). The
   // legacy compatibility pipelines keep accepting TypeScript spellings.
-  validateCanonicalDeclarations(structs)
+  const declarationsChecked = validateChangedDeclarations(structs)
 
   const requestedEntry = entryName(source, structs[0].name)
   const entry = structs.find(structure => structure.name === requestedEntry) ?? structs[0]
@@ -2990,6 +3011,7 @@ function lowerMunUiProgram(
       root,
     },
     lowerer,
+    declarationsChecked,
     // Committed only after the whole program lowered: a failed compile keeps
     // the previous entries for reuse once the error is fixed.
     ...(cache ? { lowering: cache.commit(lowerer.dependencyGraph()) } : {}),
