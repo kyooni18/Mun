@@ -84,6 +84,17 @@ conditional branches are absent from the tree.
 
 ## Contracts and lifecycle
 
+- Controls added for SwiftUI parity are covered by the compiled-source contract
+  `examples/NativeSettingsPane.mun` → `tests/native_settings_pane.rs`
+  (run by `scripts/verify-native-contracts.mjs`):
+  - Toggle: checkbox semantics and activation, AccessKit CheckBox.
+  - SecureField: masked, no copy/cut, AccessKit PasswordInput without value.
+  - ProgressView: fill fraction and percent value.
+  - Spacer and Divider along the stack axis.
+  - onAppear/onDisappear: once per presence change, not per frame.
+
+  None of these has been exercised interactively with VoiceOver yet.
+
 - The runtime evaluates the bundled `schemas/semantic-ui-ir-v1.schema.json`
   before deserializing: unknown fields/kinds, nested windows and malformed data
   are errors naming node and field; references are checked.
