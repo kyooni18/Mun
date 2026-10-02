@@ -1,6 +1,6 @@
 // Hot-reload latency benchmark.
 //
-//   node scripts/benchmark-hot-reload.mjs [--edits N] [--compile-only | --window] [--host <mun-native>] [--json]
+//   node scripts/benchmark-hot-reload.mjs [--edits N] [--compile-only | --window] [--spacing MS] [--host <mun-native>] [--json]
 //
 // For each case a throwaway project is generated and every edit is compiled
 // with the same incremental project compiler `mun dev` uses, then diffed into
@@ -15,6 +15,10 @@
 //                   the transport round trip and first-presented-frame timings
 //                   (`update-presented`). Opens a window; needs a display.
 //   --compile-only  Toolchain side only.
+//
+// --spacing MS (window mode) waits MS after each update is presented before
+// sending the next, measuring an idle app like a person saving edits; with the
+// default 0, edits arrive back to back and queue behind the previous frame.
 //
 // All numbers are wall-clock p50 / p95 / max over N edits. Not measured: the
 // file watcher/debounce (80 ms by design) and display scan-out after present.
@@ -36,6 +40,8 @@ const edits = Number(option('--edits') ?? 30)
 if (!Number.isSafeInteger(edits) || edits < 1 || edits > 10000) throw new Error('--edits must be an integer between 1 and 10000')
 const mode = args.includes('--compile-only') ? 'compile' : args.includes('--window') ? 'window' : 'headless'
 const asJson = args.includes('--json')
+const spacing = Number(option('--spacing') ?? 0)
+if (!Number.isFinite(spacing) || spacing < 0 || spacing > 5000) throw new Error('--spacing must be between 0 and 5000 ms')
 const executable = process.platform === 'win32' ? 'mun-native.exe' : 'mun-native'
 const host = option('--host') ?? ['release', 'debug'].map(profile => resolve(root, 'native/target', profile, executable)).find(existsSync)
 if (mode !== 'compile' && !host) throw new Error('No native host found: build one or pass --host <path> (or use --compile-only).')
@@ -103,6 +109,7 @@ async function runCase(name, build) {
     const toolchain = { compile: [], diff: [], roundTrip: [] }
     const counts = { relowered: [], instances: [], affected: [], reparsed: [], rechecked: [], modes: [], wireKiB: [], fullKiB: [] }
     const lines = []
+    const perEdit = []
     let running = initial, revision = 0
     for (let i = 1; i <= edits; i++) {
       write(directory, spec.files(i))
@@ -121,6 +128,8 @@ async function runCase(name, build) {
         const reply = await session.channel.request(update.type, update.payload)
         if (reply.type !== 'update-applied' || reply.revision !== revision + 1) throw new Error(`${name}: edit ${i} not applied: ${reply.message ?? reply.type}`)
         toolchain.roundTrip.push(performance.now() - started)
+        if (spacing) await new Promise(resolve => setTimeout(resolve, spacing))
+        perEdit.push({ edit: i, roundTripMs: toolchain.roundTrip.at(-1), queueMs: (reply.timings?.queueMicros ?? 0) / 1000, applyMs: (reply.applyMicros ?? 0) / 1000 })
       }
       revision += 1
       const stats = next.stats
@@ -136,6 +145,15 @@ async function runCase(name, build) {
     }
 
     const stages = {}
+    // The first update can arrive while the host is still creating its window
+    // and rendering its first frame; it queues behind that startup work. Report
+    // it separately so steady-state percentiles describe an already-running app.
+    const first = perEdit[0]
+    if (first) {
+      toolchain.roundTrip = toolchain.roundTrip.slice(1)
+      stages.firstUpdateAfterLaunchMs = Number(first.roundTripMs.toFixed(1))
+      stages.firstUpdateHostQueueMs = Number(first.queueMs.toFixed(1))
+    }
     if (mode === 'headless') {
       const ir = resolve(directory, 'initial.json'), stream = resolve(directory, 'updates.ndjson')
       writeFileSync(ir, JSON.stringify(initial.program))
@@ -160,7 +178,7 @@ async function runCase(name, build) {
     } else if (mode === 'window') {
       const deadline = Date.now() + 5000
       while (presented.size < edits && Date.now() < deadline) await new Promise(r => setTimeout(r, 20))
-      const items = [...presented.values()]
+      const items = [...presented.values()].filter(item => item.revision > 1)
       const pick = path => items.map(item => ms(path(item)))
       Object.assign(stages, {
         receiveToPresent: pick(item => item.receiveToPresentMicros),
@@ -170,6 +188,7 @@ async function runCase(name, build) {
         submit: pick(item => item.frame.submitMicros),
         present: pick(item => item.frame.presentMicros),
       })
+      stages.firstUpdateReceiveToPresentMs = Number(ms(presented.get(1)?.receiveToPresentMicros ?? 0).toFixed(1))
       stages.presentedUpdates = items.length
       stages.skippedFrames = items.reduce((sum, item) => sum + item.skippedFrames, 0)
       stages.superseded = items.reduce((sum, item) => sum + item.supersededRevisions, 0)
@@ -191,11 +210,16 @@ async function runCase(name, build) {
         fullIrKiB: counts.fullKiB.at(-1),
       },
     }
+    if (perEdit.length) result.perEdit = perEdit
     if (asJson) { console.log(JSON.stringify(result)); return }
     console.log(name)
     for (const [key, value] of Object.entries(result.toolchain)) console.log(`  toolchain ${key.padEnd(18)} ${fmt(value)}`)
-    for (const [key, value] of Object.entries(result.host)) console.log(`  host ${key.padEnd(23)} ${typeof value === 'object' ? fmt(value) : value}`)
+    for (const [key, value] of Object.entries(result.host)) console.log(`  host ${key.padEnd(30)} ${typeof value === 'object' ? fmt(value) : value}`)
     const c = result.counts
+    if (perEdit.length) {
+      const slow = [...perEdit].sort((a, b) => b.roundTripMs - a.roundTripMs).slice(0, 3)
+      console.log(`  slowest round trips: ${slow.map(item => `edit ${item.edit}: ${item.roundTripMs.toFixed(1)} ms (host queue ${item.queueMs.toFixed(2)}, apply ${item.applyMs.toFixed(2)})`).join('; ')}`)
+    }
     console.log(`  update ${c.updateModes}; wire ${c.wireKiB.toFixed(1)} KiB of ${c.fullIrKiB.toFixed(1)} KiB full IR`)
     console.log(`  per edit: declarations reparsed ${c.declarationsReparsed}, rechecked ${c.declarationsRechecked}; Views relowered ${c.viewDeclarationsRelowered}; instances lowered/reused ${c.viewInstancesLoweredReused}; affected ${c.affectedViews}`)
   } finally {

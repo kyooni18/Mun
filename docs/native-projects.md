@@ -61,7 +61,7 @@ the production renderer, waiting for the GPU. It opens no window.
 `pnpm benchmark:hot-reload:window` drives a real windowed dev host instead and
 adds the loopback round trip and first-presented-frame timings;
 `pnpm benchmark:hot-reload:compile` measures the toolchain only. Pass
-`--edits N`, `--case <name>` or `--json` to the script directly. No performance
+`--edits N`, `--case <name>`, `--spacing MS` (window mode: idle gap between edits) or `--json` to the script directly. No performance
 threshold blocks CI. Not measured: the file watcher's 80 ms debounce and display
 scan-out after the frame is handed to the platform.
 
@@ -78,11 +78,31 @@ are local measurements, not CI thresholds:
 "Host load" is IR schema validation, typed deserialization and one collection
 materialization of the new program. In the same cases at the start of this
 work, compile p50 was 0.6 / 2.9 / 14.3 / 0.2 ms and host total p50 was
-0.77 / 4.50 / 29.8 / 0.78 ms. Headless p95 stays within roughly 10% of p50; the
-one large p95 outlier seen earlier (hundreds of milliseconds) came from the
-windowed path, which the `update-presented` timings below are meant to locate.
+0.77 / 4.50 / 29.8 / 0.78 ms. Headless p95 stays within roughly 10% of p50.
 For 1,000 rows, per-frame layout of ~3,000 nodes is now the largest remaining
 cost; the layout tree is rebuilt every frame and is not yet incremental.
+
+Windowed sample (`--window --spacing 120`: an idle app, one update at a time,
+30 edits; p50 / p95 ms from the host receiving the update to the frame being
+handed to the platform):
+
+| Case | Receive → present | Layout | Surface acquire |
+| --- | ---: | ---: | ---: |
+| Small app | 2.09 / 2.46 | 0.1 | 0.12 |
+| 25 custom Views | 3.95 / 4.89 | 0.3 | 0.12 |
+| 1,000 keyed rows | 26.3 / 27.8 | 9.2 | 0.03 |
+| Cross-file View body edit | 2.10 / 2.66 | 0.1 | 0.13 |
+
+Two measurement artifacts to know about. Sending edits back to back (the
+`--spacing 0` default) makes each one queue behind the previous frame's vsync
+wait, which doubles receive → present to ~31 ms; that is not what a person
+saving a file sees. And the first update after launch is reported separately
+(`firstUpdateAfterLaunchMs`, 183-267 ms here): it arrives while the host is
+still creating its window and rendering its first frame, and its host queue time
+is almost all of that, with the update itself applying in under 1 ms (12 ms for
+1,000 rows). That startup contention was the large p95/max outlier in earlier
+windowed runs. It delays an edit saved within roughly a quarter second of launch;
+the edit is still applied.
 
 **Incremental compilation.** Changed files are reread and reparsed per file,
 and within a file only declarations whose text changed are reparsed (each
