@@ -1,13 +1,14 @@
+@main
 struct NativeProductionSmoke: View {
-  @State var name: string = "한글 / 日本語 / 中文"
-  @State var choice: string = "work"
-  @State var details: boolean = false
-  @State var tasks: Task[] = [
+  @State var name: String = "한글 / 日本語 / 中文"
+  @State var choice: String = "work"
+  @State var details: Bool = false
+  @State var tasks: [Task] = [
     { id: "draft", title: "Draft" },
     { id: "review", title: "Review" },
     { id: "ship", title: "Ship" }
   ]
-  @State var nextTask: number = 1
+  @State var nextTask: Int = 1
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -68,10 +69,10 @@ struct NativeProductionSmoke: View {
 }
 
 struct TaskRow: View {
-  @Binding var tasks: Task[]
+  @Binding var tasks: [Task]
   var task: Task
-  @State var note: string = ""
-  @State var done: boolean = false
+  @State var note: String = ""
+  @State var done: Bool = false
 
   var body: some View {
     HStack(spacing: 6) {

@@ -47,7 +47,7 @@ test("keyed ForEach lowers item-scoped View state and key-path collection action
 
   assert.throws(
     () => compileMunUiProgram(`struct Broken: View {
-  @State var rows: Row[] = [
+  @State var rows: [Row] = [
     1 2
   ]
   var body: some View { Text("x") }

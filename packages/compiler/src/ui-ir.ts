@@ -47,7 +47,8 @@ import {
   type MunStructDeclaration,
 } from "./ast.js"
 import { assertCanonicalMunSource } from "./analysis.js"
-import { resolveContractCall } from "./native-contract.js"
+import { describeValueType, displayMunType, parseMunType, runtimeTypeName, validateCanonicalDeclarations, valueMatchesType, type MunType } from "./value-types.js"
+import { resolveContractCall, swiftTypeName } from "./native-contract.js"
 import { lowerAnimationValue, lowerColor, lowerPaint, lowerTransitionValue, nativeValueImplementations, parseMemberChain } from "./native-values.js"
 import {
   semanticViewLookupCandidates,
@@ -97,7 +98,7 @@ function unwrap(expression: ts.Expression): ts.Expression {
 function parsedExpression(source: string): ts.Expression {
   const file = ts.createSourceFile(
     "mun-ui-expression.ts",
-    `(${source})`,
+    `(${swiftDictionaryLiterals(source)})`,
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS,
@@ -113,8 +114,62 @@ function parsedExpression(source: string): ts.Expression {
  * TypeScript recovers from syntax errors (`[` parses as `[]`). State initial
  * values are stored data, so a recovered tree must never become one.
  */
+/**
+ * Swift dictionary literals (`[:]`, `["a": 1, "b": 2]`) as record literals, so
+ * value expressions keep one parser. Array literals and ternaries are untouched.
+ */
+function swiftDictionaryLiterals(source: string): string {
+  let output = ""
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]
+    if (character === "\"" || character === "'" || character === "`") {
+      let end = index + 1
+      while (end < source.length && source[end] !== character) end += source[end] === "\\" ? 2 : 1
+      output += source.slice(index, end + 1)
+      index = end
+      continue
+    }
+    if (character !== "[") { output += character; continue }
+    let depth = 0
+    let close = -1
+    for (let scan = index; scan < source.length; scan += 1) {
+      const next = source[scan]
+      if (next === "\"" || next === "'") { scan += 1; while (scan < source.length && source[scan] !== next) scan += source[scan] === "\\" ? 2 : 1; continue }
+      if ("([{".includes(next)) depth += 1
+      else if (")]}".includes(next) && --depth === 0) { close = scan; break }
+    }
+    if (close < 0) { output += character; continue }
+    const inner = source.slice(index + 1, close)
+    if (inner.trim() === ":") {
+      output += "{}"
+      index = close
+      continue
+    }
+    const entries = splitTopLevel(inner).filter(entry => entry.trim())
+    const pairs = entries.map(entry => {
+      let level = 0
+      for (let scan = 0; scan < entry.length; scan += 1) {
+        const next = entry[scan]
+        if (next === "\"" || next === "'") { scan += 1; while (scan < entry.length && entry[scan] !== next) scan += entry[scan] === "\\" ? 2 : 1; continue }
+        if ("([{".includes(next)) level += 1
+        else if (")]}".includes(next)) level -= 1
+        else if (level === 0 && next === "?") return undefined
+        else if (level === 0 && next === ":") return [entry.slice(0, scan).trim(), entry.slice(scan + 1).trim()] as const
+      }
+      return undefined
+    })
+    if (entries.length > 0 && pairs.every(pair => pair !== undefined)) {
+      output += `{ ${pairs.map(pair => `${pair![0]}: ${swiftDictionaryLiterals(pair![1])}`).join(", ")} }`
+    } else {
+      output += `[${swiftDictionaryLiterals(inner)}]`
+    }
+    index = close
+  }
+  return output
+}
+
 function assertWellFormedValueSource(source: string, owner: string): void {
-  const file = ts.createSourceFile("mun-ui-value.ts", `(${source})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const file = ts.createSourceFile("mun-ui-value.ts", `(${swiftDictionaryLiterals(source)})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const diagnostics = (file as ts.SourceFile & { readonly parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics
   if (file.statements.length !== 1 || (diagnostics?.length ?? 0) > 0) {
     throw new SyntaxError(`${owner} has a malformed initial value: ${source}`)
@@ -207,6 +262,8 @@ function lowerValueExpression(source: string, bindings: UiBindings = emptyBindin
   if (ts.isIdentifier(expression)) {
     const binding = bindings.get(expression.text)
     if (binding) return binding
+    // Swift's `nil` is Mün's absent optional value.
+    if (expression.text === "nil") return literal(null)
   }
 
   if (ts.isObjectLiteralExpression(expression)) {
@@ -427,7 +484,14 @@ function componentSemanticArgument(
  */
 function bindingTypeMatches(expected: string, actual: string): boolean {
   if (expected === actual) return true
-  return actual === "array" && /^(?:[\s\S]+\[\]|(?:Readonly)?Array\s*<[\s\S]+>)$/.test(expected)
+  let declared: MunType
+  try {
+    declared = parseMunType(expected, { canonical: false, what: "@Binding" })
+  } catch {
+    return false
+  }
+  if (actual === "null") return declared.kind === "optional"
+  return runtimeTypeName(declared) === actual
 }
 
 function stateTypeMap(states: readonly MunUiState[]): Map<string, string> {
@@ -541,8 +605,18 @@ function stateDeclarations(source: string): MunUiState[] {
   return states
 }
 
+/**
+ * The entry View: `@main struct App: View` (canonical, as in Swift) or the
+ * compatibility spelling `export default App()`. Without either, the first View.
+ */
 function entryName(source: string, fallback: string): string {
-  return source.match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1] ?? fallback
+  const main = [...source.matchAll(/@main\s+struct\s+([A-Za-z_$][\w$]*)/g)].map(match => match[1])
+  if (main.length > 1) throw new SyntaxError(`Only one View can be @main; found ${main.join(", ")}`)
+  const exported = source.match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1]
+  if (main[0] && exported && main[0] !== exported) {
+    throw new SyntaxError(`@main ${main[0]} and export default ${exported}() name different entry Views`)
+  }
+  return main[0] ?? exported ?? fallback
 }
 
 /** Labeled/positional arguments of a collection method call. */
@@ -1834,6 +1908,14 @@ class UiLowerer {
           `Native @State member '${declaration.name}.${field.name}' requires a scalar initial value for now`,
         )
       }
+      if (field.type) {
+        const declared = parseMunType(field.type, { canonical: false, what: `${declaration.name}.${field.name}` })
+        if (!valueMatchesType(initial.value, declared)) {
+          throw new SyntaxError(
+            `@State '${declaration.name}.${field.name}' is declared ${displayMunType(declared)} but its initial value is ${describeValueType(initial.value)}`,
+          )
+        }
+      }
       const stateName = `@component/${instanceId}/${field.name}`
       const scope = this.#forEachScopes.at(-1)
       this.#states.push({ name: stateName, initial: initial.value, ...(scope ? { scope } : {}) })
@@ -2024,6 +2106,14 @@ class UiLowerer {
       semanticView.genericParameters,
     )
     if (!result.ok) {
+      const hidden = call.arguments.find(argument => argument.label !== undefined && declaration.fields.some(field =>
+        field.name === argument.label && (field.access === "private" || field.access === "fileprivate" || field.kind === "state")))
+      if (hidden?.label) {
+        const field = declaration.fields.find(item => item.name === hidden.label)!
+        throw new SyntaxError(field.kind === "state"
+          ? `'${declaration.name}.${hidden.label}' is @State, owned by the View; a caller cannot initialize it (pass a @Binding instead)`
+          : `'${declaration.name}.${hidden.label}' is ${field.access}; a caller cannot initialize it`)
+      }
       const candidates = result.failure.candidates.map(candidate => candidate.signature).join("; ")
       const prefix = result.failure.kind === "ambiguous"
         ? "Ambiguous initializer"
@@ -2059,7 +2149,7 @@ class UiLowerer {
           const expectedType = field.type?.trim()
           if (expectedType && !bindingTypeMatches(expectedType, actualType)) {
             throw new SyntaxError(
-              `Native @Binding '${declaration.name}.${field.name}' expects ${expectedType} state, received ${actualType}`,
+              `Native @Binding '${declaration.name}.${field.name}' expects ${expectedType} state, received ${swiftTypeName(actualType)}`,
             )
           }
           fieldBindings.set(field.name, binding)
@@ -2076,6 +2166,12 @@ class UiLowerer {
         throw new SyntaxError(
           `Initializer ${selected.signature} did not bind required field '${field.name}'`,
         )
+      }
+      // Private stored members are not parameters; they keep their defaults.
+      for (const field of declaration.fields) {
+        if (field.kind === "stored" && !fieldBindings.has(field.name) && field.initializer !== undefined) {
+          fieldBindings.set(field.name, lowerValueExpression(field.initializer, fieldBindings))
+        }
       }
     } else {
       const initializer = declaration.initializers[selected.index]
@@ -2310,6 +2406,9 @@ export function compileMunUiProgram(
   assertCanonicalMunSource(source, fileName)
   const structs = parseMunStructs(source)
   if (structs.length === 0) throw new SyntaxError("Native Mün requires a View struct entry point")
+  // Canonical declaration rules (Swift type spellings, access levels). The
+  // legacy compatibility pipelines keep accepting TypeScript spellings.
+  validateCanonicalDeclarations(structs)
 
   const requestedEntry = entryName(source, structs[0].name)
   const entry = structs.find(structure => structure.name === requestedEntry) ?? structs[0]

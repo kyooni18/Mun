@@ -12,10 +12,11 @@ struct ShapeStrip: View {
   }
 }
 
+@main
 struct NativeControlsStyle: View {
-  @State var name: string = "Ada"
-  @State var choice: string = "b"
-  @State var expanded: boolean = false
+  @State var name: String = "Ada"
+  @State var choice: String = "b"
+  @State var expanded: Bool = false
 
   var body: some View {
     VStack(spacing: 8) {
@@ -62,5 +63,3 @@ struct NativeControlsStyle: View {
     .cornerRadius(20)
   }
 }
-
-export default NativeControlsStyle()

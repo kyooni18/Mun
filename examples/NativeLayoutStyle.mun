@@ -1,3 +1,4 @@
+@main
 struct NativeLayoutStyle: View {
   var body: some View {
     VStack(spacing: 12) {
@@ -29,5 +30,3 @@ struct NativeLayoutStyle: View {
     .background(Color("#010203"))
   }
 }
-
-export default NativeLayoutStyle()

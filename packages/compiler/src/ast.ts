@@ -368,7 +368,113 @@ function parseConditional(slice: Slice): MunConditionalExpression | undefined {
   }
 }
 
+/**
+ * Swift `switch` over a scalar subject, desugared to an `if`/`else if` chain:
+ * `case 1, 2:` becomes `subject == 1 || subject == 2`. Patterns are literals;
+ * other Swift patterns are diagnosed. Like Swift, the switch must be
+ * exhaustive (a `default:` unless the cases are `true` and `false`).
+ */
+function parseSwitch(slice: Slice): MunConditionalExpression | MunBuilderProgram | undefined {
+  const value = trimSlice(slice)
+  if (!/^switch\b/.test(value.source)) return undefined
+  let open = -1
+  for (let cursor = 6, depth = 0; cursor < value.source.length; cursor += 1) {
+    const character = value.source[cursor]
+    if (character === "\"" || character === "'") { cursor = skipQuoted(value.source, cursor) - 1; continue }
+    if (character === "(" || character === "[") depth += 1
+    else if (character === ")" || character === "]") depth -= 1
+    else if (character === "{" && depth === 0) { open = cursor; break }
+  }
+  if (open < 0) throw new SyntaxError("switch requires a { case … } body")
+  const close = findMatching(value.source, open, "{")
+  if (skipTrivia(value.source, close + 1) !== value.source.length) return undefined
+  const subject = value.source.slice(6, open).trim().replace(/^\(([\s\S]*)\)$/, "$1").trim()
+  if (!subject) throw new SyntaxError("switch requires a subject expression")
+  const body = value.source.slice(open + 1, close)
+  const bodyStart = value.start + open + 1
+
+  // Labels (`case …:` / `default:`) at statement starts of the switch body.
+  const labels: { start: number; colon: number; pattern?: string }[] = []
+  let lineStart = true
+  for (let cursor = 0, depth = 0; cursor < body.length; cursor += 1) {
+    const character = body[cursor]
+    if (character === "\"" || character === "'") { cursor = skipQuoted(body, cursor) - 1; lineStart = false; continue }
+    if (character === "\n" || character === ";") { lineStart = true; continue }
+    if (/\s/.test(character)) continue
+    if ("([{".includes(character)) depth += 1
+    else if (")]}".includes(character)) depth -= 1
+    if (depth === 0 && lineStart && /^(?:case\b|default\s*:)/.test(body.slice(cursor))) {
+      const isDefault = body.startsWith("default", cursor)
+      let colon = -1
+      for (let scan = cursor + (isDefault ? 7 : 4), inner = 0; scan < body.length; scan += 1) {
+        const next = body[scan]
+        if (next === "\"" || next === "'") { scan = skipQuoted(body, scan) - 1; continue }
+        if ("([{".includes(next)) inner += 1
+        else if (")]}".includes(next)) inner -= 1
+        else if (next === ":" && inner === 0) { colon = scan; break }
+      }
+      if (colon < 0) throw new SyntaxError("switch case label requires ':'")
+      labels.push({ start: cursor, colon, ...(isDefault ? {} : { pattern: body.slice(cursor + 4, colon).trim() }) })
+      cursor = colon
+    }
+    lineStart = false
+  }
+  if (labels.length === 0) throw new SyntaxError("switch requires at least one case")
+  if (body.slice(0, labels[0].start).trim()) throw new SyntaxError("switch body must start with a case label")
+
+  const seen = new Set<string>()
+  const cases = labels.map((label, index) => {
+    const end = labels[index + 1]?.start ?? body.length
+    const caseSource = body.slice(label.colon + 1, end)
+    if (!caseSource.trim()) {
+      throw new SyntaxError(`switch ${label.pattern === undefined ? "default" : `case ${label.pattern}`} has no Views; every case needs at least one`)
+    }
+    const program = parseMunBuilder(caseSource, bodyStart + label.colon + 1)
+    if (label.pattern === undefined) {
+      if (index !== labels.length - 1) throw new SyntaxError("switch default must be the last case")
+      return { program }
+    }
+    const patterns = splitTopLevel(label.pattern, ",", 0).map(item => item.source.trim())
+    for (const pattern of patterns) {
+      if (/\bwhere\b/.test(pattern)) throw new SyntaxError(`switch case 'where' clauses are not supported in Mün: case ${label.pattern}`)
+      if (/\.\.[.<]/.test(pattern)) throw new SyntaxError(`switch range patterns are not supported in Mün; use if with comparisons: case ${pattern}`)
+      if (!/^(?:-?\d+(?:\.\d+)?|"(?:[^"\\]|\\.)*"|true|false)$/.test(pattern)) {
+        throw new SyntaxError(`switch case patterns must be String, number or Bool literals in Mün: case ${pattern}`)
+      }
+      if (seen.has(pattern)) throw new SyntaxError(`switch case ${pattern} is repeated`)
+      seen.add(pattern)
+    }
+    if (/^\s*fallthrough\b/m.test(caseSource)) throw new SyntaxError("fallthrough is not supported in Mün switch")
+    return { patterns, program }
+  })
+  const exhaustive = cases.at(-1)?.patterns === undefined || (seen.has("true") && seen.has("false") && seen.size === 2)
+  if (!exhaustive) throw new SyntaxError(`switch over '${subject}' must be exhaustive: add a default case`)
+
+  const range = { start: value.start, end: value.end }
+  const chain = (index: number): MunConditionalExpression | MunBuilderProgram => {
+    const item = cases[index]
+    if (!item.patterns) return item.program
+    if (index === cases.length - 1) return item.program
+    const condition = item.patterns.map(pattern => `(${subject}) == ${pattern}`).join(" || ")
+    return {
+      kind: "conditional",
+      condition: { kind: "raw", source: condition, range },
+      then: item.program,
+      otherwise: chain(index + 1),
+      range,
+    }
+  }
+  return chain(0)
+}
+
 function parseNode(slice: Slice): MunBuilderNode {
+  const switched = parseSwitch(slice)
+  if (switched) {
+    // A switch whose only case is `default` is just its Views.
+    return switched.kind === "program"
+      ? { kind: "conditional", condition: { kind: "raw", source: "true", range: switched.range }, then: switched, range: switched.range }
+      : switched
+  }
   return parseConditional(slice) ?? parseCall(slice) ?? raw(slice)
 }
 
@@ -394,6 +500,8 @@ export interface MunStructDeclaration {
 export interface MunStructField {
   readonly name: string
   readonly kind: "stored" | "state" | "binding"
+  /** Swift access level as written; `private`/`fileprivate` members are not memberwise-initializable. */
+  readonly access?: "private" | "fileprivate" | "internal" | "public"
   readonly type?: string
   readonly initializer?: string
   readonly range: MunSourceRange
@@ -529,17 +637,21 @@ function parseStructMembers(body: string, baseOffset: number): { fields: MunStru
   // part of a TypeScript function type (`(value: string) => void`). Keep `=>`
   // inside the type span instead of truncating the type and inventing a
   // default value such as `> void`.
-  const fieldPattern = /(?:^|[;\n])\s*(?:(@State|@Binding)\s+)?(?:let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*:\s*((?:(?:=>)|[^=\n;])+))?(?:\s*=(?!>)\s*([^\n;]+))?/g
+  // `@State private var`, `private @State var`, `private let` …
+  const fieldPattern = /(?:^|[;\n])\s*(?:(private|fileprivate|internal|public)\s+)?(?:(@State|@Binding)\s+)?(?:(private|fileprivate|internal|public)\s+)?(?:let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*:\s*((?:(?:=>)|[^=\n;])+))?(?:\s*=(?!>)\s*([^\n;]+))?/g
   for (const match of maskedBody.matchAll(fieldPattern)) {
-    if (match[2] === "body") continue
-    const start = baseOffset + (match.index ?? 0) + match[0].indexOf(match[2])
+    const [, accessBefore, wrapper, accessAfter, name, type, initializerSource] = match
+    if (name === "body") continue
+    if (accessBefore && accessAfter) throw new SyntaxError(`Member '${name}' declares its access level twice`)
+    const access = (accessBefore ?? accessAfter) as MunStructField["access"]
+    const start = baseOffset + (match.index ?? 0) + match[0].indexOf(name, match[0].search(/\b(?:let|var)\s/) + 4)
     // An initializer may span lines inside brackets (`[\n { ... },\n]`); the
     // regex only sees its first line, so read the balanced extent.
-    const initializerStart = match[4] === undefined ? undefined : (match.index ?? 0) + match[0].length - match[4].length
+    const initializerStart = initializerSource === undefined ? undefined : (match.index ?? 0) + match[0].length - initializerSource.length
     const initializer = initializerStart === undefined
       ? undefined
       : body.slice(initializerStart, initializerEnd(maskedBody, initializerStart)).trim()
-    fields.push({ name: match[2], kind: match[1] === "@State" ? "state" : match[1] === "@Binding" ? "binding" : "stored", type: match[3]?.trim(), initializer, range: { start, end: start + match[2].length } })
+    fields.push({ name, kind: wrapper === "@State" ? "state" : wrapper === "@Binding" ? "binding" : "stored", ...(access ? { access } : {}), type: type?.trim(), initializer, range: { start, end: start + name.length } })
   }
   let cursor = 0
   while (true) {

@@ -207,7 +207,9 @@ function semanticInitializerParameters(source: string): readonly SemanticInitial
 }
 
 function synthesizedMemberwiseInitializer(declaration: MunStructDeclaration): MunSemanticInitializer {
-  const constructorFields = declaration.fields.filter(field => field.kind !== "state")
+  // @State is identity-owned storage and private members are internal to the
+  // View: neither is a memberwise parameter.
+  const constructorFields = declaration.fields.filter(field => field.kind !== "state" && field.access !== "private" && field.access !== "fileprivate")
   const parameters: SemanticInitializerParameter[] = constructorFields.map(field => ({
     name: field.name,
     label: field.name,

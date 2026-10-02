@@ -1,6 +1,6 @@
 struct SettingRow: View {
-  let title: string
-  @Binding var isOn: boolean
+  let title: String
+  @Binding var isOn: Bool
 
   var body: some View {
     HStack {
@@ -11,12 +11,13 @@ struct SettingRow: View {
   }
 }
 
+@main
 struct NativeSettingsPane: View {
-  @State var wifi: boolean = false
-  @State var bluetooth: boolean = true
-  @State var password: string = "pa55"
-  @State var synced: number = 3
-  @State var visits: number = 0
+  @State var wifi: Bool = false
+  @State var bluetooth: Bool = true
+  @State var password: String = "pa55"
+  @State var synced: Int = 3
+  @State var visits: Int = 0
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -35,5 +36,3 @@ struct NativeSettingsPane: View {
     .frame(width: 420)
   }
 }
-
-export default NativeSettingsPane()

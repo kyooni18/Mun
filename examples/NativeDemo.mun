@@ -1,7 +1,7 @@
 struct ExpandingPanel: View {
-  let expanded: boolean
-  let compactWidth: number = 160
-  let expandedWidth: number = 320
+  let expanded: Bool
+  let compactWidth: Int = 160
+  let expandedWidth: Int = 320
 
   var body: some View {
     RoundedRectangle(cornerRadius: 18)
@@ -12,15 +12,16 @@ struct ExpandingPanel: View {
 }
 
 struct ToggleControl: View {
-  @Binding var expanded: boolean
+  @Binding var expanded: Bool
 
   var body: some View {
     Button("Toggle") { expanded.toggle() }
   }
 }
 
+@main
 struct NativeDemo: View {
-  @State var expanded: boolean = false
+  @State var expanded: Bool = false
 
   var body: some View {
     VStack(spacing: 16) {
@@ -37,5 +38,3 @@ struct NativeDemo: View {
     .padding(24)
   }
 }
-
-export default NativeDemo()

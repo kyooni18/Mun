@@ -193,8 +193,30 @@ function splitTypeAlternatives(type: string): readonly string[] {
   return result.filter(Boolean)
 }
 
+const swiftScalarTypes: Readonly<Record<string, string>> = {
+  String: "string", Character: "string", Int: "number", Double: "number", Float: "number", CGFloat: "number", Bool: "boolean",
+}
+
+/**
+ * Normalize a declared type to the resolver's value-family spelling. Swift
+ * spellings (canonical .mun) and TypeScript spellings (legacy .mun.ts) meet
+ * here: `String`/`string`, `[T]`/`T[]`, `[K: V]`/`Record<K, V>`, `T?`.
+ */
 function normalizedType(type: string): string {
-  return type.trim().replace(/\s+/g, " ").replace(/\?$/, "")
+  const text = type.trim().replace(/\s+/g, " ").replace(/\?$/, "")
+  if (swiftScalarTypes[text]) return swiftScalarTypes[text]
+  const bracket = /^\[([\s\S]+)\]$/.exec(text)
+  if (bracket) {
+    const inner = bracket[1]
+    let depth = 0
+    for (let index = 0; index < inner.length; index += 1) {
+      if ("[(<".includes(inner[index])) depth += 1
+      else if ("])>".includes(inner[index])) depth -= 1
+      else if (inner[index] === ":" && depth === 0) return `Record<${normalizedType(inner.slice(0, index))}, ${normalizedType(inner.slice(index + 1))}>`
+    }
+    return `${normalizedType(inner)}[]`
+  }
+  return text
 }
 
 function stringLiteralTypeValue(type: string | undefined): string | undefined {
