@@ -3,6 +3,7 @@ import { createMunSourceMap, mapGeneratedPosition } from "./source-map.js"
 import { createSemanticModel } from "./semantic.js"
 import { transformMunSource } from "./pipeline.js"
 import { matching, regexCanStart, skipComment, skipRegex, skipString, validateRawHtmlSyntax } from "./scanner.js"
+import { compileMunUiProgram } from "./ui-ir.js"
 import type { MunDiagnostic } from "./types.js"
 
 
@@ -94,8 +95,13 @@ function topLevelStateScopeDiagnostics(source: string): MunDiagnostic[] {
   return diagnostics
 }
 
-export function diagnoseMunSource(source: string): readonly MunDiagnostic[] {
+/** Canonical files use native semantic validity; compatibility snippets retain TS diagnostics. */
+export function diagnoseMunSource(source: string, fileName?: string): readonly MunDiagnostic[] {
   try {
+    if (fileName && /\.mun$/iu.test(fileName)) {
+      compileMunUiProgram(source, fileName)
+      return []
+    }
     validateRawHtmlSyntax(source)
     for (let cursor = 0; cursor < source.length; cursor += 1) {
       if (source[cursor] === "\"" || source[cursor] === "'" || source[cursor] === "`") cursor = skipString(source, cursor) - 1
@@ -104,10 +110,10 @@ export function diagnoseMunSource(source: string): readonly MunDiagnostic[] {
       else if (source[cursor] === "(") matching(source, cursor, "(", ")")
       else if (source[cursor] === "{") matching(source, cursor, "{", "}")
     }
-    const fileName = "mun-source.mun.ts"
-    const generatedSource = transformMunSource(source, fileName)
-    const model = createSemanticModel(source, fileName, generatedSource)
-    const map = createMunSourceMap(source, generatedSource, fileName)
+    const generatedFileName = "mun-source.mun.ts"
+    const generatedSource = transformMunSource(source, generatedFileName)
+    const model = createSemanticModel(source, generatedFileName, generatedSource)
+    const map = createMunSourceMap(source, generatedSource, generatedFileName)
     const typescriptDiagnostics = model.typescriptDiagnostics.map(diagnostic => {
       const start = diagnostic.start ?? 0
       const position = model.typescript.getLineAndCharacterOfPosition(start)
@@ -136,9 +142,11 @@ export function diagnoseMunSource(source: string): readonly MunDiagnostic[] {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const offset = typeof error === "object" && error !== null && "offset" in error && typeof error.offset === "number" ? error.offset : 0
-    const code = typeof error === "object" && error !== null && "code" in error && error.code === "MUN_INITIALIZER"
-      ? "MUN_INITIALIZER" as const
-      : "MUN_SYNTAX" as const
+    const code = fileName && /\.mun$/iu.test(fileName)
+      ? "MUN_NATIVE" as const
+      : typeof error === "object" && error !== null && "code" in error && error.code === "MUN_INITIALIZER"
+        ? "MUN_INITIALIZER" as const
+        : "MUN_SYNTAX" as const
     const before = source.slice(0, offset)
     return [{ severity: "error", code, message, line: before.split("\n").length, column: offset - before.lastIndexOf("\n") }]
   }

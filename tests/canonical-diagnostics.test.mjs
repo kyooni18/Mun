@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { compileMunUiProgram } from "../packages/compiler/dist/index.js"
+import { compileMunUiProgram, compileMunDevProgram, diagnoseMunSource } from "../packages/compiler/dist/index.js"
 
 const view = (body, members = "") => `@main
 struct Probe: View {
@@ -92,4 +92,35 @@ test("Swift literals and entry points", () => {
   assert.equal(text.kind, "binary")
   assert.equal(JSON.stringify(text).includes('"stringify"'), true)
   assert.throws(() => compileMunUiProgram(`${view('Text("x")')}\nexport default Other()\n`), /@main Probe and export default Other\(\) name different entry Views/)
+})
+
+// The compatibility TS transform does not implement Swift key paths. It must
+// not decide whether a canonical native program is valid.
+test("canonical keyed collection shares native diagnostics and lowering", () => {
+  for (const count of [2, 1000]) {
+    const source = `@main
+struct Tasks: View {
+  @State var tasks: [Task] = [${Array.from({ length: count }, (_, n) => `{ id: "task-${n}", title: "Task ${n}" }`).join(', ')}]
+  var body: some View {
+    ForEach(tasks, id: \\.id) { task in
+      TaskRow(task: task)
+    }
+  }
+}
+struct TaskRow: View {
+  var task: Task
+  @State var done: Bool = false
+  var body: some View {
+    HStack {
+      Toggle("Done", isOn: $done)
+      Text(task.title)
+    }
+  }
+}`
+    assert.deepEqual(diagnoseMunSource(source, "Sources/Tasks.mun"), [])
+    assert.deepEqual(compileMunDevProgram(source).program, compileMunUiProgram(source))
+    const invalid = source.replace('isOn: $done', 'isOn: done')
+    assert.throws(() => compileMunUiProgram(invalid), /Binding/)
+    assert.match(diagnoseMunSource(invalid, "Sources/Tasks.mun")[0].message, /Binding/)
+  }
 })

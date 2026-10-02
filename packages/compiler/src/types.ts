@@ -22,7 +22,7 @@ export interface MunTransformResult {
 
 export interface MunDiagnostic {
   readonly severity: "error" | "warning"
-  readonly code: "MUN_SYNTAX" | "MUN_INITIALIZER" | "MUN_TYPESCRIPT" | "MUN_HTML_ATTRIBUTE" | "MUN_HTML_VALUE" | "MUN_STATE_SCOPE"
+  readonly code: "MUN_NATIVE" | "MUN_SYNTAX" | "MUN_INITIALIZER" | "MUN_TYPESCRIPT" | "MUN_HTML_ATTRIBUTE" | "MUN_HTML_VALUE" | "MUN_STATE_SCOPE"
   readonly message: string
   readonly line: number
   readonly column: number

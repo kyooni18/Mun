@@ -133,21 +133,14 @@ export class LanguageService {
     const snapshot = this.snapshot(uri)
     if (!snapshot) return []
     if (snapshot.diagnostics) return snapshot.diagnostics
-    snapshot.diagnostics = diagnoseMunSource(snapshot.source, uri).map(d => {
+    // Diagnose the native compilation unit, including cross-file custom Views.
+    // Never gate canonical lowering on the compatibility TypeScript transform.
+    const documents = [snapshot, ...[...this.documents.values()].filter(s => s !== snapshot)]
+    snapshot.diagnostics = diagnoseMunSource(documents.map(s => s.source).join('\n'), uri).flatMap(d => {
       const start = d.index ?? offsetAt(snapshot.source, { line: (d.line ?? 1) - 1, character: (d.column ?? 1) - 1 })
-      return { range: rangeAt(snapshot.source, start, Math.min(snapshot.source.length, start + 1)), severity: d.severity === 'warning' ? 2 : 1, code: d.code, source: 'mun', message: d.message }
+      if ((d.line ?? 1) > snapshot.source.split('\n').length) return []
+      return [{ range: rangeAt(snapshot.source, start, Math.min(snapshot.source.length, start + 1)), severity: d.severity === 'warning' ? 2 : 1, code: d.code, source: 'mun', message: d.message }]
     })
-    // Native lowering is the validity contract, not the compatibility TS transform.
-    if (!snapshot.diagnostics.some(d => d.severity === 1)) {
-      const documents = [snapshot, ...[...this.documents.values()].filter(s => s !== snapshot)]
-      try { compileMunUiProgram(documents.map(s => s.source).join('\n'), uri) }
-      catch (error) {
-        // Errors in another indexed file belong to that file, not this URI.
-        if (typeof error.offset === 'number' && error.offset > snapshot.source.length) return snapshot.diagnostics
-        const start = typeof error.offset === 'number' ? Math.max(0, error.offset) : 0
-        snapshot.diagnostics.push({ range: rangeAt(snapshot.source, start, Math.min(snapshot.source.length, start + (error.length ?? 1))), severity: 1, code: 'MUN_NATIVE', source: 'mun', message: error.message })
-      }
-    }
     return snapshot.diagnostics
   }
   codeActions(uri, range, context = {}) {

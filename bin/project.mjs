@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { compileMunDevProgram, compileMunUiProgram, diagnoseMunSource } from '@mun/compiler'
+import { compileMunDevProgram, compileMunUiProgram } from '@mun/compiler'
 
 const fields = new Set(['manifest_version', 'name', 'entry', 'identifier', 'version', 'minimum_mun_version', 'platforms', 'resources', 'fonts', 'icon', 'window_title'])
 const platforms = { darwin: 'macos', win32: 'windows', linux: 'linux' }
@@ -98,27 +98,9 @@ export function compileProject(project) {
 
 function compileSources(project, sources, development = false) {
   const timings = {}
-  let started = performance.now()
-  const errors = []
-  // Diagnose the same compilation unit used for lowering: cross-file custom
-  // Views must be visible to diagnostics, not independently treated as unknown.
+  const started = performance.now()
   sources = [...sources].sort((a, b) => a.path === project.entry ? -1 : b.path === project.entry ? 1 : a.path.localeCompare(b.path))
   const combined = sources.map(item => item.source).join('\n')
-  for (const diagnostic of diagnoseMunSource(combined, project.entry)) {
-    let line = diagnostic.line ?? 1
-    let owner = sources[0]
-    for (const item of sources) {
-      owner = item
-      const length = item.source.split('\n').length
-      if (line <= length) break
-      line -= length
-    }
-    const text = `${owner.path}:${line}:${diagnostic.column ?? 1}: ${diagnostic.code}: ${diagnostic.message}`
-    if (diagnostic.severity !== 'warning') errors.push(text)
-  }
-  timings.analyze = performance.now() - started
-  if (errors.length) throw new Error(errors.join('\n'))
-  started = performance.now()
   try {
     if (!development) return { program: compileMunUiProgram(combined, project.entry), timings }
     const result = compileMunDevProgram(combined, project.entry)

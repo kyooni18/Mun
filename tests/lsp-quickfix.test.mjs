@@ -61,3 +61,34 @@ test('project lowering diagnostic maps to the owning non-entry source', async ()
     assert.throws(() => compileProject({ root, entry }), /Card\.mun:2:7:/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('cross-file keyed collection diagnostics agree with native project compilation', () => {
+  const service = new LanguageService()
+  const app = `@main
+struct App: View {
+  @State var tasks: [Task] = [{ id: "a", title: "First" }, { id: "b", title: "Second" }]
+  var body: some View {
+    ForEach(tasks, id: \\.id) { task in
+      TaskRow(task: task)
+    }
+  }
+}`
+  const row = `struct TaskRow: View {
+  var task: Task
+  @State var done: Bool = false
+  var body: some View {
+    HStack {
+      Toggle("Done", isOn: $done)
+      Text(task.title)
+    }
+  }
+}`
+  service.update('file:///Sources/App.mun', app)
+  service.update('file:///Sources/TaskRow.mun', row)
+  assert.deepEqual(service.diagnostics('file:///Sources/App.mun'), [])
+  assert.deepEqual(service.diagnostics('file:///Sources/TaskRow.mun'), [])
+  service.update('file:///Sources/TaskRow.mun', row.replace('isOn: $done', 'isOn: done'))
+  assert.ok(service.diagnostics('file:///Sources/TaskRow.mun').some(d => /Binding/.test(d.message)))
+  service.update('file:///Sources/TaskRow.mun', row)
+  assert.deepEqual(service.diagnostics('file:///Sources/TaskRow.mun'), [])
+})
