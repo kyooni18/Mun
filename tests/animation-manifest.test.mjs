@@ -102,12 +102,16 @@ test("SwiftUI API manifest drives the canonical source contract and runtime mapp
   assert.equal(swiftUICanonicalModifierNames.has("opacity"), true)
   assert.equal(swiftUICanonicalModifierNames.has("margin"), false)
   assert.equal(swiftUIStaticModifierNames.has("margin"), true)
+  // Native claims only the value-scoped overload; the deprecated implicit
+  // `animation(_:)` is a named unsupported overload, not a silent omission.
   const animation = swiftUIApiManifest.modifiers.find(modifier => modifier.name === "animation")
-  assert.ok(animation)
-  assert.deepEqual(animation.swiftUISignatures, ["animation(_:)", "animation(_:value:)"])
-  assert.equal(swiftUIApiManifest.views.VStack.fidelity, "web-approximation")
-  assert.equal(swiftUIApiManifest.views.Group.fidelity, "source")
-  assert.equal(swiftUIApiManifest.schemaVersion, 1)
+  assert.ok(animation?.compat)
+  assert.deepEqual(animation.signatures.map(signature => signature.signature), ["animation(_:value:)"])
+  assert.ok(swiftUIApiManifest.unsupported.overloads.animation.includes("animation(_:)"))
+  // Web limitations are recorded separately and never downgrade native parity.
+  const [stack] = swiftUIApiManifest.views.VStack.initializers
+  assert.deepEqual([stack.contract, stack.native, stack.web], ["exact", "parity", "approximation"])
+  assert.equal(swiftUIApiManifest.schemaVersion, 2)
 })
 
 test("withAnimation snapshots its Transaction onto State changes", () => {

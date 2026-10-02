@@ -198,7 +198,7 @@ fn cut_failure_or_changed_selection_never_deletes_text() {
     assert_eq!(r.state_value("name").unwrap(), "Ada");
 }
 
-const WIDE_FIELD: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"Test","states":[{"name":"name","initial":"한국 hi"},{"name":"flag","initial":false}],"root":{"kind":"window","id":"window","title":"Test","child":{"kind":"column","id":"stack","layout":{"alignment":"leading"},"children":[{"kind":"textField","id":"field","state":"name","layout":{"width":{"kind":"literal","value":300},"height":{"kind":"literal","value":40}}},{"kind":"action","id":"button","label":"Go","action":{"kind":"toggle-state","state":"flag"}}]}}}"#;
+const WIDE_FIELD: &str = r#"{"version":1,"sourceLanguage":"mun","entry":"Test","states":[{"name":"name","initial":"한국 hi"},{"name":"flag","initial":false}],"root":{"kind":"window","id":"window","title":"Test","child":{"kind":"column","id":"stack","layout":{"alignment":"leading","maxWidth":"infinity","maxHeight":"infinity"},"children":[{"kind":"textField","id":"field","state":"name","layout":{"width":{"kind":"literal","value":300},"height":{"kind":"literal","value":40}}},{"kind":"action","id":"button","label":"Go","action":{"kind":"toggle-state","state":"flag"}}]}}}"#;
 
 fn rect<'a>(scene: &'a mun_runtime::Scene, id: &str) -> Option<&'a mun_runtime::scene::SceneRect> {
     scene.rects.iter().find(|item| item.id == id)

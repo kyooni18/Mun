@@ -2,8 +2,6 @@ import ts from "typescript"
 import { compileMotionPlan as compileInheritedMotionPlan, curves as inheritedCurves, spring as inheritedSpring, timing as inheritedTiming } from "@mun/animation/core"
 import {
   Animation,
-  Transition,
-  Transaction as CoreTransaction,
   munMotionPropertyBit,
   resolveSemanticInitializer,
   type MunMotionExecutionPlan,
@@ -23,9 +21,20 @@ import {
   type MunUiValue,
   type MunUiTransition,
   type MunUiVisual,
+  type MunUiShapeKind,
   type MunUiWindowNode,
   type SemanticArgument,
+  type SemanticInitializerSymbol,
 } from "@mun/core"
+import {
+  munExtension,
+  nativeModifierSymbols,
+  nativeViewInitializerSymbols,
+  swiftUIApiManifest,
+  swiftUIUnsupportedInitializerSignatures,
+  swiftUIUnsupportedModifierSignatures,
+  type SwiftUIViewSpec,
+} from "@mun/core/swiftui-manifest"
 import {
   parseMunBuilder,
   parseMunStructs,
@@ -33,12 +42,14 @@ import {
   type MunBuilderNode,
   type MunBuilderProgram,
   type MunCallExpression,
+  type MunClosureExpression,
   type MunConditionalExpression,
   type MunStructDeclaration,
 } from "./ast.js"
 import { assertCanonicalMunSource } from "./analysis.js"
+import { resolveContractCall } from "./native-contract.js"
+import { lowerAnimationValue, lowerColor, lowerPaint, lowerTransitionValue, nativeValueImplementations, parseMemberChain } from "./native-values.js"
 import {
-  canonicalViewSymbols,
   semanticViewLookupCandidates,
   semanticViewsForStructs,
   type MunSemanticView,
@@ -54,6 +65,8 @@ export interface MunUiCompileOptions {
 interface ModifierCall {
   readonly name: string
   readonly arguments: readonly MunArgument[]
+  /** `.name(…) { … }` / `.name { … }`. */
+  readonly trailing?: MunClosureExpression
 }
 
 interface MutableNodeParts {
@@ -69,11 +82,11 @@ type UiBindings = ReadonlyMap<string, MunUiExpression>
 interface ComponentSemanticArgument extends SemanticArgument {
   readonly sourceArgument?: MunArgument
   readonly trailingBodySource?: string
+  readonly trailingClosure?: MunClosureExpression
 }
 
 const emptyBindings: UiBindings = new Map()
 const literal = (value: MunUiValue): MunUiExpression => ({ kind: "literal", value })
-const canonicalUiViewSymbols = canonicalViewSymbols()
 
 function unwrap(expression: ts.Expression): ts.Expression {
   let current = expression
@@ -379,7 +392,8 @@ function componentSemanticArgument(
   if (implicitMember) {
     return {
       label: argument.label,
-      type: "string",
+      // `.infinity` is CGFloat.infinity; other implicit members are enum cases.
+      type: implicitMember[1] === "infinity" ? "number" : "string",
       value: implicitMember[1],
       sourceArgument: argument,
     }
@@ -443,7 +457,8 @@ function bindingStateExpression(
   const constructor = /^Binding\s*\(\s*\$?([A-Za-z_$][A-Za-z0-9_$]*)\s*\)$/.exec(trimmed)
   const name = shorthand?.[1] ?? constructor?.[1]
   if (!name) {
-    throw new SyntaxError(`Native @Binding requires $state or Binding(state): ${source}`)
+    const plain = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed) ? ` — pass $${trimmed}` : ""
+    throw new SyntaxError(`A Binding is required, but '${trimmed}' is a value${plain}. Use $state or Binding(state).`)
   }
   const bound = bindings.get(name)
   if (bound?.kind === "state") return bound
@@ -484,31 +499,6 @@ function explicitInitializerAssignments(bodySource: string): ReadonlyMap<string,
   return assignments
 }
 
-function validateCanonicalBuiltinCall(
-  call: MunCallExpression,
-  bindings: UiBindings,
-  stateTypes: ReadonlyMap<string, string>,
-): void {
-  const initializers = canonicalUiViewSymbols.get(call.callee)?.initializers
-  if (!initializers) return
-
-  const supplied: ComponentSemanticArgument[] = call.arguments.map(argument =>
-    componentSemanticArgument(argument, bindings, stateTypes)
-  )
-  if (call.trailing) supplied.push({ type: "function", trailing: true })
-
-  const result = resolveSemanticInitializer(initializers, supplied)
-  if (result.ok) return
-
-  const candidates = result.failure.candidates.map(candidate => candidate.signature).join("; ")
-  const prefix = result.failure.kind === "ambiguous"
-    ? "Ambiguous initializer"
-    : "No matching initializer"
-  throw new SyntaxError(
-    `${prefix} for native View '${call.callee}'.${candidates ? ` Available initializers: ${candidates}.` : ""}`,
-  )
-}
-
 function numberValue(source: string | undefined, fallback?: number, bindings: UiBindings = emptyBindings): number | undefined {
   if (source === undefined) return fallback
   const value = lowerValueExpression(source, bindings)
@@ -523,116 +513,6 @@ function stringValue(source: string | undefined, fallback?: string, bindings: Ui
   const value = lowerValueExpression(source, bindings)
   if (value.kind === "literal" && typeof value.value === "string") return value.value
   throw new SyntaxError(`Native semantic string value must be static: ${source}`)
-}
-
-function staticColor(expression: ts.Expression, source: string): string {
-  const value = unwrap(expression)
-  if (ts.isStringLiteralLike(value)) return value.text
-  if (
-    ts.isCallExpression(value)
-    && ts.isIdentifier(value.expression)
-    && value.expression.text === "Color"
-    && value.arguments.length === 1
-  ) {
-    return staticColor(value.arguments[0], source)
-  }
-  throw new SyntaxError(`Native ShapeStyle color must be a static string or Color(...): ${source}`)
-}
-
-function staticUnitPoint(expression: ts.Expression | undefined, fallback: MunUiOverlayAlignment, source: string): MunUiOverlayAlignment {
-  if (!expression) return fallback
-  const value = unwrap(expression)
-  const raw = expression.getText().trim()
-  const implicit = /^\.([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(raw)
-  const point = ts.isStringLiteralLike(value)
-    ? value.text
-    : ts.isPropertyAccessExpression(value)
-      ? value.name.text
-      : ts.isIdentifier(value)
-        ? value.text
-        : implicit?.[1]
-  if (
-    point === "center"
-    || point === "leading"
-    || point === "trailing"
-    || point === "top"
-    || point === "bottom"
-    || point === "topLeading"
-    || point === "topTrailing"
-    || point === "bottomLeading"
-    || point === "bottomTrailing"
-  ) return point
-  throw new SyntaxError(`Native LinearGradient unit point is not representable: ${source}`)
-}
-
-function paintValue(source: string | undefined): MunUiPaint | undefined {
-  if (source === undefined) return undefined
-  const expression = unwrap(parsedExpression(source))
-  if (ts.isStringLiteralLike(expression)) return { kind: "solid", color: expression.text }
-  if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression)) {
-    if (expression.expression.text === "Color" && expression.arguments.length === 1) {
-      return { kind: "solid", color: staticColor(expression.arguments[0], source) }
-    }
-    if (expression.expression.text === "LinearGradient" && expression.arguments.length >= 2 && expression.arguments.length <= 4) {
-      return {
-        kind: "linearGradient",
-        start: staticColor(expression.arguments[0], source),
-        end: staticColor(expression.arguments[1], source),
-        startPoint: staticUnitPoint(expression.arguments[2], "leading", source),
-        endPoint: staticUnitPoint(expression.arguments[3], "trailing", source),
-      }
-    }
-  }
-  throw new SyntaxError(`Native ShapeStyle must be a static color or LinearGradient: ${source}`)
-}
-
-function selectionOptions(source: string | undefined): readonly MunUiSelectionOption[] {
-  if (!source) throw new SyntaxError("RadioGroup/Picker requires static options")
-  const expression = unwrap(parsedExpression(source))
-  if (!ts.isArrayLiteralExpression(expression)) {
-    throw new SyntaxError("RadioGroup/Picker options must be a static array")
-  }
-  const seen = new Set<string>()
-  return expression.elements.map((element, index) => {
-    if (!ts.isObjectLiteralExpression(element)) {
-      throw new SyntaxError(`RadioGroup/Picker option #${index} must be an object literal`)
-    }
-    let label: string | undefined
-    let value: MunUiScalar | undefined
-    let disabled: boolean | undefined
-    for (const property of element.properties) {
-      if (!ts.isPropertyAssignment(property)) {
-        throw new SyntaxError(`RadioGroup/Picker option #${index} must contain data-only properties`)
-      }
-      const name = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
-        ? property.name.text
-        : undefined
-      if (!name || !["label", "value", "disabled"].includes(name)) {
-        throw new SyntaxError(`RadioGroup/Picker option #${index} has unsupported property`)
-      }
-      const item = unwrap(property.initializer)
-      const scalar = scalarFromExpression(item)
-      if (name === "label") {
-        if (typeof scalar !== "string") throw new SyntaxError(`RadioGroup/Picker option #${index} label must be a string`)
-        label = scalar
-      } else if (name === "value") {
-        if (typeof scalar !== "string" && (typeof scalar !== "number" || !Number.isFinite(scalar))) {
-          throw new SyntaxError(`RadioGroup/Picker option #${index} value must be a string or finite number`)
-        }
-        value = scalar
-      } else {
-        if (typeof scalar !== "boolean") throw new SyntaxError(`RadioGroup/Picker option #${index} disabled must be boolean`)
-        disabled = scalar
-      }
-    }
-    if (label === undefined || value === undefined) {
-      throw new SyntaxError(`RadioGroup/Picker option #${index} requires label and value`)
-    }
-    const key = `${typeof value}:${String(value)}`
-    if (seen.has(key)) throw new SyntaxError("RadioGroup/Picker option values must be unique")
-    seen.add(key)
-    return { label, value, ...(disabled === undefined ? {} : { disabled }) }
-  })
 }
 
 function bindingState(source: string | undefined, bindings: UiBindings, control: string): string {
@@ -804,93 +684,6 @@ function actionFromClosure(source: string, bindings: UiBindings = emptyBindings)
   throw new SyntaxError(`Action body is not yet representable in native Mün IR: ${source.trim()}`)
 }
 
-function scalarAnimationArgument(expression: ts.Expression, source: string): MunUiScalar {
-  const value = scalarFromExpression(unwrap(expression))
-  if (value === undefined) {
-    throw new SyntaxError(`Native Animation arguments must be compile-time scalars: ${source}`)
-  }
-  return value
-}
-
-function animationNumber(value: MunUiScalar | undefined, fallback: number, source: string): number {
-  if (value === undefined) return fallback
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new SyntaxError(`Native Animation numeric argument must be finite: ${source}`)
-  }
-  return value
-}
-
-function animationBoolean(value: MunUiScalar | undefined, fallback: boolean, source: string): boolean {
-  if (value === undefined) return fallback
-  if (typeof value !== "boolean") {
-    throw new SyntaxError(`Native Animation boolean argument must be literal: ${source}`)
-  }
-  return value
-}
-
-function resolveCoreAnimation(expression: ts.Expression, source: string): Animation {
-  const current = unwrap(expression)
-  if (ts.isPropertyAccessExpression(current)) {
-    const owner = unwrap(current.expression)
-    if (ts.isIdentifier(owner) && owner.text === "Animation" && current.name.text === "default") {
-      return Animation.default
-    }
-  }
-  if (!ts.isCallExpression(current) || !ts.isPropertyAccessExpression(current.expression)) {
-    throw new SyntaxError(`Expected an Animation factory/modifier call, received: ${source}`)
-  }
-
-  const method = current.expression.name.text
-  const owner = unwrap(current.expression.expression)
-  const args = current.arguments.map(argument => scalarAnimationArgument(argument, source))
-
-  if (ts.isIdentifier(owner) && owner.text === "Animation") {
-    switch (method) {
-      case "linear": return Animation.linear(animationNumber(args[0], 0.35, source))
-      case "easeIn": return Animation.easeIn(animationNumber(args[0], 0.35, source))
-      case "easeOut": return Animation.easeOut(animationNumber(args[0], 0.35, source))
-      case "easeInOut": return Animation.easeInOut(animationNumber(args[0], 0.35, source))
-      case "spring": return Animation.spring(
-        animationNumber(args[0], 0.55, source),
-        animationNumber(args[1], 0.825, source),
-        animationNumber(args[2], 0, source),
-      )
-      case "interactiveSpring": return Animation.interactiveSpring(
-        animationNumber(args[0], 0.15, source),
-        animationNumber(args[1], 0.86, source),
-        animationNumber(args[2], 0.25, source),
-      )
-      case "smooth": return Animation.smooth(
-        animationNumber(args[0], 0.5, source),
-        animationNumber(args[1], 0, source),
-      )
-      case "snappy": return Animation.snappy(
-        animationNumber(args[0], 0.5, source),
-        animationNumber(args[1], 0, source),
-      )
-      case "bouncy": return Animation.bouncy(
-        animationNumber(args[0], 0.5, source),
-        animationNumber(args[1], 0, source),
-      )
-      default:
-        throw new SyntaxError(`Unsupported native Animation factory: ${method}`)
-    }
-  }
-
-  const base = resolveCoreAnimation(owner, source)
-  switch (method) {
-    case "delay": return base.delay(animationNumber(args[0], 0, source))
-    case "speed": return base.speed(animationNumber(args[0], 1, source))
-    case "repeatCount": return base.repeatCount(
-      animationNumber(args[0], 1, source),
-      animationBoolean(args[1], true, source),
-    )
-    case "repeatForever": return base.repeatForever(animationBoolean(args[0], true, source))
-    default:
-      throw new SyntaxError(`Unsupported native Animation modifier: ${method}`)
-  }
-}
-
 function lowerAnimation(animation: Animation, source: string): MunMotionExecutionPlan {
   const descriptor = animation.descriptor
   const repeatCount: number | "infinite" = descriptor.repeatCount === Number.POSITIVE_INFINITY
@@ -939,149 +732,32 @@ function lowerAnimation(animation: Animation, source: string): MunMotionExecutio
 }
 
 function animationPlan(source: string): MunMotionExecutionPlan {
-  return lowerAnimation(resolveCoreAnimation(parsedExpression(source), source), source)
-}
-
-function transitionNumberArgument(
-  expression: ts.Expression | undefined,
-  fallback: number,
-  source: string,
-  label: string,
-): number {
-  if (!expression) return fallback
-  const value = scalarFromExpression(unwrap(expression))
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new SyntaxError(`Native Transition ${label} must be a finite static number: ${source}`)
-  }
-  return value
-}
-
-function transitionEdge(expression: ts.Expression, source: string): "top" | "bottom" | "leading" | "trailing" | "left" | "right" {
-  const scalar = scalarFromExpression(unwrap(expression))
-  if (typeof scalar === "string" && ["top", "bottom", "leading", "trailing", "left", "right"].includes(scalar)) {
-    return scalar as "top" | "bottom" | "leading" | "trailing" | "left" | "right"
-  }
-  const current = unwrap(expression)
-  if (ts.isPropertyAccessExpression(current) && ts.isIdentifier(current.expression)) {
-    const value = current.name.text
-    if (["top", "bottom", "leading", "trailing", "left", "right"].includes(value)) {
-      return value as "top" | "bottom" | "leading" | "trailing" | "left" | "right"
-    }
-  }
-  throw new SyntaxError("Native Transition edge must be a static edge: " + source)
-}
-
-function resolveCoreTransition(expression: ts.Expression, source: string): Transition {
-  const current = unwrap(expression)
-  if (ts.isPropertyAccessExpression(current)) {
-    const owner = unwrap(current.expression)
-    if (ts.isIdentifier(owner) && owner.text === "Transition") {
-      if (current.name.text === "identity") return Transition.identity
-      if (current.name.text === "opacity") return Transition.opacity
-    }
-  }
-
-  if (!ts.isCallExpression(current) || !ts.isPropertyAccessExpression(current.expression)) {
-    throw new SyntaxError("Expected a Transition expression, received: " + source)
-  }
-
-  const method = current.expression.name.text
-  const owner = unwrap(current.expression.expression)
-  if (ts.isIdentifier(owner) && owner.text === "Transition") {
-    switch (method) {
-      case "scale":
-        return Transition.scale(transitionNumberArgument(current.arguments[0], 0.95, source, "scale"))
-      case "move": {
-        const edge = current.arguments[0]
-        if (!edge) throw new SyntaxError("Transition.move requires an edge: " + source)
-        const distance = transitionNumberArgument(current.arguments[1], 24, source, "distance")
-        return Transition.move(transitionEdge(edge, source), distance)
-      }
-      case "asymmetric": {
-        const insertion = current.arguments[0]
-        const removal = current.arguments[1]
-        if (!insertion || !removal) throw new SyntaxError("Transition.asymmetric requires insertion and removal: " + source)
-        return Transition.asymmetric(
-          resolveCoreTransition(insertion, insertion.getText()),
-          resolveCoreTransition(removal, removal.getText()),
-        )
-      }
-      default:
-        throw new SyntaxError("Unsupported native Transition factory: " + method)
-    }
-  }
-
-  const base = resolveCoreTransition(owner, source)
-  switch (method) {
-    case "combined": {
-      const next = current.arguments[0]
-      if (!next) throw new SyntaxError("Transition.combined requires another transition: " + source)
-      return base.combined(resolveCoreTransition(next, next.getText()))
-    }
-    case "animation": {
-      const animation = current.arguments[0]
-      if (!animation) throw new SyntaxError("Transition.animation requires an Animation: " + source)
-      return base.animation(resolveCoreAnimation(animation, animation.getText()))
-    }
-    default:
-      throw new SyntaxError("Unsupported native Transition modifier: " + method)
-  }
+  return lowerAnimation(lowerAnimationValue(source), source)
 }
 
 function lowerTransition(source: string): MunUiTransition {
-  const transition = resolveCoreTransition(parsedExpression(source), source)
-  const descriptor = transition.descriptor
+  const transition = lowerTransitionValue(source)
   return {
-    insertion: descriptor.insertion.map(effect => ({ ...effect })),
-    removal: descriptor.removal.map(effect => ({ ...effect })),
-    ...(descriptor.animation ? { animation: lowerAnimation(descriptor.animation, source + ".animation") } : {}),
+    insertion: transition.insertion.map(effect => ({ ...effect })),
+    removal: transition.removal.map(effect => ({ ...effect })),
+    ...(transition.animation ? { animation: lowerAnimation(transition.animation, `${source}.animation`) } : {}),
   }
 }
 
+/** `Transaction(animation: .linear(duration: 1))`. */
 function transactionPlan(source: string): MunUiAction["transaction"] & {} {
-  const expression = unwrap(parsedExpression(source))
-  if (!ts.isNewExpression(expression) || !ts.isIdentifier(expression.expression) || expression.expression.text !== "Transaction") {
-    throw new SyntaxError(`Native withTransaction requires new Transaction(...), received: ${source}`)
+  const trimmed = source.trim()
+  if (/^new\s/.test(trimmed)) throw new SyntaxError(`'new' is TypeScript syntax. Use Transaction(animation: …): ${source}`)
+  const statement = parseMunBuilder(trimmed).statements[0]
+  const argument = statement?.kind === "call" && statement.callee === "Transaction" && !statement.trailing && statement.arguments.length === 1
+    ? statement.arguments[0]
+    : undefined
+  if (!argument || argument.label !== "animation" || argument.value.kind !== "raw") {
+    throw new SyntaxError(`withTransaction requires Transaction(animation: …): ${source}`)
   }
-
-  const argument = expression.arguments?.[0]
-  let transaction: CoreTransaction
-  if (!argument || argument.kind === ts.SyntaxKind.NullKeyword) {
-    transaction = new CoreTransaction(null)
-  } else if (ts.isObjectLiteralExpression(argument)) {
-    let animation: Animation | null | undefined
-    let disablesAnimations: boolean | undefined
-    let isContinuous: boolean | undefined
-    for (const property of argument.properties) {
-      if (!ts.isPropertyAssignment(property)) {
-        throw new SyntaxError(`Native Transaction options must use static property assignments: ${source}`)
-      }
-      const name = property.name.getText().replace(/^['"]|['"]$/g, "")
-      if (name === "animation") {
-        animation = property.initializer.kind === ts.SyntaxKind.NullKeyword
-          ? null
-          : resolveCoreAnimation(property.initializer, property.initializer.getText())
-      } else if (name === "disablesAnimations" || name === "isContinuous") {
-        const value = scalarFromExpression(unwrap(property.initializer))
-        if (typeof value !== "boolean") {
-          throw new SyntaxError(`Transaction ${name} must be a static boolean: ${source}`)
-        }
-        if (name === "disablesAnimations") disablesAnimations = value
-        else isContinuous = value
-      } else {
-        throw new SyntaxError(`Unsupported native Transaction option '${name}'`)
-      }
-    }
-    transaction = new CoreTransaction({ animation, disablesAnimations, isContinuous })
-  } else {
-    transaction = new CoreTransaction(resolveCoreAnimation(argument, argument.getText()))
-  }
-
-  return {
-    animation: transaction.animation ? lowerAnimation(transaction.animation, source) : null,
-    disablesAnimations: transaction.disablesAnimations,
-    isContinuous: transaction.isContinuous,
-  }
+  const animationSource = argument.value.source.trim()
+  const animation = animationSource === "nil" ? null : lowerAnimationValue(animationSource)
+  return { animation: animation ? lowerAnimation(animation, source) : null, disablesAnimations: false, isContinuous: false }
 }
 
 function skipQuoted(source: string, index: number): number {
@@ -1093,7 +769,7 @@ function skipQuoted(source: string, index: number): number {
   throw new SyntaxError("Unclosed string while reading Mün view modifiers")
 }
 
-function findMatchingParenthesis(source: string, openIndex: number): number {
+function findMatchingParenthesis(source: string, openIndex: number, open = "(", close = ")"): number {
   let depth = 1
   for (let cursor = openIndex + 1; cursor < source.length; cursor += 1) {
     const character = source[cursor]
@@ -1101,13 +777,13 @@ function findMatchingParenthesis(source: string, openIndex: number): number {
       cursor = skipQuoted(source, cursor) - 1
       continue
     }
-    if (character === "(") depth += 1
-    else if (character === ")") {
+    if (character === open) depth += 1
+    else if (character === close) {
       depth -= 1
       if (depth === 0) return cursor
     }
   }
-  throw new SyntaxError("Unclosed modifier argument list in Mün source")
+  throw new SyntaxError(open === "(" ? "Unclosed modifier argument list in Mün source" : "Unclosed modifier closure in Mün source")
 }
 
 function firstTopLevelModifier(source: string): number {
@@ -1133,12 +809,12 @@ function firstTopLevelModifier(source: string): number {
   return -1
 }
 
-function modifierArguments(source: string): readonly MunArgument[] {
-  if (!source.trim()) return []
-  const program = parseMunBuilder(`M(${source})`)
+function modifierArguments(source: string, trailing?: string): Pick<ModifierCall, "arguments" | "trailing"> {
+  if (!source.trim() && trailing === undefined) return { arguments: [] }
+  const program = parseMunBuilder(`M(${source})${trailing === undefined ? "" : ` ${trailing}`}`)
   const statement = program.statements[0]
   if (!statement || statement.kind !== "call") throw new SyntaxError(`Invalid Mün modifier arguments: ${source}`)
-  return statement.arguments
+  return { arguments: statement.arguments, ...(statement.trailing ? { trailing: statement.trailing } : {}) }
 }
 
 function splitViewChain(source: string): { readonly base: MunBuilderNode; readonly modifiers: readonly ModifierCall[] } {
@@ -1165,329 +841,32 @@ function splitViewChain(source: string): { readonly base: MunBuilderNode; readon
     while (/[A-Za-z0-9_$]/.test(trimmed[cursor] ?? "")) cursor += 1
     const name = trimmed.slice(nameStart, cursor)
     while (/\s/.test(trimmed[cursor] ?? "")) cursor += 1
-    if (trimmed[cursor] !== "(") throw new SyntaxError(`Modifier .${name} requires an argument list`)
-    const close = findMatchingParenthesis(trimmed, cursor)
-    modifiers.push({ name, arguments: modifierArguments(trimmed.slice(cursor + 1, close)) })
-    cursor = close + 1
+    // `.name(args)`, `.name(args) { … }` or `.name { … }` (trailing closure).
+    let argumentSource = ""
+    const hasArgumentList = trimmed[cursor] === "("
+    if (hasArgumentList) {
+      const close = findMatchingParenthesis(trimmed, cursor)
+      argumentSource = trimmed.slice(cursor + 1, close)
+      cursor = close + 1
+    }
+    let lookahead = cursor
+    while (/\s/.test(trimmed[lookahead] ?? "")) lookahead += 1
+    let trailing: string | undefined
+    if (trimmed[lookahead] === "{") {
+      const close = findMatchingParenthesis(trimmed, lookahead, "{", "}")
+      trailing = trimmed.slice(lookahead, close + 1)
+      cursor = close + 1
+    } else if (!hasArgumentList) {
+      throw new SyntaxError(`Modifier .${name} requires an argument list`)
+    }
+    modifiers.push({ name, ...modifierArguments(argumentSource, trailing) })
   }
 
   return { base: program.statements[0], modifiers }
 }
 
-function modifierRaw(modifier: ModifierCall, label: string, positionalIndex: number): string | undefined {
-  const labeled = modifier.arguments.find(argument => argument.label === label)
-  const argument = labeled ?? modifier.arguments.filter(item => item.label === undefined)[positionalIndex]
-  return argument?.value.kind === "raw" ? argument.value.source.trim() : undefined
-}
-
-function normalizedVStackAlignment(source: string | undefined): MunUiAlignment | undefined {
-  if (source === undefined) return undefined
-  const value = source.trim().replace(/^\./, "")
-  if (value === "leading" || value === "center" || value === "trailing" || value === "stretch") return value
-  throw new SyntaxError(`Native VStack alignment must be leading, center, trailing, or stretch: ${source}`)
-}
-
-function normalizedHStackAlignment(source: string | undefined): MunUiAlignment | undefined {
-  if (source === undefined) return undefined
-  const value = source.trim().replace(/^\./, "")
-  if (value === "top" || value === "leading") return "leading"
-  if (value === "bottom" || value === "trailing") return "trailing"
-  if (value === "center" || value === "stretch") return value
-  throw new SyntaxError(`Native HStack alignment must be top, center, bottom, or stretch: ${source}`)
-}
-
-function normalizedOverlayAlignment(source: string | undefined): MunUiOverlayAlignment | undefined {
-  if (source === undefined) return undefined
-  const value = source.trim().replace(/^\./, "") as MunUiOverlayAlignment
-  if (
-    value === "center"
-    || value === "leading"
-    || value === "trailing"
-    || value === "top"
-    || value === "bottom"
-    || value === "topLeading"
-    || value === "topTrailing"
-    || value === "bottomLeading"
-    || value === "bottomTrailing"
-  ) return value
-  throw new SyntaxError(`Native ZStack alignment must be a static ZStack alignment: ${source}`)
-}
-
-function offsetSources(modifier: ModifierCall): { readonly x?: string; readonly y?: string } {
-  const labeledX = modifier.arguments.find(argument => argument.label === "x")
-  const labeledY = modifier.arguments.find(argument => argument.label === "y")
-  if (labeledX || labeledY) {
-    return {
-      x: labeledX?.value.kind === "raw" ? labeledX.value.source.trim() : undefined,
-      y: labeledY?.value.kind === "raw" ? labeledY.value.source.trim() : undefined,
-    }
-  }
-
-  const positional = modifier.arguments.filter(argument => argument.label === undefined)
-  const first = positional[0]?.value.kind === "raw" ? positional[0].value.source.trim() : undefined
-  const second = positional[1]?.value.kind === "raw" ? positional[1].value.source.trim() : undefined
-  if (second !== undefined) return { x: first, y: second }
-  if (!first) return {}
-
-  const expression = unwrap(parsedExpression(first))
-  if (ts.isObjectLiteralExpression(expression)) {
-    const member = (name: string): string | undefined => {
-      const property = expression.properties.find(property => {
-        if (!ts.isPropertyAssignment(property)) return false
-        const key = property.name
-        return (ts.isIdentifier(key) || ts.isStringLiteral(key)) && key.text === name
-      })
-      return property && ts.isPropertyAssignment(property) ? property.initializer.getText() : undefined
-    }
-    const x = member("x")
-    const y = member("y")
-    if (x !== undefined || y !== undefined) return { x, y }
-  }
-
-  // The runtime graph API treats a single numeric/expression argument as x.
-  return { x: first, y: "0" }
-}
-
 function expressionIsDynamic(value: MunUiExpression | undefined): value is MunUiExpression {
   return !!value && value.kind !== "literal"
-}
-
-function semanticIdentityKey(modifier: ModifierCall, bindings: UiBindings): MunUiExpression {
-  const source = modifierRaw(modifier, "value", 0)
-  if (!source) throw new SyntaxError("id requires a semantic identity value")
-  const identityKey = lowerValueExpression(source, bindings)
-  if (
-    identityKey.kind === "literal"
-    && (
-      (typeof identityKey.value !== "string" && typeof identityKey.value !== "number")
-      || (typeof identityKey.value === "number" && !Number.isFinite(identityKey.value))
-    )
-  ) {
-    throw new SyntaxError("Mün semantic identity keys must resolve to a string or finite number")
-  }
-  return identityKey
-}
-
-interface SupportedModifierShape {
-  readonly labels: ReadonlySet<string>
-  readonly maxPositional: number
-}
-
-const supportedModifierShapes: Readonly<Record<string, SupportedModifierShape>> = {
-  id: { labels: new Set(["value"]), maxPositional: 1 },
-  frame: { labels: new Set(["width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight"]), maxPositional: 2 },
-  padding: { labels: new Set(["length"]), maxPositional: 1 },
-  background: { labels: new Set(["style", "color"]), maxPositional: 1 },
-  fill: { labels: new Set(["style", "color"]), maxPositional: 1 },
-  foregroundStyle: { labels: new Set(["style", "color"]), maxPositional: 1 },
-  foregroundColor: { labels: new Set(["style", "color"]), maxPositional: 1 },
-  cornerRadius: { labels: new Set(["radius"]), maxPositional: 1 },
-  opacity: { labels: new Set(["value"]), maxPositional: 1 },
-  offset: { labels: new Set(["x", "y"]), maxPositional: 2 },
-  transition: { labels: new Set(["transition", "value"]), maxPositional: 1 },
-  animation: { labels: new Set(["animation", "value"]), maxPositional: 2 },
-}
-
-/** `.frame(minWidth:maxWidth:minHeight:maxHeight:)`; `.infinity` only for max bounds. */
-function frameBounds(modifier: ModifierCall, bindings: UiBindings): Pick<MunUiLayout, "minWidth" | "maxWidth" | "minHeight" | "maxHeight"> {
-  const bounds: { minWidth?: number; maxWidth?: number | "infinity"; minHeight?: number; maxHeight?: number | "infinity" } = {}
-  for (const label of ["minWidth", "maxWidth", "minHeight", "maxHeight"] as const) {
-    const source = modifier.arguments.find(argument => argument.label === label)
-    if (source?.value.kind !== "raw") continue
-    const text = source.value.source.trim()
-    if (/^(?:\.infinity|Infinity|Number\.POSITIVE_INFINITY)$/.test(text)) {
-      if (label === "minWidth" || label === "minHeight") throw new SyntaxError(`.frame(${label}:) must be finite`)
-      bounds[label] = "infinity"
-      continue
-    }
-    const value = numberValue(text, undefined, bindings)
-    if (value === undefined || value < 0) {
-      throw new SyntaxError(`.frame(${label}:) must be a static non-negative number or .infinity: ${text}`)
-    }
-    bounds[label] = value
-  }
-  return bounds
-}
-
-function assertSupportedModifierShape(modifier: ModifierCall): void {
-  const shape = supportedModifierShapes[modifier.name]
-  if (!shape) return
-
-  const positional = modifier.arguments.filter(argument => argument.label === undefined)
-  if (positional.length > shape.maxPositional) {
-    throw new SyntaxError(
-      `View modifier '.${modifier.name}' has ${positional.length} positional arguments, but native Semantic UI IR supports at most ${shape.maxPositional}`,
-    )
-  }
-
-  const seenLabels = new Set<string>()
-  for (const argument of modifier.arguments) {
-    if (argument.value.kind !== "raw") {
-      throw new SyntaxError(`View modifier '.${modifier.name}' closure arguments are not representable in native Semantic UI IR`)
-    }
-    if (argument.label === undefined) continue
-    if (!shape.labels.has(argument.label)) {
-      throw new SyntaxError(
-        `View modifier '.${modifier.name}' argument '${argument.label}' is not representable in native Semantic UI IR`,
-      )
-    }
-    if (seenLabels.has(argument.label)) {
-      throw new SyntaxError(`View modifier '.${modifier.name}' repeats argument '${argument.label}'`)
-    }
-    seenLabels.add(argument.label)
-  }
-}
-
-function applyModifiers(
-  node: MunUiNode,
-  modifiers: readonly ModifierCall[],
-  bindings: UiBindings = emptyBindings,
-): MunUiNode {
-  let parts: MutableNodeParts = {
-    identityKey: node.identityKey,
-    layout: node.layout,
-    visual: node.visual,
-    motion: node.motion,
-    transition: node.transition,
-  }
-  let pendingAnimation: { readonly plan: MunMotionExecutionPlan; readonly trigger?: MunUiExpression } | undefined
-
-  for (const modifier of modifiers) {
-    assertSupportedModifierShape(modifier)
-    if (modifier.name === "id") {
-      parts = { ...parts, identityKey: semanticIdentityKey(modifier, bindings) }
-      continue
-    }
-
-    if (modifier.name === "frame") {
-      parts = {
-        ...parts,
-        layout: {
-          ...parts.layout,
-          width: modifierRaw(modifier, "width", 0) ? lowerValueExpression(modifierRaw(modifier, "width", 0)!, bindings) : parts.layout?.width,
-          height: modifierRaw(modifier, "height", 1) ? lowerValueExpression(modifierRaw(modifier, "height", 1)!, bindings) : parts.layout?.height,
-          ...frameBounds(modifier, bindings),
-        },
-      }
-      continue
-    }
-
-    if (modifier.name === "padding") {
-      parts = {
-        ...parts,
-        layout: {
-          ...parts.layout,
-          padding: numberValue(modifierRaw(modifier, "length", 0), 8, bindings),
-        },
-      }
-      continue
-    }
-    if (modifier.name === "background" || modifier.name === "fill") {
-      const background = paintValue(
-        modifierRaw(modifier, "style", 0) ?? modifierRaw(modifier, "color", 0),
-      )
-      if (background) parts = { ...parts, visual: { ...parts.visual, background } }
-      continue
-    }
-
-    if (modifier.name === "foregroundStyle" || modifier.name === "foregroundColor") {
-      const foreground = paintValue(
-        modifierRaw(modifier, "style", 0) ?? modifierRaw(modifier, "color", 0),
-      )
-      if (foreground) parts = { ...parts, visual: { ...parts.visual, foreground } }
-      continue
-    }
-
-
-    if (modifier.name === "cornerRadius") {
-      parts = {
-        ...parts,
-        visual: {
-          ...parts.visual,
-          cornerRadius: numberValue(modifierRaw(modifier, "radius", 0), 0, bindings),
-        },
-      }
-      continue
-    }
-
-    if (modifier.name === "opacity") {
-      const source = modifierRaw(modifier, "value", 0)
-      if (!source) throw new SyntaxError("opacity requires a value")
-      parts = {
-        ...parts,
-        visual: {
-          ...parts.visual,
-          opacity: lowerValueExpression(source, bindings),
-        },
-      }
-      continue
-    }
-
-    if (modifier.name === "offset") {
-      const { x, y } = offsetSources(modifier)
-      parts = {
-        ...parts,
-        visual: {
-          ...parts.visual,
-          translationX: x ? lowerValueExpression(x, bindings) : literal(0),
-          translationY: y ? lowerValueExpression(y, bindings) : literal(0),
-        },
-      }
-      continue
-    }
-
-    if (modifier.name === "transition") {
-      const source = modifierRaw(modifier, "transition", 0) ?? modifierRaw(modifier, "value", 0)
-      if (!source) throw new SyntaxError("transition requires a Transition value")
-      parts = { ...parts, transition: lowerTransition(source) }
-      continue
-    }
-
-    if (modifier.name === "animation") {
-      const planSource = modifierRaw(modifier, "animation", 0)
-      if (!planSource) throw new SyntaxError("animation requires an Animation value")
-      const triggerSource = modifierRaw(modifier, "value", 1)
-      pendingAnimation = {
-        plan: animationPlan(planSource),
-        trigger: triggerSource ? lowerValueExpression(triggerSource, bindings) : undefined,
-      }
-      continue
-    }
-
-    throw new SyntaxError(`View modifier '.${modifier.name}' is not representable in Mün semantic UI IR`)
-  }
-
-  const motionBindings: Array<NonNullable<MunUiNode["motion"]>[number]> = [...(parts.motion ?? [])]
-  const candidates: readonly [MunMotionProperty, MunUiExpression | undefined][] = [
-    ["width", parts.layout?.width],
-    ["height", parts.layout?.height],
-    ["opacity", parts.visual?.opacity],
-    ["translationX", parts.visual?.translationX],
-    ["translationY", parts.visual?.translationY],
-  ]
-  for (const [property, value] of candidates) {
-    if (!expressionIsDynamic(value)) continue
-    const existing = motionBindings.findIndex(binding => binding.property === property)
-    const binding = {
-      property,
-      propertyMask: munMotionPropertyBit(property),
-      value,
-      ...(pendingAnimation?.trigger ? { trigger: pendingAnimation.trigger } : {}),
-      ...(pendingAnimation ? { plan: pendingAnimation.plan } : {}),
-    }
-    if (existing >= 0) motionBindings[existing] = binding
-    else motionBindings.push(binding)
-  }
-  if (motionBindings.length > 0) parts = { ...parts, motion: motionBindings }
-
-  return {
-    ...node,
-    ...(parts.identityKey ? { identityKey: parts.identityKey } : {}),
-    ...(parts.layout ? { layout: parts.layout } : {}),
-    ...(parts.visual ? { visual: parts.visual } : {}),
-    ...(parts.motion ? { motion: parts.motion } : {}),
-    ...(parts.transition ? { transition: parts.transition } : {}),
-  }
 }
 
 interface StructDeclarationIndex {
@@ -1550,7 +929,7 @@ function nodeIdentityPathForModifiers(
   let current = path
   for (const modifier of modifiers) {
     if (modifier.name !== "id") continue
-    const identityKey = semanticIdentityKey(modifier, bindings)
+    const identityKey = semanticIdentityKey(idModifierSource(modifier), bindings)
     if (identityKey.kind !== "literal") continue
     if (typeof identityKey.value !== "string" && typeof identityKey.value !== "number") continue
     current = keyedIdentityPath(current, identityKey.value)
@@ -1566,12 +945,772 @@ function stateIdentityPathForModifiers(
   let current = path
   for (const modifier of modifiers) {
     if (modifier.name !== "id") continue
-    const identityKey = semanticIdentityKey(modifier, bindings)
+    const identityKey = semanticIdentityKey(idModifierSource(modifier), bindings)
     if (identityKey.kind !== "literal") return null
     if (typeof identityKey.value !== "string" && typeof identityKey.value !== "number") return null
     current = keyedStateIdentityPath(current, identityKey.value)
   }
   return current
+}
+
+interface NativeCallContext {
+  readonly lowerer: UiLowerer
+  readonly call: MunCallExpression
+  readonly args: ReadonlyMap<string, ComponentSemanticArgument>
+  readonly bindings: UiBindings
+  readonly path: UiIdentityPath
+  readonly statePath: UiStateIdentityPath
+}
+
+function argumentSource(context: { readonly args: ReadonlyMap<string, ComponentSemanticArgument> }, name: string): string | undefined {
+  const argument = context.args.get(name)?.sourceArgument
+  return argument?.value.kind === "raw" ? argument.value.source.trim() : undefined
+}
+
+function argumentClosure(context: { readonly args: ReadonlyMap<string, ComponentSemanticArgument> }, name: string): MunClosureExpression | undefined {
+  const argument = context.args.get(name)
+  if (argument?.trailingClosure) return argument.trailingClosure
+  return argument?.sourceArgument?.value.kind === "closure" ? argument.sourceArgument.value : undefined
+}
+
+function staticTitle(source: string | undefined, bindings: UiBindings, what: string): string {
+  const value = source === undefined ? undefined : lowerValueExpression(source, bindings)
+  if (value?.kind === "literal" && typeof value.value === "string") return value.value
+  throw new SyntaxError(`${what} must be a string literal in native Mün: ${source}`)
+}
+
+/** `Text("literal")` as a prompt or label. */
+function staticTextView(source: string, what: string): string {
+  const statement = parseMunBuilder(source.trim()).statements[0]
+  const argument = statement?.kind === "call" && statement.callee === "Text" && !statement.trailing && statement.arguments.length === 1
+    ? statement.arguments[0]
+    : undefined
+  const text = argument && argument.label === undefined && argument.value.kind === "raw" ? argument.value.source.trim() : undefined
+  if (text && /^"(?:[^"\\]|\\.)*"$/.test(text)) return JSON.parse(text) as string
+  throw new SyntaxError(`${what} must be Text with a string literal in native Mün: ${source.trim()}`)
+}
+
+function closureLabel(closure: MunClosureExpression | undefined, what: string): string {
+  if (!closure || closure.body.statements.length !== 1) throw new SyntaxError(`${what} must contain exactly one Text`)
+  const statement = closure.body.statements[0]
+  return staticTextView(statement.kind === "raw" || statement.kind === "call" ? closure.bodySource : "", what)
+}
+
+function horizontalAlignment(source: string | undefined): MunUiAlignment | undefined {
+  if (source === undefined) return undefined
+  const value = source.trim().replace(/^(?:HorizontalAlignment)?\./, "")
+  if (value === "leading" || value === "center" || value === "trailing") return value
+  throw new SyntaxError(`VStack alignment must be .leading, .center or .trailing: ${source}`)
+}
+
+function verticalAlignment(source: string | undefined): MunUiAlignment | undefined {
+  if (source === undefined) return undefined
+  const value = source.trim().replace(/^(?:VerticalAlignment)?\./, "")
+  if (value === "top") return "leading"
+  if (value === "bottom") return "trailing"
+  if (value === "center") return "center"
+  if (value === "firstTextBaseline" || value === "lastTextBaseline") {
+    throw new SyntaxError(`HStack text-baseline alignment is not implemented by native Mün: ${source}`)
+  }
+  throw new SyntaxError(`HStack alignment must be .top, .center or .bottom: ${source}`)
+}
+
+const alignments: readonly MunUiOverlayAlignment[] = ["center", "leading", "trailing", "top", "bottom", "topLeading", "topTrailing", "bottomLeading", "bottomTrailing"]
+
+function alignment(source: string | undefined, what: string): MunUiOverlayAlignment | undefined {
+  if (source === undefined) return undefined
+  const value = source.trim().replace(/^(?:Alignment)?\./, "")
+  if ((alignments as readonly string[]).includes(value)) return value as MunUiOverlayAlignment
+  throw new SyntaxError(`${what} must be an Alignment such as .center or .topLeading: ${source}`)
+}
+
+/** System-default metrics (global divergence `defaultMetrics`). */
+const defaultStackSpacing = 8
+const defaultPadding = 16
+
+const flexibleBoth: MunUiLayout = { maxWidth: "infinity", maxHeight: "infinity" }
+
+function shapeNode(context: NativeCallContext, shape: MunUiShapeKind, cornerRadius?: number): MunUiNode {
+  return {
+    kind: "panel",
+    id: context.lowerer.id("panel", context.path),
+    shape,
+    // Shapes fill the space they are offered, like SwiftUI shapes.
+    layout: flexibleBoth,
+    ...(cornerRadius !== undefined ? { visual: { cornerRadius } } : {}),
+  }
+}
+
+function cornerStyle(source: string | undefined): void {
+  if (source === undefined) return
+  const value = source.trim().replace(/^(?:RoundedCornerStyle)?\./, "")
+  if (value !== "continuous" && value !== "circular") throw new SyntaxError(`Corner style must be .continuous or .circular: ${source}`)
+}
+
+/** Picker content: `Text("Label").tag(value)` rows, optionally `.disabled(true)`. */
+function pickerOptions(closure: MunClosureExpression | undefined): readonly MunUiSelectionOption[] {
+  if (!closure) throw new SyntaxError("Picker requires content")
+  const seen = new Set<string>()
+  return closure.body.statements.map((statement, index) => {
+    if (statement.kind === "conditional") throw new SyntaxError(`Picker content #${index + 1} must be Text(…).tag(…); conditionals are not supported`)
+    const source = statement.kind === "raw"
+      ? statement.source.trim()
+      : closure.bodySource.slice(statement.range.start - closure.body.range.start, statement.range.end - closure.body.range.start).trim()
+    const dot = firstTopLevelModifier(source)
+    const label = staticTextView(dot < 0 ? source : source.slice(0, dot), `Picker content #${index + 1}`)
+    const modifiers = dot < 0 ? [] : splitViewChain(source).modifiers
+    let value: MunUiScalar | undefined
+    let disabled = false
+    for (const modifier of modifiers) {
+      const argument = modifier.arguments[0]
+      const raw = argument?.value.kind === "raw" ? argument.value.source.trim() : undefined
+      if (modifier.name === "tag" && modifier.arguments.length === 1 && argument.label === undefined && raw !== undefined) {
+        const lowered = lowerValueExpression(raw)
+        if (lowered.kind !== "literal" || (typeof lowered.value !== "string" && (typeof lowered.value !== "number" || !Number.isFinite(lowered.value)))) {
+          throw new SyntaxError(`Picker tag must be a static string or number: ${raw}`)
+        }
+        value = lowered.value
+      } else if (modifier.name === "disabled" && modifier.arguments.length === 1 && raw !== undefined) {
+        if (raw !== "true" && raw !== "false") throw new SyntaxError(`Picker option .disabled(_:) must be a static Bool: ${raw}`)
+        disabled = raw === "true"
+      } else {
+        throw new SyntaxError(`Picker content supports only .tag(_:) and .disabled(_:), found .${modifier.name}`)
+      }
+    }
+    if (value === undefined) throw new SyntaxError(`Picker content #${index + 1} requires .tag(_:)`)
+    const key = `${typeof value}:${String(value)}`
+    if (seen.has(key)) throw new SyntaxError("Picker tags must be unique")
+    seen.add(key)
+    return { label, value, ...(disabled ? { disabled } : {}) }
+  })
+}
+
+function stackChildren(context: NativeCallContext): MunUiNode[] {
+  const closure = argumentClosure(context, "content")
+  return closure ? context.lowerer.lowerProgram(closure.body, context.bindings, [...context.path, "content"], childIdentityPath(context.statePath, "content")) : []
+}
+
+/**
+ * Native implementations of manifest View overloads, keyed `View.signature`.
+ * Their keys are the compiler's implementation metadata (nativeLoweringMetadata).
+ */
+const nativeViews: Readonly<Record<string, (context: NativeCallContext) => MunUiNode[]>> = {
+  "Text.init(_:)": context => [textNode(context, argumentSource(context, "content"))],
+  "Text.init(verbatim:)": context => [textNode(context, argumentSource(context, "verbatim"))],
+  "Button.init(_:action:)": context => [actionNode(context, staticTitle(argumentSource(context, "title"), context.bindings, "Button title"), argumentClosure(context, "action"))],
+  "Button.init(action:label:)": context => [actionNode(context, closureLabel(argumentClosure(context, "label"), "Button label"), argumentClosure(context, "action"))],
+  "TextField.init(_:text:)": context => [textFieldNode(context, staticTitle(argumentSource(context, "title"), context.bindings, "TextField title"))],
+  "TextField.init(_:text:prompt:)": context => [textFieldNode(context, staticTitle(argumentSource(context, "title"), context.bindings, "TextField title"), staticTextView(argumentSource(context, "prompt") ?? "", "TextField prompt"))],
+  "SecureField.init(_:text:)": context => [textFieldNode(context, staticTitle(argumentSource(context, "title"), context.bindings, "SecureField title"), undefined, true)],
+  "SecureField.init(_:text:prompt:)": context => [textFieldNode(context, staticTitle(argumentSource(context, "title"), context.bindings, "SecureField title"), staticTextView(argumentSource(context, "prompt") ?? "", "SecureField prompt"), true)],
+  "Toggle.init(_:isOn:)": context => [toggleNode(context, staticTitle(argumentSource(context, "title"), context.bindings, "Toggle title"))],
+  "Toggle.init(isOn:label:)": context => [toggleNode(context, closureLabel(argumentClosure(context, "label"), "Toggle label"))],
+  "ProgressView.init(value:total:)": context => [progressNode(context)],
+  "ProgressView.init(_:value:total:)": context => [progressNode(context, staticTitle(argumentSource(context, "title"), context.bindings, "ProgressView title"))],
+  "Spacer.init(minLength:)": context => {
+    const minLength = numberValue(argumentSource(context, "minLength"), undefined, context.bindings)
+    if (minLength !== undefined && minLength < 0) throw new SyntaxError(`Spacer minLength must not be negative: ${minLength}`)
+    return [{ kind: "spacer", id: context.lowerer.id("spacer", context.path), ...(minLength !== undefined ? { minLength } : {}) }]
+  },
+  "Divider.init()": context => [{ kind: "divider", id: context.lowerer.id("divider", context.path) }],
+  "Picker.init(_:selection:content:)": context => {
+    const title = staticTitle(argumentSource(context, "title"), context.bindings, "Picker title")
+    return [{
+      kind: "radioGroup",
+      id: context.lowerer.id("radioGroup", context.path),
+      state: bindingState(argumentSource(context, "selection"), context.bindings, "Picker"),
+      options: pickerOptions(argumentClosure(context, "content")),
+      accessibility: { role: "radioGroup", label: title },
+    }]
+  },
+  "VStack.init(alignment:spacing:content:)": context => {
+    const spacing = numberValue(argumentSource(context, "spacing"), defaultStackSpacing, context.bindings)
+    const align = horizontalAlignment(argumentSource(context, "alignment"))
+    return [{ kind: "column", id: context.lowerer.id("column", context.path), layout: { spacing, ...(align ? { alignment: align } : {}) }, accessibility: { role: "group" }, children: stackChildren(context) }]
+  },
+  "HStack.init(alignment:spacing:content:)": context => {
+    const spacing = numberValue(argumentSource(context, "spacing"), defaultStackSpacing, context.bindings)
+    const align = verticalAlignment(argumentSource(context, "alignment"))
+    return [{ kind: "row", id: context.lowerer.id("row", context.path), layout: { spacing, ...(align ? { alignment: align } : {}) }, accessibility: { role: "group" }, children: stackChildren(context) }]
+  },
+  "ZStack.init(alignment:content:)": context => {
+    const align = alignment(argumentSource(context, "alignment"), "ZStack alignment")
+    return [{ kind: "overlay", id: context.lowerer.id("overlay", context.path), ...(align ? { alignment: align } : {}), accessibility: { role: "group" }, children: stackChildren(context) }]
+  },
+  "ScrollView.init(_:content:)": context => {
+    const raw = argumentSource(context, "axes")?.replace(/^(?:Axis\.Set)?\./, "")
+    if (raw !== undefined && raw !== "vertical" && raw !== "horizontal") {
+      throw new SyntaxError(`ScrollView axes must be .vertical or .horizontal in native Mün: ${argumentSource(context, "axes")}`)
+    }
+    return [{
+      kind: "scroll",
+      id: context.lowerer.id("scroll", context.path),
+      axis: raw === "horizontal" ? "horizontal" : "vertical",
+      // A ScrollView takes the space it is offered, like SwiftUI's.
+      layout: flexibleBoth,
+      accessibility: { role: "group" },
+      children: stackChildren(context),
+    }]
+  },
+  "ForEach.init(_:id:content:)": context => [context.lowerer.lowerForEach(context, keyPathFromSource(argumentSource(context, "id")))],
+  "ForEach.init(_:content:)": context => [context.lowerer.lowerForEach(context, ["id"])],
+  "Group.init(content:)": context => stackChildren(context),
+  "Rectangle.init()": context => [shapeNode(context, "rectangle")],
+  "RoundedRectangle.init(cornerRadius:style:)": context => {
+    cornerStyle(argumentSource(context, "style"))
+    const radius = numberValue(argumentSource(context, "cornerRadius"), undefined, context.bindings)
+    return [shapeNode(context, "roundedRectangle", radius)]
+  },
+  "Circle.init()": context => [shapeNode(context, "circle")],
+  "Capsule.init(style:)": context => {
+    cornerStyle(argumentSource(context, "style"))
+    return [shapeNode(context, "capsule")]
+  },
+}
+
+function textNode(context: NativeCallContext, source: string | undefined): MunUiNode {
+  if (!source) throw new SyntaxError("Text requires content")
+  const value = lowerValueExpression(source, context.bindings)
+  return {
+    kind: "text",
+    id: context.lowerer.id("text", context.path),
+    value,
+    accessibility: {
+      role: "text",
+      ...(value.kind === "literal" && typeof value.value === "string" ? { label: value.value } : {}),
+    },
+  }
+}
+
+function actionNode(context: NativeCallContext, label: string, closure: MunClosureExpression | undefined): MunUiNode {
+  if (!closure) throw new SyntaxError("Button requires an action closure")
+  return {
+    kind: "action",
+    id: context.lowerer.id("action", context.path),
+    label,
+    action: actionFromClosure(closure.bodySource, context.bindings),
+    accessibility: { role: "button", label },
+  }
+}
+
+function textFieldNode(context: NativeCallContext, title: string, prompt?: string, secure = false): MunUiNode {
+  const placeholder = prompt ?? title
+  return {
+    kind: "textField",
+    id: context.lowerer.id("textField", context.path),
+    state: bindingState(argumentSource(context, "text"), context.bindings, secure ? "SecureField" : "TextField"),
+    ...(placeholder ? { placeholder } : {}),
+    ...(secure ? { secure } : {}),
+    // A TextField takes the width it is offered, like SwiftUI's.
+    layout: { maxWidth: "infinity" },
+    accessibility: { role: "textField", ...(title ? { label: title } : {}) },
+  }
+}
+
+function toggleNode(context: NativeCallContext, label: string): MunUiNode {
+  return {
+    kind: "toggle",
+    id: context.lowerer.id("toggle", context.path),
+    state: bindingState(argumentSource(context, "isOn"), context.bindings, "Toggle"),
+    label,
+    accessibility: { role: "checkBox", label },
+  }
+}
+
+function progressNode(context: NativeCallContext, label?: string): MunUiNode {
+  const total = argumentSource(context, "total")
+  return {
+    kind: "progress",
+    id: context.lowerer.id("progress", context.path),
+    value: lowerValueExpression(argumentSource(context, "value")!, context.bindings),
+    ...(total !== undefined ? { total: lowerValueExpression(total, context.bindings) } : {}),
+    ...(label ? { label } : {}),
+    accessibility: { role: "progressIndicator", ...(label ? { label } : {}) },
+  }
+}
+
+/** `Window(_:width:height:content:)` — the Mün desktop window extension. */
+const windowSymbols: readonly SemanticInitializerSymbol[] = [{
+  kind: "initializer",
+  index: 0,
+  signature: "init(_:width:height:content:)",
+  parameters: [
+    { kind: "value", name: "title", labelRequired: false, required: true, type: "string" },
+    { kind: "value", name: "width", label: "width", labelRequired: true, required: false, type: "number" },
+    { kind: "value", name: "height", label: "height", labelRequired: true, required: false, type: "number" },
+    { kind: "viewBuilder", name: "content", label: "content", labelRequired: true, required: true, trailing: true },
+  ],
+}]
+
+interface ModifierStep {
+  readonly modifier: ModifierCall
+  readonly signature: string
+  readonly args: ReadonlyMap<string, ComponentSemanticArgument>
+}
+
+/**
+ * Inside-out stages of Mün's native box model. A modifier applied after a
+ * later-stage one wraps the View, so SwiftUI's modifier order is observable:
+ * `.padding().background(c)` paints the padding, `.background(c).padding()`
+ * does not.
+ */
+const modifierStages: Readonly<Record<string, number>> = { padding: 1, frame: 2, background: 3, cornerRadius: 4, opacity: 5, offset: 5 }
+
+const controlKinds = new Set<MunUiNode["kind"]>(["action", "textField", "radioGroup", "toggle"])
+const foregroundKinds = new Set<MunUiNode["kind"]>(["text", "panel", "action", "textField", "toggle", "progress"])
+
+function flexibleOn(node: MunUiNode, horizontal: boolean): boolean {
+  const layout = node.layout
+  return horizontal
+    ? layout?.width === undefined && layout?.maxWidth !== undefined
+    : layout?.height === undefined && layout?.maxHeight !== undefined
+}
+
+function childrenOf(node: MunUiNode): readonly MunUiNode[] {
+  switch (node.kind) {
+    case "column": case "row": case "overlay": case "scroll": case "forEach": return node.children
+    case "conditional": return [...node.then, ...node.otherwise]
+    case "window": return [node.child]
+    default: return []
+  }
+}
+
+function withChildren(node: MunUiNode, map: (child: MunUiNode) => MunUiNode): MunUiNode {
+  switch (node.kind) {
+    case "column": case "row": case "overlay": case "scroll": case "forEach":
+      return { ...node, children: node.children.map(map) } as MunUiNode
+    case "conditional":
+      return { ...node, then: node.then.map(map), otherwise: node.otherwise.map(map) }
+    case "window":
+      return { ...node, child: map(node.child) }
+    default:
+      return node
+  }
+}
+
+/** Lexical environment values written by modifiers and inherited by descendants. */
+function inheritEnvironment(node: MunUiNode, environment: { readonly disabled?: MunUiExpression; readonly foreground?: MunUiPaint }): MunUiNode {
+  let current = node
+  if (environment.disabled && controlKinds.has(current.kind)) {
+    const enabled: MunUiExpression = { kind: "not", value: environment.disabled }
+    const existing = current.accessibility?.enabled
+    current = {
+      ...current,
+      accessibility: {
+        ...(current.accessibility ?? { role: "group" }),
+        enabled: existing ? { kind: "binary", operator: "and", left: existing, right: enabled } : enabled,
+      },
+    } as MunUiNode
+  }
+  if (environment.foreground && foregroundKinds.has(current.kind) && !current.visual?.foreground) {
+    current = { ...current, visual: { ...current.visual, foreground: environment.foreground } } as MunUiNode
+  }
+  return withChildren(current, child => inheritEnvironment(child, environment))
+}
+
+/** The innermost semantic node under compiler-made wrappers. */
+function semanticCore(node: MunUiNode, wrappers: ReadonlySet<MunUiNode>, update: (node: MunUiNode) => MunUiNode): MunUiNode {
+  if (wrappers.has(node) && node.kind === "overlay" && node.children.length === 1) {
+    return { ...node, children: [semanticCore(node.children[0], wrappers, update)] }
+  }
+  return update(node)
+}
+
+class NodeComposer {
+  node: MunUiNode
+  #stage = 0
+  #wrapperCount = 0
+  readonly #wrappers = new Set<MunUiNode>()
+  /** Modifier index at which each dynamic property was last written on the current level. */
+  #setAt = new Map<MunMotionProperty, number>()
+
+  constructor(node: MunUiNode, private readonly animations: readonly { readonly index: number; readonly plan: MunMotionExecutionPlan; readonly trigger?: MunUiExpression }[]) {
+    this.node = node
+  }
+
+  get stage(): number { return this.#stage }
+
+  isWrapper(node = this.node): boolean { return this.#wrappers.has(node) }
+
+  /** Begin a new layer around the current node. */
+  wrap(alignment?: MunUiOverlayAlignment): void {
+    const inner = this.#finalize(this.node)
+    const { identityKey, transition, ...rest } = inner
+    this.#wrapperCount += 1
+    const wrapper: MunUiNode = {
+      kind: "overlay",
+      id: `${inner.id}~${this.#wrapperCount}`,
+      ...(identityKey ? { identityKey } : {}),
+      ...(transition ? { transition } : {}),
+      ...(alignment && alignment !== "center" ? { alignment } : {}),
+      children: [rest as MunUiNode],
+    }
+    this.#wrappers.add(wrapper)
+    this.node = wrapper
+    this.#stage = 0
+    this.#setAt = new Map()
+  }
+
+  enter(stage: number): void {
+    if (this.#stage > stage) this.wrap()
+    this.#stage = Math.max(this.#stage, stage)
+  }
+
+  layout(update: MunUiLayout, index: number): void {
+    this.node = { ...this.node, layout: { ...this.node.layout, ...update } } as MunUiNode
+    if (update.width !== undefined) this.#setAt.set("width", index)
+    if (update.height !== undefined) this.#setAt.set("height", index)
+  }
+
+  visual(update: MunUiNode["visual"] & {}, index: number): void {
+    this.node = { ...this.node, visual: { ...this.node.visual, ...update } } as MunUiNode
+    if (update.opacity !== undefined) this.#setAt.set("opacity", index)
+    if (update.translationX !== undefined) this.#setAt.set("translationX", index)
+    if (update.translationY !== undefined) this.#setAt.set("translationY", index)
+  }
+
+  /** Apply to the innermost semantic node (labels, enabled state). */
+  semantic(update: (node: MunUiNode) => MunUiNode): void {
+    this.node = semanticCore(this.node, this.#wrappers, update)
+  }
+
+  meta(update: Partial<Pick<MunUiNode, "identityKey" | "transition" | "lifecycle">>): void {
+    this.node = { ...this.node, ...update } as MunUiNode
+  }
+
+  /** Rewrite the current node in place (environment inheritance). */
+  transform(update: (node: MunUiNode) => MunUiNode): void {
+    const wrapper = this.#wrappers.has(this.node)
+    this.node = update(this.node)
+    if (wrapper) this.#wrappers.add(this.node)
+  }
+
+  /** Replace the current node with a new outer layer built from `finish()`. */
+  layer(node: MunUiNode): void {
+    this.node = node
+    this.#wrappers.add(node)
+    this.#stage = 0
+    this.#setAt = new Map()
+  }
+
+  finish(): MunUiNode {
+    return this.#finalize(this.node)
+  }
+
+  #finalize(node: MunUiNode): MunUiNode {
+    const motion: Array<NonNullable<MunUiNode["motion"]>[number]> = [...(node.motion ?? [])]
+    const candidates: readonly [MunMotionProperty, MunUiExpression | undefined][] = [
+      ["width", node.layout?.width],
+      ["height", node.layout?.height],
+      ["opacity", node.visual?.opacity],
+      ["translationX", node.visual?.translationX],
+      ["translationY", node.visual?.translationY],
+    ]
+    for (const [property, value] of candidates) {
+      if (!expressionIsDynamic(value) || motion.some(binding => binding.property === property)) continue
+      // The innermost `.animation(_:value:)` after the write animates it.
+      const writtenAt = this.#setAt.get(property) ?? -1
+      const animation = this.animations.find(candidate => candidate.index > writtenAt)
+      motion.push({
+        property,
+        propertyMask: munMotionPropertyBit(property),
+        value,
+        ...(animation?.trigger ? { trigger: animation.trigger } : {}),
+        ...(animation ? { plan: animation.plan } : {}),
+      })
+    }
+    return motion.length > 0 ? { ...node, motion } as MunUiNode : node
+  }
+}
+
+function frameBound(source: string | undefined, label: string, bindings: UiBindings, allowInfinity: boolean): number | "infinity" | undefined {
+  if (source === undefined) return undefined
+  if (/^(?:\.infinity|CGFloat\.infinity|Double\.infinity)$/.test(source)) {
+    if (!allowInfinity) throw new SyntaxError(`.frame(${label}:) must be finite`)
+    return "infinity"
+  }
+  const value = numberValue(source, undefined, bindings)
+  if (value === undefined || value < 0) throw new SyntaxError(`.frame(${label}:) must be a static non-negative number${allowInfinity ? " or .infinity" : ""}: ${source}`)
+  return value
+}
+
+function edgeInsets(edges: string | undefined, length: number): MunUiLayout["padding"] {
+  if (edges === undefined) return length
+  const sets: Readonly<Record<string, readonly ("top" | "leading" | "bottom" | "trailing")[]>> = {
+    all: ["top", "leading", "bottom", "trailing"],
+    horizontal: ["leading", "trailing"],
+    vertical: ["top", "bottom"],
+    top: ["top"], bottom: ["bottom"], leading: ["leading"], trailing: ["trailing"],
+  }
+  const names = edges.trim().startsWith("[")
+    ? splitTopLevel(edges.trim().slice(1, -1)).map(item => item.trim())
+    : [edges.trim()]
+  const chosen = new Set<string>()
+  for (const name of names) {
+    const edge = sets[name.replace(/^(?:Edge\.Set)?\./, "")]
+    if (!edge) throw new SyntaxError(`padding edges must be Edge.Set members such as .horizontal or [.top, .leading]: ${edges}`)
+    for (const item of edge) chosen.add(item)
+  }
+  if (chosen.size === 4) return length
+  return {
+    top: chosen.has("top") ? length : 0,
+    leading: chosen.has("leading") ? length : 0,
+    bottom: chosen.has("bottom") ? length : 0,
+    trailing: chosen.has("trailing") ? length : 0,
+  }
+}
+
+function addPadding(existing: MunUiLayout["padding"], added: MunUiLayout["padding"]): MunUiLayout["padding"] {
+  if (existing === undefined) return added
+  const edges = (value: MunUiLayout["padding"]) => typeof value === "number" || value === undefined
+    ? { top: value ?? 0, leading: value ?? 0, bottom: value ?? 0, trailing: value ?? 0 }
+    : value
+  const left = edges(existing)
+  const right = edges(added)
+  const sum = { top: left.top + right.top, leading: left.leading + right.leading, bottom: left.bottom + right.bottom, trailing: left.trailing + right.trailing }
+  return sum.top === sum.leading && sum.top === sum.bottom && sum.top === sum.trailing ? sum.top : sum
+}
+
+interface NativeModifierContext {
+  readonly lowerer: UiLowerer
+  readonly composer: NodeComposer
+  readonly args: ReadonlyMap<string, ComponentSemanticArgument>
+  readonly bindings: UiBindings
+  readonly index: number
+  readonly modifier: ModifierCall
+  readonly path: UiIdentityPath
+}
+
+const isContainer = (node: MunUiNode): boolean => node.kind === "column" || node.kind === "row" || node.kind === "overlay" || node.kind === "scroll"
+
+function applyFrame(context: NativeModifierContext, update: MunUiLayout, align: MunUiOverlayAlignment | undefined): void {
+  const { composer } = context
+  const horizontal = update.width !== undefined || update.minWidth !== undefined || update.maxWidth !== undefined
+  const vertical = update.height !== undefined || update.minHeight !== undefined || update.maxHeight !== undefined
+  const node = composer.node
+  const occupied = (axis: "width" | "height") => axis === "width"
+    ? node.layout?.width !== undefined || node.layout?.minWidth !== undefined || (node.layout?.maxWidth !== undefined && !flexibleOn(node, true))
+    : node.layout?.height !== undefined || node.layout?.minHeight !== undefined || (node.layout?.maxHeight !== undefined && !flexibleOn(node, false))
+  // A frame merges into the View only where the result is identical: a
+  // shape or color fills any frame; a View already flexible on an axis fills
+  // it; a compiler wrapper is itself a frame. Everything else is wrapped so
+  // the View is placed inside the frame by `alignment` (default .center).
+  const fills = node.kind === "panel"
+    || composer.isWrapper()
+    || ((!horizontal || flexibleOn(node, true)) && (!vertical || flexibleOn(node, false)))
+  const merge = fills
+    && composer.stage <= 2
+    && !(horizontal && occupied("width"))
+    && !(vertical && occupied("height"))
+    && (align === undefined || align === "center" || composer.isWrapper())
+  if (!merge) composer.wrap(align)
+  else if (align && align !== "center" && node.kind === "overlay" && composer.isWrapper()) {
+    composer.transform(current => ({ ...current, alignment: align }) as MunUiNode)
+  }
+  composer.enter(2)
+  composer.layout(update, context.index)
+}
+
+/**
+ * Native implementations of manifest modifier overloads, keyed by signature.
+ * Their keys are the compiler's implementation metadata (nativeLoweringMetadata).
+ */
+const nativeModifiers: Readonly<Record<string, (context: NativeModifierContext) => void>> = {
+  "frame(width:height:alignment:)": context => {
+    const width = argumentSource(context, "width")
+    const height = argumentSource(context, "height")
+    const update: { width?: MunUiExpression; height?: MunUiExpression } = {}
+    if (width !== undefined) update.width = lowerValueExpression(width, context.bindings)
+    if (height !== undefined) update.height = lowerValueExpression(height, context.bindings)
+    applyFrame(context, update, alignment(argumentSource(context, "alignment"), "frame alignment"))
+  },
+  "frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)": context => {
+    for (const ideal of ["idealWidth", "idealHeight"]) {
+      if (context.args.has(ideal)) throw new SyntaxError(`.frame(${ideal}:) is not implemented in native Mün: layout has no ideal-size proposal. Use width/height or min/max bounds.`)
+    }
+    const update: { minWidth?: number; maxWidth?: number | "infinity"; minHeight?: number; maxHeight?: number | "infinity" } = {}
+    const minWidth = frameBound(argumentSource(context, "minWidth"), "minWidth", context.bindings, false)
+    const maxWidth = frameBound(argumentSource(context, "maxWidth"), "maxWidth", context.bindings, true)
+    const minHeight = frameBound(argumentSource(context, "minHeight"), "minHeight", context.bindings, false)
+    const maxHeight = frameBound(argumentSource(context, "maxHeight"), "maxHeight", context.bindings, true)
+    if (typeof minWidth === "number") update.minWidth = minWidth
+    if (maxWidth !== undefined) update.maxWidth = maxWidth
+    if (typeof minHeight === "number") update.minHeight = minHeight
+    if (maxHeight !== undefined) update.maxHeight = maxHeight
+    applyFrame(context, update, alignment(argumentSource(context, "alignment"), "frame alignment"))
+  },
+  "padding(_:)": context => padding(context, undefined, numberValue(argumentSource(context, "length"), undefined, context.bindings) ?? defaultPadding),
+  "padding(_:_:)": context => padding(context, argumentSource(context, "edges"), numberValue(argumentSource(context, "length"), defaultPadding, context.bindings) ?? defaultPadding),
+  "background(_:ignoresSafeAreaEdges:)": context => {
+    const edges = argumentSource(context, "ignoresSafeAreaEdges")?.replace(/^(?:Edge\.Set)?\./, "")
+    if (edges !== undefined && edges !== "all") throw new SyntaxError(`.background(_:ignoresSafeAreaEdges:) accepts only .all in native Mün (windows have no safe-area insets): ${argumentSource(context, "ignoresSafeAreaEdges")}`)
+    const paint = lowerPaint(argumentSource(context, "style")!)
+    // Text and containers paint their own box; anything else (shapes,
+    // controls) gets the background as a separate layer behind it.
+    const node = context.composer.node
+    if (node.visual?.background || !(node.kind === "text" || isContainer(node))) context.composer.wrap()
+    context.composer.enter(3)
+    context.composer.visual({ background: paint }, context.index)
+  },
+  "background(alignment:content:)": context => layered(context, "background"),
+  "overlay(alignment:content:)": context => layered(context, "overlay"),
+  "foregroundStyle(_:)": context => {
+    const foreground = lowerPaint(argumentSource(context, "style")!)
+    context.composer.transform(node => inheritEnvironment(node, { foreground }))
+  },
+  "fill(_:style:)": context => {
+    if (context.composer.node.kind !== "panel") throw new SyntaxError(".fill(_:style:) applies to a Shape")
+    if (context.args.has("style")) throw new SyntaxError(".fill(_:style:) with a FillStyle is not implemented in native Mün")
+    const foreground = lowerPaint(argumentSource(context, "content")!)
+    context.composer.visual({ foreground }, context.index)
+  },
+  "cornerRadius(_:antialiased:)": context => {
+    context.composer.enter(4)
+    context.composer.visual({ cornerRadius: numberValue(argumentSource(context, "radius"), 0, context.bindings) }, context.index)
+  },
+  "opacity(_:)": context => {
+    if (context.composer.node.visual?.opacity !== undefined) context.composer.wrap()
+    context.composer.enter(5)
+    context.composer.visual({ opacity: lowerValueExpression(argumentSource(context, "opacity")!, context.bindings) }, context.index)
+  },
+  "offset(x:y:)": context => {
+    if (context.composer.node.visual?.translationX !== undefined) context.composer.wrap()
+    context.composer.enter(5)
+    const x = argumentSource(context, "x")
+    const y = argumentSource(context, "y")
+    context.composer.visual({
+      translationX: x ? lowerValueExpression(x, context.bindings) : literal(0),
+      translationY: y ? lowerValueExpression(y, context.bindings) : literal(0),
+    }, context.index)
+  },
+  "onAppear(perform:)": context => lifecycle(context, "appear"),
+  "onDisappear(perform:)": context => lifecycle(context, "disappear"),
+  "transition(_:)": context => context.composer.meta({ transition: lowerTransition(argumentSource(context, "transition")!) }),
+  // Resolved up front; it annotates the motion of what precedes it.
+  "animation(_:value:)": () => {},
+  "id(_:)": context => context.composer.meta({ identityKey: semanticIdentityKey(argumentSource(context, "id"), context.bindings) }),
+  "disabled(_:)": context => {
+    const disabled = lowerValueExpression(argumentSource(context, "disabled")!, context.bindings)
+    context.composer.transform(node => inheritEnvironment(node, { disabled }))
+  },
+  "accessibilityLabel(_:)": context => {
+    const label = staticTitle(argumentSource(context, "label"), context.bindings, "accessibilityLabel")
+    context.composer.semantic(node => ({ ...node, accessibility: { ...(node.accessibility ?? { role: "group" }), label } }) as MunUiNode)
+  },
+  "pickerStyle(_:)": context => {
+    const style = argumentSource(context, "style")?.replace(/^\./, "")
+    if (context.composer.node.kind !== "radioGroup") throw new SyntaxError(".pickerStyle(_:) applies to a Picker")
+    if (style !== "radioGroup" && style !== "RadioGroupPickerStyle()") {
+      throw new SyntaxError(`Native Mün renders Picker as a radio group; .pickerStyle(.${style}) is not implemented. Use .pickerStyle(.radioGroup).`)
+    }
+  },
+  "tag(_:includeOptional:)": () => {
+    throw new SyntaxError(".tag(_:) is only meaningful on Picker content rows in native Mün")
+  },
+}
+
+/**
+ * `.onAppear` / `.onDisappear`: run when the View becomes / stops being
+ * semantically present. Repeated modifiers all run, in source order.
+ */
+function lifecycle(context: NativeModifierContext, phase: "appear" | "disappear"): void {
+  const closure = argumentClosure(context, "perform")
+  if (!closure) return
+  const action = actionFromClosure(closure.bodySource, context.bindings)
+  const existing = context.composer.node.lifecycle
+  const previous = existing?.[phase]
+  const combined: MunUiAction = previous ? { kind: "sequence", actions: [previous, action] } : action
+  context.composer.meta({ lifecycle: { ...existing, [phase]: combined } })
+}
+
+function padding(context: NativeModifierContext, edges: string | undefined, length: number): void {
+  const { composer } = context
+  const insets = edgeInsets(edges, length)
+  // Containers inset their children; a leaf draws at its own origin, so its
+  // padding is a wrapper.
+  if (!isContainer(composer.node) || composer.stage > 1) composer.wrap()
+  composer.enter(1)
+  composer.layout({ padding: addPadding(composer.node.layout?.padding, insets) }, context.index)
+}
+
+function layered(context: NativeModifierContext, layer: "background" | "overlay"): void {
+  const closure = argumentClosure(context, "content")
+  const align = alignment(argumentSource(context, "alignment"), `${layer} alignment`)
+  const base = context.composer.finish()
+  const content = closure
+    ? context.lowerer.lowerProgram(closure.body, context.bindings, [...context.path, "modifier", context.index, layer], null)
+    : []
+  const layerNode: MunUiNode = content.length === 1
+    ? content[0]
+    : { kind: "overlay", id: context.lowerer.id(`${layer}Content`, [...context.path, "modifier", context.index]), children: content }
+  const { identityKey, transition, ...inner } = base
+  const node: MunUiNode = {
+    kind: "overlay",
+    id: context.lowerer.id(layer, [...context.path, "modifier", context.index]),
+    ...(identityKey ? { identityKey } : {}),
+    ...(transition ? { transition } : {}),
+    ...(align && align !== "center" ? { alignment: align } : {}),
+    children: layer === "background" ? [layerNode, inner as MunUiNode] : [inner as MunUiNode, layerNode],
+  }
+  context.composer.layer(node)
+}
+
+function semanticIdentityKey(source: string | undefined, bindings: UiBindings): MunUiExpression {
+  if (!source) throw new SyntaxError("id requires a semantic identity value")
+  const identityKey = lowerValueExpression(source, bindings)
+  if (
+    identityKey.kind === "literal"
+    && (
+      (typeof identityKey.value !== "string" && typeof identityKey.value !== "number")
+      || (typeof identityKey.value === "number" && !Number.isFinite(identityKey.value))
+    )
+  ) {
+    throw new SyntaxError("Mün semantic identity keys must resolve to a string or finite number")
+  }
+  return identityKey
+}
+
+function idModifierSource(modifier: ModifierCall): string | undefined {
+  const argument = modifier.arguments[0]
+  return argument?.value.kind === "raw" ? argument.value.source.trim() : undefined
+}
+
+function unsupportedModifier(name: string): string {
+  const spec = swiftUIApiManifest.modifiers.find(modifier => modifier.name === name)
+  if (spec && spec.signatures.length > 0) {
+    return `View modifier .${spec.signatures.map(signature => signature.signature).join(" / .")} is a SwiftUI modifier implemented only by the compatibility Web graph; native Semantic UI IR does not support it`
+  }
+  const extension = munExtension("modifier", name)
+  if (extension) return `.${extension.signatures[0]} is a compatibility-only Mün spelling.${extension.replacement ? ` Use ${extension.replacement}.` : ""}`
+  if (spec) return `.${name}(…) is a compatibility-only Mün modifier, not SwiftUI; canonical .mun does not accept it`
+  const unsupported = swiftUIApiManifest.unsupported.modifiers.find(item => item.name === name)
+  if (unsupported) return `.${name}(…) is a SwiftUI modifier Mün does not implement yet: ${unsupported.reason}`
+  return `.${name}(…) is not a SwiftUI View modifier known to Mün`
+}
+
+function unsupportedView(name: string): string | undefined {
+  const spec = (swiftUIApiManifest.views as Readonly<Record<string, SwiftUIViewSpec>>)[name]
+  if (spec) return `SwiftUI View '${name}' is implemented only by the compatibility Web graph; native Semantic UI IR does not support it`
+  const extension = munExtension("view", name)
+  if (extension?.status === "compatibility") return `'${name}' is a compatibility-only Mün View.${extension.replacement ? ` Use ${extension.replacement}.` : ""}`
+  const unsupported = swiftUIApiManifest.unsupported.views.find(item => item.name === name)
+  if (unsupported) return `SwiftUI View '${name}' is not implemented by Mün yet: ${unsupported.reason}`
+  return undefined
+}
+
+/** The compiler's native implementation inventory, checked against the parity manifest. */
+export function nativeLoweringMetadata(): {
+  readonly views: readonly string[]
+  readonly modifiers: readonly string[]
+  readonly values: readonly string[]
+  readonly extensions: readonly string[]
+} {
+  return {
+    views: Object.keys(nativeViews).sort(),
+    modifiers: Object.keys(nativeModifiers).sort(),
+    values: nativeValueImplementations(),
+    extensions: ["Window.init(_:width:height:content:)", "Color.init(_:)"],
+  }
 }
 
 class UiLowerer {
@@ -1619,19 +1758,14 @@ class UiLowerer {
     return this.#collectionKeyPaths.get(state) ?? ["id"]
   }
 
-  lowerForEach(
-    call: MunCallExpression,
-    bindings: UiBindings,
-    path: UiIdentityPath,
-    statePath: UiStateIdentityPath,
-  ): MunUiNode {
-    const collectionSource = rawArgument(call, "data", 0) ?? rawArgument(call, "collection", 0)
+  lowerForEach(context: NativeCallContext, keyPath: readonly string[]): MunUiNode {
+    const collectionSource = argumentSource(context, "data")
     if (!collectionSource) throw new SyntaxError("ForEach requires a collection")
-    const closure = call.trailing
+    const closure = argumentClosure(context, "content")
     if (!closure?.parameter) {
-      throw new SyntaxError("ForEach requires a trailing closure with an item parameter: ForEach(items, id: \\.id) { item in ... }")
+      throw new SyntaxError("ForEach requires a content closure with an item parameter: ForEach(items, id: \\.id) { item in ... }")
     }
-    const keyPath = keyPathFromSource(rawArgument(call, "id", 1))
+    const { bindings, path, statePath } = context
     const id = this.id("forEach", path)
     const collection = lowerValueExpression(collectionSource, bindings)
     let source: MunUiExpression = collection
@@ -1731,16 +1865,45 @@ class UiLowerer {
     const qualifiedName = this.qualifiedName(declaration)
     const instancePath: UiIdentityPath = ["entry", qualifiedName]
     this.bindLocalStates(declaration, bindings, instancePath)
-    const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
-    if (program.statements.length !== 1) {
-      throw new SyntaxError(`Native custom View '${qualifiedName}' body must contain one root view`)
-    }
     this.#componentStack.push(qualifiedName)
     try {
-      return this.lower(program.statements[0], bindings, [...instancePath, "body"])
+      return this.lowerBody(declaration, bindings, [...instancePath, "body"])
     } finally {
       this.#componentStack.pop()
     }
+  }
+
+  lowerBody(declaration: MunStructDeclaration, bindings: UiBindings, path: UiIdentityPath, statePath: UiStateIdentityPath = path): MunUiNode {
+    const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
+    const nodes = this.lowerProgram(program, bindings, path, statePath)
+    if (nodes.length !== 1) {
+      throw new SyntaxError(`Native custom View '${declaration.name}' body produces ${nodes.length} root views; wrap them in a VStack, HStack or ZStack`)
+    }
+    return nodes[0]
+  }
+
+  lowerNodes(
+    node: MunBuilderNode,
+    bindings: UiBindings,
+    path: UiIdentityPath,
+    statePath: UiStateIdentityPath = path,
+  ): MunUiNode[] {
+    if (node.kind === "raw") {
+      const color = colorViewChain(node.source)
+      const chain = color ?? splitViewChain(node.source)
+      if (chain.base.kind === "raw" && !color) {
+        throw new SyntaxError(`Unsupported native view expression: ${chain.base.source}`)
+      }
+      const scopedPath = nodeIdentityPathForModifiers(path, chain.modifiers, bindings)
+      const scopedStatePath = stateIdentityPathForModifiers(statePath, chain.modifiers, bindings)
+      const bases = color
+        ? [colorView(this, color.colorSource, scopedPath)]
+        : this.lowerNodes(chain.base, bindings, scopedPath, scopedStatePath)
+      // Modifiers on a Group apply to each of its Views, as in SwiftUI.
+      return bases.map((base, index) => this.applyModifiers(base, chain.modifiers, bindings, bases.length > 1 ? [...scopedPath, "group", index] : scopedPath))
+    }
+    if (node.kind === "conditional") return [this.lowerConditional(node, bindings, path, statePath)]
+    return this.lowerCall(node, bindings, path, statePath)
   }
 
   lower(
@@ -1749,17 +1912,9 @@ class UiLowerer {
     path: UiIdentityPath,
     statePath: UiStateIdentityPath = path,
   ): MunUiNode {
-    if (node.kind === "raw") {
-      const chain = splitViewChain(node.source)
-      if (chain.base.kind === "raw") {
-        throw new SyntaxError(`Unsupported native view expression: ${chain.base.source}`)
-      }
-      const scopedPath = nodeIdentityPathForModifiers(path, chain.modifiers, bindings)
-      const scopedStatePath = stateIdentityPathForModifiers(statePath, chain.modifiers, bindings)
-      return applyModifiers(this.lower(chain.base, bindings, scopedPath, scopedStatePath), chain.modifiers, bindings)
-    }
-    if (node.kind === "conditional") return this.lowerConditional(node, bindings, path, statePath)
-    return this.lowerCall(node, bindings, path, statePath)
+    const nodes = this.lowerNodes(node, bindings, path, statePath)
+    if (nodes.length !== 1) throw new SyntaxError("Expected exactly one View here; a Group expands to several")
+    return nodes[0]
   }
 
   lowerProgram(
@@ -1768,8 +1923,8 @@ class UiLowerer {
     path: UiIdentityPath,
     statePath: UiStateIdentityPath = path,
   ): MunUiNode[] {
-    return program.statements.map((statement, index) =>
-      this.lower(
+    return program.statements.flatMap((statement, index) =>
+      this.lowerNodes(
         statement,
         bindings,
         [...path, "child", index],
@@ -1813,21 +1968,28 @@ class UiLowerer {
     }
   }
 
-  children(
-    call: MunCallExpression,
-    bindings: UiBindings,
-    path: UiIdentityPath,
-    statePath: UiStateIdentityPath,
-  ): MunUiNode[] {
-    const body = call.trailing?.body
-    return body
-      ? this.lowerProgram(
-          body,
-          bindings,
-          [...path, "content"],
-          childIdentityPath(statePath, "content"),
-        )
-      : []
+  applyModifiers(node: MunUiNode, modifiers: readonly ModifierCall[], bindings: UiBindings, path: UiIdentityPath): MunUiNode {
+    if (modifiers.length === 0) return node
+    const steps: ModifierStep[] = modifiers.map(modifier => {
+      const symbols = nativeModifierSymbols(modifier.name)
+      if (!symbols) throw new SyntaxError(unsupportedModifier(modifier.name))
+      const supplied: ComponentSemanticArgument[] = modifier.arguments.map(argument => componentSemanticArgument(argument, bindings, this.#stateTypes))
+      if (modifier.trailing) supplied.push({ type: "function", trailing: true, trailingClosure: modifier.trailing })
+      const resolution = resolveContractCall(symbols, supplied, { kind: "modifier", owner: modifier.name, unsupported: swiftUIUnsupportedModifierSignatures(modifier.name) })
+      if (!nativeModifiers[resolution.signature]) throw new SyntaxError(`Internal error: no native implementation for .${resolution.signature}`)
+      return { modifier, signature: resolution.signature, args: resolution.arguments }
+    })
+    const animations = steps.flatMap((step, index) => {
+      if (step.signature !== "animation(_:value:)") return []
+      const plan = animationPlan(argumentSource(step, "animation")!)
+      const trigger = argumentSource(step, "value")
+      return [{ index, plan, ...(trigger ? { trigger: lowerValueExpression(trigger, bindings) } : {}) }]
+    })
+    const composer = new NodeComposer(node, animations)
+    steps.forEach((step, index) => {
+      nativeModifiers[step.signature]({ lowerer: this, composer, args: step.args, bindings, index, modifier: step.modifier, path })
+    })
+    return composer.finish()
   }
 
   lowerComponent(
@@ -1989,15 +2151,10 @@ class UiLowerer {
     const instancePath = childIdentityPath(statePath, "component", qualifiedName)
     this.bindLocalStates(declaration, fieldBindings, instancePath)
 
-    const program = parseMunBuilder(declaration.bodyExpressionSource, declaration.bodyExpressionRange.start)
-    if (program.statements.length !== 1) {
-      throw new SyntaxError(`Native custom View '${qualifiedName}' body must contain one root view`)
-    }
-
     this.#componentStack.push(qualifiedName)
     try {
-      return this.lower(
-        program.statements[0],
+      return this.lowerBody(
+        declaration,
         fieldBindings,
         [...path, "component", qualifiedName, "body"],
         childIdentityPath(instancePath, "body"),
@@ -2012,172 +2169,99 @@ class UiLowerer {
     bindings: UiBindings,
     path: UiIdentityPath,
     statePath: UiStateIdentityPath,
-  ): MunUiNode {
-    if (call.callee === "ForEach") return this.lowerForEach(call, bindings, path, statePath)
-    validateCanonicalBuiltinCall(call, bindings, this.#stateTypes)
-    if (call.callee === "ScrollView") {
-      const raw = rawArgument(call, "axis", 0)?.trim()
-      if (raw && raw !== ".vertical" && raw !== ".horizontal") {
-        throw new Error(`ScrollView axis must be .vertical or .horizontal: ${raw}`)
-      }
-      return {
-        kind: "scroll", id: this.id("scroll", path),
-        axis: raw === ".horizontal" ? "horizontal" : "vertical",
-        accessibility: { role: "group" },
-        children: this.children(call, bindings, path, statePath),
-      }
+  ): MunUiNode[] {
+    const component = this.resolveComponent(call.callee)
+    if (component) {
+      return [this.lowerComponent(call, component.declaration, component.semanticView, bindings, path, statePath)]
     }
+    const supplied: ComponentSemanticArgument[] = call.arguments.map(argument =>
+      componentSemanticArgument(argument, bindings, this.#stateTypes)
+    )
+    if (call.trailing) supplied.push({ type: "function", trailing: true, trailingClosure: call.trailing })
 
-    if (call.callee === "VStack" || call.callee === "Column") {
-      const spacing = numberValue(rawArgument(call, "spacing", 0), 0, bindings)
-      const alignment = normalizedVStackAlignment(rawArgument(call, "alignment", 1))
-      return {
-        kind: "column",
-        id: this.id("column", path),
-        layout: { spacing, ...(alignment ? { alignment } : {}) },
-        accessibility: { role: "group" },
-        children: this.children(call, bindings, path, statePath),
-      }
-    }
-
-    if (call.callee === "HStack" || call.callee === "Row") {
-      const spacing = numberValue(rawArgument(call, "spacing", 0), 0, bindings)
-      const alignment = normalizedHStackAlignment(rawArgument(call, "alignment", 1))
-      return {
-        kind: "row",
-        id: this.id("row", path),
-        layout: { spacing, ...(alignment ? { alignment } : {}) },
-        accessibility: { role: "group" },
-        children: this.children(call, bindings, path, statePath),
-      }
-    }
-
-    if (call.callee === "ZStack") {
-      const alignment = normalizedOverlayAlignment(rawArgument(call, "alignment", 0))
-      return {
-        kind: "overlay",
-        id: this.id("overlay", path),
-        ...(alignment ? { alignment } : {}),
-        accessibility: { role: "group" },
-        children: this.children(call, bindings, path, statePath),
-      }
-    }
-
-    if (call.callee === "Text") {
-      const source = rawArgument(call, "content", 0)
-      if (!source) throw new SyntaxError("Text requires content")
-      const value = lowerValueExpression(source, bindings)
-      return {
-        kind: "text",
-        id: this.id("text", path),
-        value,
-        accessibility: {
-          role: "text",
-          ...(value.kind === "literal" && typeof value.value === "string" ? { label: value.value } : {}),
-        },
-      }
-    }
-
-    if (call.callee === "TextField") {
-      const state = bindingState(
-        rawArgument(call, "text", 0) ?? rawArgument(call, "value", 0),
-        bindings,
-        "TextField",
-      )
-      const placeholder = stringValue(rawArgument(call, "placeholder", 1), undefined, bindings)
-      return {
-        kind: "textField",
-        id: this.id("textField", path),
-        state,
-        ...(placeholder ? { placeholder } : {}),
-        accessibility: { role: "textField", ...(placeholder ? { label: placeholder } : {}) },
-      }
-    }
-
-    if (call.callee === "RadioGroup" || call.callee === "Picker") {
-      const state = bindingState(
-        rawArgument(call, "value", 0) ?? rawArgument(call, "selection", 0),
-        bindings,
-        call.callee,
-      )
-      const options = selectionOptions(rawArgument(call, "options", 1))
-      return {
-        kind: "radioGroup",
-        id: this.id("radioGroup", path),
-        state,
-        options,
-        accessibility: { role: "radioGroup" },
-      }
-    }
-
-    if (call.callee === "Button" || call.callee === "Action") {
-      const labelSource = rawArgument(call, "label", 0)
-      const label = stringValue(labelSource, undefined, bindings)
-      if (!label) throw new SyntaxError(`${call.callee} requires a static string label in the first native slice`)
-      if (!call.trailing) throw new SyntaxError(`${call.callee} requires an action closure`)
-      return {
-        kind: "action",
-        id: this.id("action", path),
-        label,
-        action: actionFromClosure(call.trailing.bodySource, bindings),
-        accessibility: { role: "button", label },
-      }
-    }
-
-    if (
-      call.callee === "Rectangle"
-      || call.callee === "RoundedRectangle"
-      || call.callee === "Circle"
-      || call.callee === "Capsule"
-      || call.callee === "Panel"
-    ) {
-      const cornerRadius = call.callee === "RoundedRectangle"
-        ? numberValue(rawArgument(call, "radius", 0), 8, bindings)
-        : undefined
-      const shape = call.callee === "RoundedRectangle"
-        ? "roundedRectangle"
-        : call.callee === "Circle"
-          ? "circle"
-          : call.callee === "Capsule"
-            ? "capsule"
-            : "rectangle"
-      return {
-        kind: "panel",
-        id: this.id("panel", path),
-        shape,
-        ...(cornerRadius !== undefined ? { visual: { cornerRadius } } : {}),
-      }
-    }
+    if (call.callee === "Color") return [colorView(this, rawCallSource(call), path)]
     if (call.callee === "Window") {
-      const title = stringValue(rawArgument(call, "title", 0), "Mün", bindings) ?? "Mün"
-      const children = this.children(call, bindings, path, statePath)
+      const resolution = resolveContractCall(windowSymbols, supplied, { kind: "view", owner: "Window" })
+      const context: NativeCallContext = { lowerer: this, call, args: resolution.arguments, bindings, path, statePath }
+      const title = staticTitle(argumentSource(context, "title"), bindings, "Window title")
+      const children = stackChildren(context)
       if (children.length !== 1) throw new SyntaxError("Window requires exactly one root content view")
-      return {
+      return [{
         kind: "window",
         id: this.id("window", path),
         title,
         layout: {
-          width: lowerValueExpression(rawArgument(call, "width", 1) ?? "640", bindings),
-          height: lowerValueExpression(rawArgument(call, "height", 2) ?? "420", bindings),
+          width: lowerValueExpression(argumentSource(context, "width") ?? "640", bindings),
+          height: lowerValueExpression(argumentSource(context, "height") ?? "420", bindings),
         },
         accessibility: { role: "window", label: title },
         child: children[0],
-      }
+      }]
     }
 
-    const component = this.resolveComponent(call.callee)
-    if (component) {
-      return this.lowerComponent(
-        call,
-        component.declaration,
-        component.semanticView,
-        bindings,
-        path,
-        statePath,
-      )
+    const symbols = nativeViewInitializerSymbols(call.callee)
+    if (symbols) {
+      const resolution = resolveContractCall(symbols, supplied, {
+        kind: "view",
+        owner: call.callee,
+        unsupported: swiftUIUnsupportedInitializerSignatures(call.callee),
+      })
+      const implementation = nativeViews[`${call.callee}.${resolution.signature}`]
+      if (!implementation) throw new SyntaxError(`Internal error: no native implementation for ${call.callee}.${resolution.signature}`)
+      return implementation({ lowerer: this, call, args: resolution.arguments, bindings, path, statePath })
     }
 
-    throw new SyntaxError(`View '${call.callee}' is not part of the native Mün semantic component graph`)
+    throw new SyntaxError(
+      unsupportedView(call.callee)
+        ?? `View '${call.callee}' is neither a SwiftUI View implemented by Mün nor a View declared in this file`,
+    )
+  }
+}
+
+/** `Color.red`, `Color(red: …)`, `Color.red.opacity(0.5)` used as a View, followed by View modifiers. */
+function colorViewChain(source: string): { readonly base: MunBuilderNode; readonly colorSource: string; readonly modifiers: readonly ModifierCall[] } | undefined {
+  const text = source.trim()
+  if (!/^Color\b/.test(text)) return undefined
+  const chain = parseMemberChain(text)
+  if (!chain) return undefined
+  // Color members (named colors, opacity) bind to the Color; the rest are View modifiers.
+  let consumed = 0
+  if (!chain.ownerCall) {
+    if (!chain.members[0] || chain.members[0].arguments) return undefined
+    consumed = 1
+  }
+  while (chain.members[consumed]?.name === "opacity" && consumed > 0 && !chain.ownerCall) consumed += 1
+  const colorLength = colorPrefixLength(text, chain.ownerCall ? 0 : consumed)
+  const colorSource = text.slice(0, colorLength)
+  const rest = text.slice(colorLength)
+  const modifiers = rest.trim() ? splitViewChain(`M()${rest}`).modifiers : []
+  return { base: { kind: "raw", source: colorSource, range: { start: 0, end: colorLength } }, colorSource, modifiers }
+}
+
+function colorPrefixLength(text: string, members: number): number {
+  let cursor = "Color".length
+  if (text[cursor] === "(") cursor = findMatchingParenthesis(text, cursor) + 1
+  for (let index = 0; index < members; index += 1) {
+    const name = /^\.[A-Za-z_]\w*/.exec(text.slice(cursor))
+    if (!name) break
+    cursor += name[0].length
+    if (text[cursor] === "(") cursor = findMatchingParenthesis(text, cursor) + 1
+  }
+  return cursor
+}
+
+function rawCallSource(call: MunCallExpression): string {
+  return `Color(${call.arguments.map(argument => `${argument.label ? `${argument.label}: ` : ""}${argument.value.kind === "raw" ? argument.value.source.trim() : ""}`).join(", ")})`
+}
+
+/** A SwiftUI Color used as a View: a rectangle filled with the color that fills its space. */
+function colorView(lowerer: UiLowerer, source: string, path: UiIdentityPath): MunUiNode {
+  return {
+    kind: "panel",
+    id: lowerer.id("panel", path),
+    shape: "rectangle",
+    layout: flexibleBoth,
+    visual: { foreground: { kind: "solid", color: lowerColor(source) } },
   }
 }
 

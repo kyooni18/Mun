@@ -36,6 +36,11 @@ const TEXT_FIELD_FONT_SIZE: f32 = 16.0;
 const TEXT_FIELD_INSET_X: f32 = 12.0;
 const TEXT_FIELD_INSET_Y: f32 = 7.0;
 const TEXT_CARET_WIDTH: f32 = 1.5;
+/// `Spacer(minLength: nil)`: the platform's standard spacing.
+const DEFAULT_SPACER_LENGTH: f32 = 8.0;
+const CONTROL_LABEL_FONT_SIZE: f32 = 16.0;
+const TOGGLE_BOX: f32 = 14.0;
+const PROGRESS_TRACK: f32 = 6.0;
 
 #[derive(Debug, Error)]
 pub enum RuntimeLoadError {
@@ -70,6 +75,20 @@ pub enum RuntimeDiagnostic {
         action: Option<String>,
         error: crate::collection::CollectionError,
     },
+    /// onAppear/onDisappear actions kept changing which Views are present;
+    /// reconciliation stopped after a bounded number of passes.
+    LifecycleLimit { passes: usize },
+}
+
+/// Bounded lifecycle reconciliation: actions that toggle presence forever
+/// (an onAppear that hides its own View, which re-shows it…) stop here.
+const LIFECYCLE_PASSES: usize = 8;
+
+/// Layout leaves whose geometry depends on the containing stack's axis.
+#[derive(Clone, Copy, Debug)]
+enum AxisLeaf {
+    Spacer { min_length: f32 },
+    Divider,
 }
 
 #[derive(Clone, Debug)]
@@ -369,6 +388,11 @@ pub struct Runtime {
     /// Flexible-frame intent ([width, height]) of layout nodes in the tree
     /// being built; consumed by each node's parent.
     flexible_frames: RefCell<HashMap<NodeId, [bool; 2]>>,
+    axis_leaves: RefCell<HashMap<NodeId, AxisLeaf>>,
+    /// Semantically present Views with lifecycle actions, in traversal order,
+    /// with the disappear action to run when they leave.
+    lifecycle_present: Vec<(String, Option<UiAction>)>,
+    lifecycle_running: bool,
     scroll_views: RefCell<HashMap<String, crate::scroll_view::ScrollViewport>>,
     text_editor: Option<(String, crate::text_edit::TextEditor)>,
     text_scroll: RefCell<HashMap<String, f32>>,
@@ -443,6 +467,9 @@ impl Runtime {
             reveal_request: RefCell::new(None),
             geometry_stamp: Cell::new(None),
             flexible_frames: RefCell::new(HashMap::new()),
+            axis_leaves: RefCell::new(HashMap::new()),
+            lifecycle_present: Vec::new(),
+            lifecycle_running: false,
             scroll_views: RefCell::new(HashMap::new()),
             text_editor: None,
             text_scroll: RefCell::new(HashMap::new()),
@@ -467,6 +494,7 @@ impl Runtime {
             .materialize()
             .map_err(RuntimeLoadError::Collection)?;
         runtime.reconcile_retained_tree();
+        runtime.reconcile_lifecycle();
         Ok(runtime)
     }
 
@@ -771,6 +799,8 @@ impl Runtime {
                                     request,
                                     target: id,
                                 });
+                        } else if is_secure_field(&self.program.root.child, self, &id) {
+                            // A secure field's contents never reach the clipboard.
                         } else if let Some(editor) = self.focused_text_editor() {
                             let selected = editor.selected_text().to_owned();
                             if !selected.is_empty() {
@@ -1221,7 +1251,8 @@ impl Runtime {
         self.activate_interactive(&id)
     }
 
-    pub(crate) fn activate_interactive(&mut self, id: &str) -> Option<Transaction> {
+    /// Activate any interactive View by id: a Button, a Toggle or a radio option.
+    pub fn activate_interactive(&mut self, id: &str) -> Option<Transaction> {
         if let Some((group_id, index)) = radio_option_target(id) {
             let (state, options, base) =
                 find_radio_group(&self.program.root.child, self, group_id)?;
@@ -1234,6 +1265,18 @@ impl Runtime {
                 return None;
             }
             return self.set_control_state(state, option.value.clone());
+        }
+        if let Some((state, base)) = find_toggle(&self.program.root.child, self, id) {
+            if !self.node_enabled(base) {
+                return None;
+            }
+            let state = state.to_owned();
+            let on = self
+                .state
+                .get(&state)
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            return self.set_control_state(state, Value::Bool(!on));
         }
         self.activate_action(id)
     }
@@ -1576,7 +1619,8 @@ impl Runtime {
         if !scale.is_finite() || scale <= f32::EPSILON {
             return None;
         }
-        let line = self.measurer.text_line(&value, TEXT_FIELD_FONT_SIZE);
+        let secure = is_secure_field(&self.program.root.child, self, field);
+        let line = field_line(self.measurer.as_ref(), &value, secure);
         Some(line.offset_for_x((local_x - text.x) / scale))
     }
 
@@ -1728,6 +1772,12 @@ impl Runtime {
             return None;
         }
         let action = action.clone();
+        self.commit_action(id, action)
+    }
+
+    /// Apply `action` (authored on `id`) as one transaction and reconcile
+    /// everything that depends on state.
+    fn commit_action(&mut self, id: &str, action: UiAction) -> Option<Transaction> {
         let action_transaction = action.transaction().cloned().unwrap_or_default();
         let mut focus_order_before = Vec::new();
         collect_focusable_actions(&self.program.root.child, self, &mut focus_order_before);
@@ -1844,7 +1894,66 @@ impl Runtime {
             &transaction,
         );
 
+        let mut transaction = transaction;
+        transaction.mutations.extend(self.reconcile_lifecycle());
+        transaction.revision = self.revision;
         Some(transaction)
+    }
+
+    /// Run onAppear/onDisappear for Views whose semantic presence changed:
+    /// once per change, never per frame. Disappearances run first, then
+    /// appearances, each in traversal order. Returns the mutations applied.
+    fn reconcile_lifecycle(&mut self) -> Vec<StateMutation> {
+        if self.lifecycle_running {
+            return Vec::new();
+        }
+        self.lifecycle_running = true;
+        let mut mutations = Vec::new();
+        let mut settled = false;
+        for _ in 0..LIFECYCLE_PASSES {
+            let mut present = Vec::new();
+            collect_lifecycle(&self.program.root.child, self, &mut present);
+            let now: HashSet<&str> = present.iter().map(|(key, ..)| key.as_str()).collect();
+            let before: HashSet<&str> = self
+                .lifecycle_present
+                .iter()
+                .map(|(key, _)| key.as_str())
+                .collect();
+            let mut pending: Vec<(String, UiAction)> = self
+                .lifecycle_present
+                .iter()
+                .filter(|(key, _)| !now.contains(key.as_str()))
+                .filter_map(|(key, disappear)| Some((node_of(key).to_owned(), disappear.clone()?)))
+                .collect();
+            pending.extend(
+                present
+                    .iter()
+                    .filter(|(key, ..)| !before.contains(key.as_str()))
+                    .filter_map(|(key, appear, _)| {
+                        Some((node_of(key).to_owned(), appear.clone()?))
+                    }),
+            );
+            self.lifecycle_present = present
+                .into_iter()
+                .map(|(key, _, disappear)| (key, disappear))
+                .collect();
+            if pending.is_empty() {
+                settled = true;
+                break;
+            }
+            for (id, action) in pending {
+                if let Some(transaction) = self.commit_action(&id, action) {
+                    mutations.extend(transaction.mutations);
+                }
+            }
+        }
+        if !settled {
+            self.diagnostics.push(RuntimeDiagnostic::LifecycleLimit {
+                passes: LIFECYCLE_PASSES,
+            });
+        }
+        self.lifecycle_running = false;
+        mutations
     }
 
     /// Apply an action's state mutations in order; later mutations observe
@@ -1978,6 +2087,9 @@ impl Runtime {
             &transaction,
         );
 
+        let mut transaction = transaction;
+        transaction.mutations.extend(self.reconcile_lifecycle());
+        transaction.revision = self.revision;
         Some(transaction)
     }
 
@@ -2153,24 +2265,34 @@ impl Runtime {
         let mut taffy: LayoutTree = TaffyTree::new();
         let mut nodes = HashMap::new();
         self.flexible_frames.borrow_mut().clear();
+        self.axis_leaves.borrow_mut().clear();
         let children =
             self.build_layout_nodes(&mut taffy, &self.program.root.child, &mut nodes, measurer)?;
-        // The window's content fills the window on both axes (it already
-        // stretched vertically as the wrapper's cross axis), so resizing the
-        // window resizes the root view, not just the area around it.
+        // Like a SwiftUI window, the window proposes its size to the root
+        // view and centers it; the root fills an axis only where it is
+        // flexible (e.g. `.frame(maxWidth: .infinity)`, a ScrollView, or a
+        // stack containing one). The window bounds flexible content.
         for child in &children {
+            let Some([horizontal, vertical]) = self.flexible_frames.borrow().get(child).copied()
+            else {
+                continue;
+            };
             let mut style = taffy.style(*child)?.clone();
-            if style.size.width == Dimension::auto() {
+            if horizontal {
                 style.flex_grow = 1.0;
                 style.flex_shrink = 1.0;
                 style.flex_basis = Dimension::length(0.0);
-                // The window bounds its content; overflowing content is
-                // clipped like any oversized view instead of widening it.
                 if style.min_size.width == LengthPercentageAuto::auto() {
                     style.min_size.width = LengthPercentageAuto::length(0.0);
                 }
-                taffy.set_style(*child, style)?;
             }
+            if vertical {
+                style.align_self = Some(AlignItems::STRETCH);
+                if style.min_size.height == LengthPercentageAuto::auto() {
+                    style.min_size.height = LengthPercentageAuto::length(0.0);
+                }
+            }
+            taffy.set_style(*child, style)?;
         }
         let wrapper = taffy.new_with_children(
             Style {
@@ -2178,6 +2300,8 @@ impl Runtime {
                     width: Dimension::length(width),
                     height: Dimension::length(height),
                 },
+                justify_content: Some(JustifyContent::CENTER),
+                align_items: Some(AlignItems::CENTER),
                 ..Default::default()
             },
             &children,
@@ -2275,6 +2399,10 @@ impl Runtime {
             UiNode::TextField { .. } => RetainedNodeKind::TextField,
             UiNode::RadioGroup { .. } => RetainedNodeKind::RadioGroup,
             UiNode::Action { .. } => RetainedNodeKind::Action,
+            UiNode::Toggle { .. } => RetainedNodeKind::Toggle,
+            UiNode::Progress { .. } => RetainedNodeKind::Progress,
+            UiNode::Spacer { .. } => RetainedNodeKind::Spacer,
+            UiNode::Divider { .. } => RetainedNodeKind::Divider,
         };
         let active_children = self.active_children(node);
         let children = active_children
@@ -2715,6 +2843,18 @@ impl Runtime {
             .unwrap_or(true)
     }
 
+    /// `value / total` of a progress View, clamped to 0…1 (total defaults to 1).
+    fn progress_fraction(&self, node: &UiNode) -> Option<f32> {
+        let UiNode::Progress { value, total, .. } = node else {
+            return None;
+        };
+        let total = total
+            .as_ref()
+            .map_or(Some(1.0), |total| self.eval_number(total))?;
+        let value = self.eval_number(value)?;
+        (total > 0.0).then(|| (value / total).clamp(0.0, 1.0))
+    }
+
     fn eval_text(&self, expression: &UiExpression) -> String {
         let value = self.eval(expression);
         match value {
@@ -2770,7 +2910,10 @@ impl Runtime {
         let height = layout
             .and_then(|layout| layout.height.as_ref())
             .and_then(|value| self.presentation_number(node, MotionProperty::Height, value));
-        let padding = layout.and_then(|layout| layout.padding).unwrap_or(0.0);
+        let [pad_top, pad_leading, pad_bottom, pad_trailing] = layout
+            .and_then(|layout| layout.padding)
+            .map(crate::ir::UiPadding::edges)
+            .unwrap_or([0.0; 4]);
         let spacing = layout.and_then(|layout| layout.spacing).unwrap_or(0.0);
         // Flexible frames: a max bound on an axis without a fixed size makes the
         // view take what its parent offers on that axis (applied by the parent,
@@ -2808,10 +2951,10 @@ impl Runtime {
                 height: height.map(Dimension::length).unwrap_or(Dimension::auto()),
             },
             padding: Rect {
-                left: LengthPercentage::length(padding),
-                right: LengthPercentage::length(padding),
-                top: LengthPercentage::length(padding),
-                bottom: LengthPercentage::length(padding),
+                left: LengthPercentage::length(pad_leading),
+                right: LengthPercentage::length(pad_trailing),
+                top: LengthPercentage::length(pad_top),
+                bottom: LengthPercentage::length(pad_bottom),
             },
             min_size,
             max_size,
@@ -2895,7 +3038,23 @@ impl Runtime {
             | UiNode::Action { .. }
             | UiNode::Panel { .. }
             | UiNode::TextField { .. }
-            | UiNode::RadioGroup { .. } => {}
+            | UiNode::RadioGroup { .. }
+            | UiNode::Toggle { .. } => {}
+            // Like SwiftUI, a progress bar takes the width it is offered.
+            UiNode::Progress { .. } => flexible[0] |= width.is_none(),
+            // Outside a stack a Spacer expands on both axes; a stack narrows
+            // it to its own axis (below, in the parent).
+            UiNode::Spacer { .. } => {
+                flexible[0] |= width.is_none();
+                flexible[1] |= height.is_none();
+            }
+            // Outside a stack a Divider is a horizontal 1pt rule.
+            UiNode::Divider { .. } => {
+                if height.is_none() {
+                    style.size.height = Dimension::length(1.0);
+                }
+                flexible[0] |= width.is_none();
+            }
             UiNode::Conditional { .. } | UiNode::ForEach { .. } => {
                 unreachable!("fragments are flattened above and forEach is materialized")
             }
@@ -2918,6 +3077,8 @@ impl Runtime {
                     .collect::<Vec<_>>();
                 Some(measurer.measure_radio_group(&labels))
             }
+            UiNode::Toggle { label, .. } => Some(measurer.measure_toggle(label)),
+            UiNode::Progress { label, .. } => Some(measurer.measure_progress(label.as_deref())),
             _ => None,
         };
 
@@ -2934,6 +3095,53 @@ impl Runtime {
         for child in self.active_children(node) {
             let child_nodes = self.build_layout_nodes(taffy, child, nodes, measurer)?;
             for child_id in &child_nodes {
+                let axis_leaf = self.axis_leaves.borrow().get(child_id).copied();
+                if let (Some(leaf), Some(main)) = (axis_leaf, main_axis_horizontal) {
+                    let mut child_style = taffy.style(*child_id)?.clone();
+                    let fixed = |dimension: Dimension| dimension != Dimension::auto();
+                    match leaf {
+                        // Fills the stack's axis down to its minimum length; a
+                        // scroll view's axis is unbounded, so only the minimum.
+                        AxisLeaf::Spacer { min_length } => {
+                            let length = LengthPercentageAuto::length(min_length);
+                            if main {
+                                child_style.min_size.width = length;
+                            } else {
+                                child_style.min_size.height = length;
+                            }
+                            child_style.flex_basis = Dimension::length(min_length);
+                            if !matches!(node, UiNode::Scroll { .. }) {
+                                child_style.flex_grow = 1.0;
+                                if main {
+                                    flexible[0] |=
+                                        width.is_none() && !fixed(child_style.size.width);
+                                } else {
+                                    flexible[1] |=
+                                        height.is_none() && !fixed(child_style.size.height);
+                                }
+                            }
+                        }
+                        // A rule across the stack: vertical inside an HStack.
+                        AxisLeaf::Divider if main => {
+                            child_style.size = Size {
+                                width: Dimension::length(1.0),
+                                height: Dimension::auto(),
+                            };
+                            child_style.align_self = Some(AlignItems::STRETCH);
+                            if !matches!(node, UiNode::Scroll { .. }) {
+                                flexible[1] |= height.is_none();
+                            }
+                        }
+                        AxisLeaf::Divider => {
+                            child_style.align_self = Some(AlignItems::STRETCH);
+                            if !matches!(node, UiNode::Scroll { .. }) {
+                                flexible[0] |= width.is_none();
+                            }
+                        }
+                    }
+                    taffy.set_style(*child_id, child_style)?;
+                    continue;
+                }
                 let Some(child_flex) = self.flexible_frames.borrow().get(child_id).copied() else {
                     continue;
                 };
@@ -3000,6 +3208,20 @@ impl Runtime {
             taffy.new_with_children(style, &children)?
         };
         nodes.insert(base.id.clone(), id);
+        match node {
+            UiNode::Spacer { min_length, .. } => {
+                self.axis_leaves.borrow_mut().insert(
+                    id,
+                    AxisLeaf::Spacer {
+                        min_length: min_length.unwrap_or(DEFAULT_SPACER_LENGTH),
+                    },
+                );
+            }
+            UiNode::Divider { .. } => {
+                self.axis_leaves.borrow_mut().insert(id, AxisLeaf::Divider);
+            }
+            _ => {}
+        }
         if flexible[0] || flexible[1] {
             self.flexible_frames.borrow_mut().insert(id, flexible);
         }
@@ -3299,6 +3521,7 @@ impl Runtime {
                 base,
                 state,
                 placeholder,
+                secure,
             } => {
                 let paint = base
                     .visual
@@ -3323,10 +3546,11 @@ impl Runtime {
                     .filter(|editor| editor.presentation_text() == value);
                 let presentation = editor.map(|editor| editor.presentation_text());
                 let value = presentation.as_deref().unwrap_or(value);
+                let masked = secure.then(|| mask(value));
                 let (text, text_opacity) = if value.is_empty() {
                     (placeholder.as_deref().unwrap_or(""), 0.55)
                 } else {
-                    (value, 1.0)
+                    (masked.as_deref().unwrap_or(value), 1.0)
                 };
                 let foreground = base
                     .visual
@@ -3337,7 +3561,7 @@ impl Runtime {
                 let origin_x = x + TEXT_FIELD_INSET_X;
                 let origin_y = y + TEXT_FIELD_INSET_Y;
                 let visible_width = (rect.width - TEXT_FIELD_INSET_X * 2.0).max(0.0);
-                let line = measurer.text_line(value, TEXT_FIELD_FONT_SIZE);
+                let line = field_line(measurer, value, *secure);
                 let ranges = editor.map(|editor| editor.presentation_ranges());
 
                 // Runtime-owned horizontal text scroll keeps the caret visible in
@@ -3527,6 +3751,119 @@ impl Runtime {
                     }
                 }
             }
+            UiNode::Toggle { base, state, label } => {
+                let on = self
+                    .state
+                    .get(state)
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let focused = self.focused_action.as_deref() == Some(base.id.as_str());
+                let foreground = base
+                    .visual
+                    .as_ref()
+                    .and_then(|visual| visual.foreground.as_ref())
+                    .and_then(paint_start_color)
+                    .unwrap_or(Color::TEXT);
+                let box_rect = SceneBounds {
+                    x,
+                    y: y + (rect.height - TOGGLE_BOX) * 0.5,
+                    width: TOGGLE_BOX,
+                    height: TOGGLE_BOX,
+                };
+                scene.rects.push(SceneRect {
+                    id: format!("{}:box", base.id),
+                    rect: box_rect,
+                    color: if on {
+                        Color::ACCENT
+                    } else if focused {
+                        Color::ACTION_FOCUSED
+                    } else {
+                        Color::ACTION
+                    }
+                    .with_opacity(opacity),
+                    corner_radius: 3.0,
+                });
+                if on {
+                    scene.rects.push(SceneRect {
+                        id: format!("{}:check", base.id),
+                        rect: SceneBounds {
+                            x: box_rect.x + 4.0,
+                            y: box_rect.y + 4.0,
+                            width: TOGGLE_BOX - 8.0,
+                            height: TOGGLE_BOX - 8.0,
+                        },
+                        color: Color::TEXT.with_opacity(opacity),
+                        corner_radius: 1.0,
+                    });
+                }
+                let line = measurer.text_line(label, CONTROL_LABEL_FONT_SIZE);
+                scene.texts.push(SceneText {
+                    id: format!("{}:label", base.id),
+                    text: label.clone(),
+                    x: x + TOGGLE_BOX + 6.0,
+                    y: y + (rect.height - line.line_height) * 0.5,
+                    font_size: CONTROL_LABEL_FONT_SIZE,
+                    color: foreground.with_opacity(opacity),
+                });
+                scene.actions.push(ActionHit {
+                    id: base.id.clone(),
+                    rect,
+                });
+            }
+            UiNode::Progress {
+                base, value, label, ..
+            } => {
+                let fraction = self.progress_fraction(node).unwrap_or(0.0);
+                let mut track_y = y;
+                if let Some(label) = label {
+                    let line = measurer.text_line(label, CONTROL_LABEL_FONT_SIZE);
+                    scene.texts.push(SceneText {
+                        id: format!("{}:label", base.id),
+                        text: label.clone(),
+                        x,
+                        y,
+                        font_size: CONTROL_LABEL_FONT_SIZE,
+                        color: base
+                            .visual
+                            .as_ref()
+                            .and_then(|visual| visual.foreground.as_ref())
+                            .and_then(paint_start_color)
+                            .unwrap_or(Color::TEXT)
+                            .with_opacity(opacity),
+                    });
+                    track_y += line.line_height + 4.0;
+                }
+                let _ = value;
+                let track = SceneBounds {
+                    x,
+                    y: track_y,
+                    width: rect.width,
+                    height: PROGRESS_TRACK,
+                };
+                scene.rects.push(SceneRect {
+                    id: format!("{}:track", base.id),
+                    rect: track,
+                    color: Color::ACTION.with_opacity(opacity),
+                    corner_radius: PROGRESS_TRACK * 0.5,
+                });
+                scene.rects.push(SceneRect {
+                    id: format!("{}:fill", base.id),
+                    rect: SceneBounds {
+                        width: track.width * fraction,
+                        ..track
+                    },
+                    color: Color::ACCENT.with_opacity(opacity),
+                    corner_radius: PROGRESS_TRACK * 0.5,
+                });
+            }
+            UiNode::Divider { base } => {
+                scene.rects.push(SceneRect {
+                    id: format!("{}:rule", base.id),
+                    rect,
+                    color: Color::SEPARATOR.with_opacity(opacity),
+                    corner_radius: 0.0,
+                });
+            }
             _ => {}
         }
 
@@ -3696,14 +4033,25 @@ impl Runtime {
                 UiNode::Action { .. } => AccessibilityRole::Button,
                 UiNode::TextField { .. } => AccessibilityRole::TextField,
                 UiNode::RadioGroup { .. } => AccessibilityRole::RadioGroup,
+                UiNode::Toggle { .. } => AccessibilityRole::CheckBox,
+                UiNode::Progress { .. } => AccessibilityRole::ProgressIndicator,
                 _ => AccessibilityRole::Group,
             });
+        // Authored as a text field, presented securely.
+        let role = match (role, node) {
+            (AccessibilityRole::TextField, UiNode::TextField { secure: true, .. }) => {
+                AccessibilityRole::SecureTextField
+            }
+            (role, _) => role,
+        };
         let label = semantics
             .and_then(|semantics| semantics.label.clone())
             .or_else(|| match node {
                 UiNode::Text { value, .. } => Some(self.eval_text(value)),
                 UiNode::Action { label, .. } => Some(label.clone()),
                 UiNode::TextField { placeholder, .. } => placeholder.clone(),
+                UiNode::Toggle { label, .. } => Some(label.clone()),
+                UiNode::Progress { label, .. } => label.clone(),
                 _ => None,
             });
         let enabled = self.node_enabled(base);
@@ -3714,7 +4062,10 @@ impl Runtime {
             .collect();
         let action_id = matches!(
             node,
-            UiNode::Action { .. } | UiNode::TextField { .. } | UiNode::RadioGroup { .. }
+            UiNode::Action { .. }
+                | UiNode::TextField { .. }
+                | UiNode::RadioGroup { .. }
+                | UiNode::Toggle { .. }
         )
         .then(|| base.id.clone());
         let mut options = Vec::new();
@@ -3751,8 +4102,13 @@ impl Runtime {
                 });
             }
         }
+        // A secure field exposes neither its value nor its characters.
         let text = match node {
-            UiNode::TextField { state, .. } => {
+            UiNode::TextField {
+                state,
+                secure: false,
+                ..
+            } => {
                 let value = self.state.get(state).and_then(Value::as_str).unwrap_or("");
                 Some(self.accessible_text(base, value, x, y, measurer))
             }
@@ -3772,6 +4128,10 @@ impl Runtime {
             role,
             label,
             value: match node {
+                UiNode::TextField { secure: true, .. } => None,
+                UiNode::Progress { .. } => self
+                    .progress_fraction(node)
+                    .map(|fraction| format!("{}%", (fraction * 100.0).round())),
                 UiNode::TextField { state, .. } => Some(
                     self.state
                         .get(state)
@@ -3791,7 +4151,15 @@ impl Runtime {
             },
             children,
             action_id,
-            checked: None,
+            checked: match node {
+                UiNode::Toggle { state, .. } => Some(
+                    self.state
+                        .get(state)
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                ),
+                _ => None,
+            },
             text,
             scroll,
         });
@@ -3860,7 +4228,10 @@ fn sanitize_single_line(text: &str) -> String {
 fn collect_focusable_actions(node: &UiNode, runtime: &Runtime, output: &mut Vec<String>) {
     if matches!(
         node,
-        UiNode::Action { .. } | UiNode::TextField { .. } | UiNode::RadioGroup { .. }
+        UiNode::Action { .. }
+            | UiNode::TextField { .. }
+            | UiNode::RadioGroup { .. }
+            | UiNode::Toggle { .. }
     ) && runtime.node_enabled(node.base())
     {
         output.push(node.base().id.clone());
@@ -3892,6 +4263,7 @@ fn find_focusable_base<'a>(
         UiNode::Action { base, .. }
         | UiNode::TextField { base, .. }
         | UiNode::RadioGroup { base, .. }
+        | UiNode::Toggle { base, .. }
             if base.id == id =>
         {
             Some(base)
@@ -3914,6 +4286,90 @@ fn find_text_field<'a>(
             .active_children(node)
             .iter()
             .find_map(|child| find_text_field(child, runtime, id)),
+    }
+}
+
+fn find_toggle<'a>(
+    node: &'a UiNode,
+    runtime: &Runtime,
+    id: &str,
+) -> Option<(&'a str, &'a crate::ir::NodeBase)> {
+    match node {
+        UiNode::Toggle { base, state, .. } if base.id == id => Some((state, base)),
+        _ => runtime
+            .active_children(node)
+            .iter()
+            .find_map(|child| find_toggle(child, runtime, id)),
+    }
+}
+
+fn is_secure_field(node: &UiNode, runtime: &Runtime, id: &str) -> bool {
+    match node {
+        UiNode::TextField { base, secure, .. } if base.id == id => *secure,
+        _ => runtime
+            .active_children(node)
+            .iter()
+            .any(|child| is_secure_field(child, runtime, id)),
+    }
+}
+
+/// One bullet per grapheme: what a secure field presents.
+fn mask(value: &str) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    "\u{2022}".repeat(value.graphemes(true).count())
+}
+
+/// Single-line geometry of a field's value. A secure field lays out its
+/// bullets, with caret stops at the value's grapheme boundaries.
+fn field_line(
+    measurer: &dyn IntrinsicMeasurer,
+    value: &str,
+    secure: bool,
+) -> crate::layout::TextLineLayout {
+    if !secure {
+        return measurer.text_line(value, TEXT_FIELD_FONT_SIZE);
+    }
+    let bullet = measurer.text_line("\u{2022}", TEXT_FIELD_FONT_SIZE);
+    let carets: Vec<(usize, f32)> = crate::text_edit::grapheme_boundaries(value)
+        .into_iter()
+        .enumerate()
+        .map(|(index, offset)| (offset, index as f32 * bullet.width))
+        .collect();
+    crate::layout::TextLineLayout {
+        width: carets.last().map_or(0.0, |(_, x)| *x),
+        carets,
+        line_height: bullet.line_height,
+    }
+}
+
+/// Lifecycle identity: node id plus its semantic identity key, so `.id(_)`
+/// replacement reads as a disappearance and an appearance.
+fn lifecycle_key(runtime: &Runtime, base: &crate::ir::NodeBase) -> String {
+    match &base.identity_key {
+        Some(key) => format!("{}\u{1f}{}", base.id, runtime.eval(key)),
+        None => base.id.clone(),
+    }
+}
+
+fn node_of(key: &str) -> &str {
+    key.split('\u{1f}').next().unwrap_or(key)
+}
+
+fn collect_lifecycle(
+    node: &UiNode,
+    runtime: &Runtime,
+    output: &mut Vec<(String, Option<UiAction>, Option<UiAction>)>,
+) {
+    let base = node.base();
+    if let Some(lifecycle) = &base.lifecycle {
+        output.push((
+            lifecycle_key(runtime, base),
+            lifecycle.appear.clone(),
+            lifecycle.disappear.clone(),
+        ));
+    }
+    for child in runtime.active_children(node) {
+        collect_lifecycle(child, runtime, output);
     }
 }
 
@@ -5796,7 +6252,7 @@ mod tests {
       "entry":"StructuralFlip",
       "states":[{"name":"visible","initial":true}],
       "root":{"kind":"window","id":"root","title":"Structural FLIP","child":{
-        "kind":"column","id":"stack","layout":{"spacing":10},"children":[
+        "kind":"column","id":"stack","layout":{"spacing":10,"maxHeight":"infinity"},"children":[
           {"kind":"action","id":"toggle","label":"Toggle","action":{"kind":"toggle-state","state":"visible","transaction":{"animation":{"kind":"timing","duration":0.2,"curve":[0.0,0.0,1.0,1.0],"delayMs":0.0,"repeatCount":1,"autoreverses":false},"disablesAnimations":false,"isContinuous":false}}},
           {"kind":"conditional","id":"branch","condition":{"kind":"state","state":"visible"},"then":[
             {"kind":"panel","id":"inserted","layout":{"width":{"kind":"literal","value":120},"height":{"kind":"literal","value":60}},"visual":{"background":"#6750A4"}}

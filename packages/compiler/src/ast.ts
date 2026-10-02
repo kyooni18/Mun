@@ -264,6 +264,14 @@ function parseCall(slice: Slice): MunCallExpression | undefined {
   const identifier = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(value.source)
   if (!identifier) return undefined
   const open = skipTrivia(value.source, identifier[0].length)
+  // Swift allows a call with only a trailing closure: `ZStack { … }`.
+  if (value.source[open] === "{" && /^[A-Z]/.test(identifier[1])) {
+    const trailingClose = findMatching(value.source, open, "{")
+    if (skipTrivia(value.source, trailingClose + 1) !== value.source.length) return undefined
+    const trailing = parseClosure({ source: value.source.slice(open, trailingClose + 1), start: value.start + open, end: value.start + trailingClose + 1 })
+    if (!trailing) return undefined
+    return { kind: "call", callee: identifier[1], arguments: [], trailing, range: { start: value.start, end: value.end } }
+  }
   if (value.source[open] !== "(") return undefined
   const close = findMatching(value.source, open, "(")
   const afterClose = skipTrivia(value.source, close + 1)

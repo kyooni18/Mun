@@ -209,6 +209,17 @@ function styleFor(
     declarations.push(`justify-items:${justifyItems}`)
   }
 
+  // Spacer and Divider follow the containing stack's axis (web approximation).
+  if (node.kind === "spacer") {
+    const min = node.minLength ?? 8
+    declarations.push(state.axis ? `flex:1 1 ${min}px;min-${state.axis === "row" ? "width" : "height"}:${min}px` : "width:100%;height:100%")
+  }
+  if (node.kind === "divider") {
+    declarations.push(state.axis === "row" ? "width:1px;align-self:stretch" : "height:1px;align-self:stretch;width:100%")
+    declarations.push("background:rgba(127,127,127,0.3)")
+  }
+  if (node.kind === "progress") declarations.push(state.axis === "row" ? "flex:1 1 0" : "width:100%")
+
   if (layout?.width) {
     const value = cssValue(evaluate(layout.width, state))
     if (value) declarations.push(`width:${value}`)
@@ -229,7 +240,8 @@ function styleFor(
     else if (state.axis) declarations.push("align-self:stretch")
     else declarations.push(`${dimension}:100%`)
   }
-  if (layout?.padding !== undefined) declarations.push(`padding:${layout.padding}px`)
+  if (typeof layout?.padding === "number") declarations.push(`padding:${layout.padding}px`)
+  else if (layout?.padding) declarations.push(`padding:${layout.padding.top}px ${layout.padding.trailing}px ${layout.padding.bottom}px ${layout.padding.leading}px`)
   if (layout?.spacing !== undefined && (node.kind === "column" || node.kind === "row")) {
     declarations.push(`gap:${layout.spacing}px`)
   }
@@ -320,7 +332,7 @@ function renderNode(
       return `<div ${attributes}></div>`
     case "textField": {
       const value = asScalar(lookupState(state, node.state))
-      return `<input type="text" ${attributes} value="${escapeText(value == null ? "" : String(value))}"${node.placeholder ? ` placeholder="${escapeText(node.placeholder)}"` : ""}>`
+      return `<input type="${node.secure ? "password" : "text"}" ${attributes} value="${escapeText(value == null ? "" : String(value))}"${node.placeholder ? ` placeholder="${escapeText(node.placeholder)}"` : ""}>`
     }
     case "radioGroup":
       return `<div ${attributes} role="radiogroup">${node.options.map((option, index) => {
@@ -330,6 +342,19 @@ function renderNode(
       }).join("")}</div>`
     case "action":
       return `<button type="button" ${attributes}>${escapeText(node.label)}</button>`
+    case "toggle": {
+      const checked = lookupState(state, node.state) === true ? " checked" : ""
+      return `<label ${attributes}><input type="checkbox"${checked}>${escapeText(node.label)}</label>`
+    }
+    case "progress": {
+      const value = Number(asScalar(evaluate(node.value, state)) ?? 0)
+      const total = node.total ? Number(asScalar(evaluate(node.total, state)) ?? 1) : 1
+      const bar = `<progress value="${Number.isFinite(value) ? value : 0}" max="${Number.isFinite(total) && total > 0 ? total : 1}"></progress>`
+      return `<div ${attributes}>${node.label ? `<span>${escapeText(node.label)}</span>` : ""}${bar}</div>`
+    }
+    case "spacer":
+    case "divider":
+      return `<div ${attributes}></div>`
   }
 }
 

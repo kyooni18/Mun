@@ -299,7 +299,9 @@
             "text",
             "button",
             "textField",
-            "radioGroup"
+            "radioGroup",
+            "checkBox",
+            "progressIndicator"
           ]
         },
         "label": {
@@ -324,7 +326,35 @@
           "$ref": "#/$defs/expression"
         },
         "padding": {
-          "type": "number"
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "top",
+                "leading",
+                "bottom",
+                "trailing"
+              ],
+              "properties": {
+                "top": {
+                  "type": "number"
+                },
+                "leading": {
+                  "type": "number"
+                },
+                "bottom": {
+                  "type": "number"
+                },
+                "trailing": {
+                  "type": "number"
+                }
+              }
+            }
+          ]
         },
         "spacing": {
           "type": "number"
@@ -900,6 +930,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -945,6 +978,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1003,6 +1039,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1057,6 +1096,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1101,6 +1143,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1148,6 +1193,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1192,6 +1240,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1236,6 +1287,18 @@
         },
         {
           "$ref": "#/$defs/scroll"
+        },
+        {
+          "$ref": "#/$defs/toggleNode"
+        },
+        {
+          "$ref": "#/$defs/progressNode"
+        },
+        {
+          "$ref": "#/$defs/spacerNode"
+        },
+        {
+          "$ref": "#/$defs/dividerNode"
         }
       ]
     },
@@ -1275,6 +1338,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1397,6 +1463,12 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "secure": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -1465,6 +1537,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1517,6 +1592,9 @@
         },
         "transition": {
           "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1677,6 +1755,9 @@
           "items": {
             "$ref": "#/$defs/node"
           }
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
         }
       },
       "required": [
@@ -1685,6 +1766,205 @@
         "collection",
         "keyPath",
         "children"
+      ],
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "appear": {
+          "$ref": "#/$defs/action"
+        },
+        "disappear": {
+          "$ref": "#/$defs/action"
+        }
+      },
+      "additionalProperties": false
+    },
+    "toggleNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "toggle"
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "state",
+        "label"
+      ],
+      "additionalProperties": false
+    },
+    "progressNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "progress"
+        },
+        "value": {
+          "$ref": "#/$defs/expression"
+        },
+        "total": {
+          "$ref": "#/$defs/expression"
+        },
+        "label": {
+          "type": "string"
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "spacerNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "spacer"
+        },
+        "minLength": {
+          "type": "number",
+          "minimum": 0
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "dividerNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "motion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/motionBinding"
+          }
+        },
+        "kind": {
+          "const": "divider"
+        },
+        "identityKey": {
+          "$ref": "#/$defs/expression"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
       ],
       "additionalProperties": false
     }

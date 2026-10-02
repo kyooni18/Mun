@@ -423,6 +423,9 @@ fn role(role: MunAccessibilityRole) -> Role {
         MunAccessibilityRole::TextField => Role::TextInput,
         MunAccessibilityRole::RadioGroup => Role::RadioGroup,
         MunAccessibilityRole::RadioButton => Role::RadioButton,
+        MunAccessibilityRole::CheckBox => Role::CheckBox,
+        MunAccessibilityRole::ProgressIndicator => Role::ProgressIndicator,
+        MunAccessibilityRole::SecureTextField => Role::PasswordInput,
     }
 }
 

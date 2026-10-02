@@ -17,6 +17,10 @@
       "types": "./dist/compat.d.ts",
       "import": "./dist/compat.js"
     },
+    "./swiftui-manifest": {
+      "types": "./dist/api-manifest.d.ts",
+      "import": "./dist/api-manifest.js"
+    },
     "./internal/motion-abi": {
       "types": "./dist/motion-abi.d.ts",
       "import": "./dist/motion-abi.js"

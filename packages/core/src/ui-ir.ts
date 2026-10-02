@@ -78,7 +78,7 @@ export interface MunUiState {
   readonly scope?: MunUiNodeId
 }
 
-export type MunAccessibilityRole = "window" | "group" | "text" | "button" | "textField" | "radioGroup"
+export type MunAccessibilityRole = "window" | "group" | "text" | "button" | "textField" | "radioGroup" | "checkBox" | "progressIndicator"
 
 export interface MunAccessibilitySemantics {
   readonly role: MunAccessibilityRole
@@ -112,10 +112,18 @@ export type MunUiPaint =
       readonly endPoint: MunUiUnitPoint
     }
 
+/** Per-edge insets; leading/trailing follow the layout direction. */
+export interface MunUiEdgeInsets {
+  readonly top: number
+  readonly leading: number
+  readonly bottom: number
+  readonly trailing: number
+}
+
 export interface MunUiLayout {
   readonly width?: MunUiExpression
   readonly height?: MunUiExpression
-  readonly padding?: number
+  readonly padding?: number | MunUiEdgeInsets
   readonly spacing?: number
   readonly alignment?: MunUiAlignment
   /**
@@ -287,6 +295,17 @@ interface MunUiNodeBase {
   readonly accessibility?: MunAccessibilitySemantics
   readonly motion?: readonly MunUiMotionBinding[]
   readonly transition?: MunUiTransition
+  /**
+   * Actions run when the View starts or stops being semantically present
+   * (an active conditional branch, a live collection item, a new `.id(_:)`
+   * identity) — once per change, never per frame.
+   */
+  readonly lifecycle?: MunUiLifecycle
+}
+
+export interface MunUiLifecycle {
+  readonly appear?: MunUiAction
+  readonly disappear?: MunUiAction
 }
 
 export interface MunUiWindowNode extends MunUiNodeBase {
@@ -349,6 +368,34 @@ export interface MunUiTextFieldNode extends MunUiNodeBase {
   readonly kind: "textField"
   readonly state: MunUiStateId
   readonly placeholder?: string
+  /** A secure field: presented masked, never copied or exposed to assistive technology. */
+  readonly secure?: boolean
+}
+
+/** A Bool control; native presents the macOS checkbox style. */
+export interface MunUiToggleNode extends MunUiNodeBase {
+  readonly kind: "toggle"
+  readonly state: MunUiStateId
+  readonly label: string
+}
+
+/** Determinate linear progress: `value` of `total` (default 1). */
+export interface MunUiProgressNode extends MunUiNodeBase {
+  readonly kind: "progress"
+  readonly value: MunUiExpression
+  readonly total?: MunUiExpression
+  readonly label?: string
+}
+
+/** Flexible space along the containing stack's axis (both axes outside a stack). */
+export interface MunUiSpacerNode extends MunUiNodeBase {
+  readonly kind: "spacer"
+  readonly minLength?: number
+}
+
+/** A 1pt separator across the containing stack's axis. */
+export interface MunUiDividerNode extends MunUiNodeBase {
+  readonly kind: "divider"
 }
 
 export interface MunUiSelectionOption {
@@ -381,6 +428,10 @@ export type MunUiNode =
   | MunUiTextFieldNode
   | MunUiRadioGroupNode
   | MunUiActionNode
+  | MunUiToggleNode
+  | MunUiProgressNode
+  | MunUiSpacerNode
+  | MunUiDividerNode
 
 export interface MunUiProgram {
   readonly version: 1

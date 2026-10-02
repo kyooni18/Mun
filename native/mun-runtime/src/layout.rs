@@ -104,6 +104,21 @@ pub trait IntrinsicMeasurer {
         }
     }
 
+    /// Checkbox-style toggle: a 14pt box, a 6pt gap and the label line.
+    fn measure_toggle(&self, label: &str) -> IntrinsicSize {
+        let line = self.text_line(label, 16.0);
+        IntrinsicSize::new(
+            (line.width + 20.0).ceil(),
+            line.line_height.max(22.0).ceil(),
+        )
+    }
+
+    /// Linear progress: an optional label line above a 6pt track.
+    fn measure_progress(&self, label: Option<&str>) -> IntrinsicSize {
+        let label = label.map_or(0.0, |label| self.text_line(label, 16.0).line_height + 4.0);
+        IntrinsicSize::new(160.0, (label + 6.0).ceil())
+    }
+
     fn measure_radio_group(&self, labels: &[String]) -> IntrinsicSize {
         let width = labels
             .iter()

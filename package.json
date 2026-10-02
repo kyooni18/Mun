@@ -90,7 +90,8 @@
     "benchmark:resident:native:ci": "MUN_RESIDENT_NATIVE_CI=1 pnpm run benchmark:resident:native",
     "benchmark:browser": "pnpm run build:workspace && vite build --config benchmarks/browser.vite.config.ts && node benchmarks/browser-performance.mjs",
     "benchmark:browser:ci": "MUN_BROWSER_BENCH_CI=1 pnpm run benchmark:browser",
-    "test": "pnpm run build && pnpm run test:types && pnpm run test:animation && pnpm run test:runtime && pnpm run test:packages && pnpm run test:docs && pnpm run test:release",
+    "test": "pnpm run build && pnpm run test:types && pnpm run test:parity && pnpm run test:animation && pnpm run test:runtime && pnpm run test:packages && pnpm run test:docs && pnpm run test:release",
+    "test:parity": "node scripts/check-swiftui-manifest.mjs && node scripts/check-swiftui-snapshot.mjs && node scripts/swiftui-parity-report.mjs --check",
     "dev": "vite --config examples/vite.config.ts",
     "demo:build": "vite build --config examples/vite.config.ts",
     "demo:vue:build": "vite build --config examples/vue.vite.config.ts",
@@ -128,9 +129,10 @@
     "release:patch": "node scripts/publish-npm.mjs --patch",
     "release:minor": "node scripts/publish-npm.mjs --minor",
     "release:major": "node scripts/publish-npm.mjs --major",
-    "check:swiftui-manifest": "pnpm --filter @mun/core run build && node scripts/check-swiftui-manifest.mjs",
+    "check:swiftui-manifest": "pnpm --filter @mun/core --filter @mun/compiler run build && node scripts/check-swiftui-manifest.mjs",
     "check:swiftui-snapshot": "pnpm --filter @mun/core run build && node scripts/check-swiftui-snapshot.mjs",
-    "snapshot:swiftui": "node scripts/snapshot-swiftui-api.mjs"
+    "snapshot:swiftui": "node scripts/snapshot-swiftui-api.mjs",
+    "report:swiftui-parity": "node scripts/swiftui-parity-report.mjs"
   },
   "dependencies": {
     "@mun/animation": "workspace:*",

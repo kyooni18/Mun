@@ -441,14 +441,32 @@ impl References<'_> {
                     }
                 }
             }
+            "toggle" => {
+                self.state(&node["state"], &context.child("state"), None)?;
+                let name = node["state"].as_str().unwrap_or_default();
+                if self
+                    .states
+                    .get(name)
+                    .is_some_and(|initial| !initial.is_boolean())
+                {
+                    return Err(context
+                        .child("state")
+                        .error(format!("toggle state '{name}' must hold a boolean")));
+                }
+            }
             "action" => self.action(&node["action"], &context.child("action"))?,
             _ => {}
+        }
+        for phase in ["appear", "disappear"] {
+            if let Some(action) = node["lifecycle"].get(phase) {
+                self.action(action, &context.child(format!("lifecycle/{phase}")))?;
+            }
         }
         if let Value::Object(object) = node {
             for (field, value) in object {
                 if !matches!(
                     field.as_str(),
-                    "children" | "then" | "otherwise" | "child" | "action"
+                    "children" | "then" | "otherwise" | "child" | "action" | "lifecycle"
                 ) {
                     self.expressions(value, &context.child(field.clone()))?;
                 }

@@ -17,6 +17,10 @@ pub enum RetainedNodeKind {
     TextField,
     RadioGroup,
     Action,
+    Toggle,
+    Progress,
+    Spacer,
+    Divider,
 }
 
 impl RetainedNodeKind {

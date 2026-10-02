@@ -1,14 +1,13 @@
 struct ExpandingPanel: View {
-  let expandedValue: boolean
+  let expanded: boolean
   let compactWidth: number = 160
   let expandedWidth: number = 320
 
   var body: some View {
-    Rectangle()
-      .frame(width: expandedValue ? expandedWidth : compactWidth, height: 96)
-      .background("#6750A4")
-      .cornerRadius(18)
-      .animation(Animation.spring(0.48, 0.82), expandedValue)
+    RoundedRectangle(cornerRadius: 18)
+      .fill(Color("#6750A4"))
+      .frame(width: expanded ? expandedWidth : compactWidth, height: 96)
+      .animation(.spring(response: 0.48, dampingFraction: 0.82), value: expanded)
   }
 }
 
@@ -19,6 +18,7 @@ struct ToggleControl: View {
     Button("Toggle") { expanded.toggle() }
   }
 }
+
 struct NativeDemo: View {
   @State var expanded: boolean = false
 
@@ -26,8 +26,8 @@ struct NativeDemo: View {
     VStack(spacing: 16) {
       Text("Mün")
       ToggleControl(expanded: $expanded)
-      ExpandingPanel(expandedValue: expanded.value)
-      if (expanded.value) {
+      ExpandingPanel(expanded: expanded)
+      if expanded {
         Text("Expanded")
         Text("Native conditional branches are live")
       } else {

@@ -182,7 +182,7 @@ impl OffscreenSession {
             }
             self.runtime.take_ime_requests();
         } else if let Some(id) = text("activate") {
-            self.runtime.activate_action(&id);
+            self.runtime.activate_interactive(&id);
         } else if let Some(value) = text("type") {
             self.input(InputEvent::TextInput { text: value })
                 .map_err(gpu)?;

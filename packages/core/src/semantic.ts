@@ -326,7 +326,8 @@ function normalizeArguments(
     // also lack a runtime value, so only the normalized `undefined` type marks
     // that placeholder; real source arguments must still satisfy labels.
     const omittedPlaceholder = argument.value === undefined && argument.type === "undefined"
-    if (argument.label === undefined && parameter.labelRequired && !omittedPlaceholder) return undefined
+    // A trailing closure needs no label even where the declaration has one.
+    if (argument.label === undefined && !argument.trailing && parameter.labelRequired && !omittedPlaceholder) return undefined
     if (argument.label !== undefined) {
       if (index < lastLabeledIndex) return undefined
       sawLabel = true

@@ -7,7 +7,7 @@ struct ShapeStrip: View {
 
       Capsule()
         .frame(width: 60, height: 20)
-        .foregroundStyle(LinearGradient("#00FFFF", "#FF00FF"))
+        .foregroundStyle(LinearGradient(colors: [Color("#00FFFF"), Color("#FF00FF")], startPoint: .leading, endPoint: .trailing))
     }
   }
 }
@@ -19,26 +19,27 @@ struct NativeControlsStyle: View {
 
   var body: some View {
     VStack(spacing: 8) {
-      TextField($name, "Name")
-        .frame(width: 220, height: 40)
+      TextField("Name", text: $name)
+        .frame(width: 220)
         .padding(6)
         .background(Color("#202030"))
         .foregroundStyle(Color("#F0F0FF"))
         .cornerRadius(8)
 
-      RadioGroup($choice, [
-        { label: "Alpha", value: "a" },
-        { label: "Beta", value: "b" },
-        { label: "Disabled", value: "x", disabled: true }
-      ])
-        .frame(width: 220, height: 90)
-        .padding(6)
-        .background(Color("#101018"))
-        .cornerRadius(7)
+      Picker("Choice", selection: $choice) {
+        Text("Alpha").tag("a")
+        Text("Beta").tag("b")
+        Text("Disabled").tag("x").disabled(true)
+      }
+      .pickerStyle(.radioGroup)
+      .frame(width: 220, height: 90)
+      .padding(6)
+      .background(Color("#101018"))
+      .cornerRadius(7)
 
       Button("Toggle Detail") { expanded.toggle() }
-        .frame(width: 160, height: 40)
-        .background(LinearGradient(Color("#FF0000"), Color("#0000FF"), .leading, .trailing))
+        .padding(6)
+        .background(LinearGradient(colors: [Color("#FF0000"), Color("#0000FF")], startPoint: .leading, endPoint: .trailing))
         .foregroundStyle(Color("#FFFFFF"))
         .cornerRadius(14)
 

@@ -3,7 +3,7 @@ use mun_native::OffscreenSession;
 use mun_runtime::InputEvent;
 use mun_runtime::text_edit::{Composition, TextEdit};
 
-const FIELD: &str = r##"{"version":1,"sourceLanguage":"mun","entry":"Pixels","states":[{"name":"name","initial":"한국어 text"}],"root":{"kind":"window","id":"window","title":"Pixels","child":{"kind":"column","id":"stack","layout":{"alignment":"leading","padding":10},"visual":{"background":"#101018"},"children":[{"kind":"textField","id":"field","state":"name","layout":{"width":{"kind":"literal","value":260},"height":{"kind":"literal","value":40}},"visual":{"background":"#202030"}}]}}}"##;
+const FIELD: &str = r##"{"version":1,"sourceLanguage":"mun","entry":"Pixels","states":[{"name":"name","initial":"한국어 text"}],"root":{"kind":"window","id":"window","title":"Pixels","child":{"kind":"column","id":"stack","layout":{"alignment":"leading","padding":10,"maxWidth":"infinity","maxHeight":"infinity"},"visual":{"background":"#101018"},"children":[{"kind":"textField","id":"field","state":"name","layout":{"width":{"kind":"literal","value":260},"height":{"kind":"literal","value":40}},"visual":{"background":"#202030"}}]}}}"##;
 
 fn pixel(session: &OffscreenSession, rgba: &[u8], x: f32, y: f32, scale: f32) -> [u8; 4] {
     let (width, _) = session.size();

@@ -301,6 +301,8 @@ impl Color {
     pub const TEXT: Self = Self([0.94, 0.94, 0.97, 1.0]);
     pub const ACTION: Self = Self([0.18, 0.18, 0.22, 1.0]);
     pub const ACTION_FOCUSED: Self = Self([0.28, 0.28, 0.34, 1.0]);
+    pub const ACCENT: Self = Self([0.36, 0.62, 1.0, 1.0]);
+    pub const SEPARATOR: Self = Self([1.0, 1.0, 1.0, 0.14]);
     pub const SELECTION: Self = Self([0.36, 0.62, 1.0, 0.42]);
     pub const SCROLLBAR_TRACK: Self = Self([1.0, 1.0, 1.0, 0.06]);
     pub const SCROLLBAR_THUMB: Self = Self([1.0, 1.0, 1.0, 0.38]);

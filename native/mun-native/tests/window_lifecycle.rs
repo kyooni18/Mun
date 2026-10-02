@@ -7,7 +7,7 @@ use mun_runtime::InputEvent;
 use mun_runtime::text_edit::{Composition, TextEdit};
 
 const PROGRAM: &str = r##"{"version":1,"sourceLanguage":"mun","entry":"Life","states":[{"name":"name","initial":"한국어 text"},{"name":"wide","initial":false}],
-"root":{"kind":"window","id":"window","title":"Life","child":{"kind":"column","id":"stack","layout":{"alignment":"leading","padding":10,"spacing":8},"visual":{"background":"#101018"},"children":[
+"root":{"kind":"window","id":"window","title":"Life","child":{"kind":"column","id":"stack","layout":{"alignment":"leading","padding":10,"spacing":8,"maxWidth":"infinity","maxHeight":"infinity"},"visual":{"background":"#101018"},"children":[
  {"kind":"textField","id":"field","state":"name","layout":{"width":{"kind":"literal","value":260},"height":{"kind":"literal","value":40}},"visual":{"background":"#202030"}},
  {"kind":"action","id":"grow","label":"Grow","action":{"kind":"toggle-state","state":"wide","transaction":{"animation":{"kind":"timing","duration":0.4,"curve":[0,0,1,1],"delayMs":0,"repeatCount":1,"autoreverses":false},"disablesAnimations":false,"isContinuous":false}}},
  {"kind":"panel","id":"bar","layout":{"width":{"kind":"conditional","condition":{"kind":"state","state":"wide"},"then":{"kind":"literal","value":240},"otherwise":{"kind":"literal","value":40}},"height":{"kind":"literal","value":20}},"visual":{"background":"#63C8A2"},

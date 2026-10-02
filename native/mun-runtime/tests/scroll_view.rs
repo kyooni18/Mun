@@ -9,8 +9,13 @@ fn action(id: &str) -> Value {
 fn scroll(id: &str, height: i32, children: Vec<Value>) -> Value {
     json!({"kind":"scroll","id":id,"axis":"vertical","layout":{"width":literal(100),"height":literal(height)},"children":children})
 }
+/// Pins the content to the window's top-leading corner (SwiftUI centers a
+/// fixed-size root), so the fixtures can use window coordinates directly.
+fn top_leading(child: Value) -> Value {
+    json!({"kind":"overlay","id":"frame","alignment":"topLeading","layout":{"maxWidth":"infinity","maxHeight":"infinity"},"children":[child]})
+}
 fn runtime(child: Value) -> Runtime {
-    Runtime::from_json(&json!({"version":1,"sourceLanguage":"mun","entry":"Test","states":[{"name":"flag","initial":false}],"root":{"kind":"window","id":"window","title":"Test","child":child}}).to_string()).unwrap()
+    Runtime::from_json(&json!({"version":1,"sourceLanguage":"mun","entry":"Test","states":[{"name":"flag","initial":false}],"root":{"kind":"window","id":"window","title":"Test","child":top_leading(child)}}).to_string()).unwrap()
 }
 fn wheel(r: &mut Runtime, x: f32, y: f32, delta: f32) {
     r.handle_input(
@@ -128,9 +133,9 @@ fn keyboard_focus_reveals_offscreen_control_and_pointer_activates_scrolled_contr
 
 #[test]
 fn scroll_inside_stack_keeps_following_sibling_at_viewport_edge() {
-    let child = json!({"kind":"column","id":"stack","children":[scroll("scroll",60,vec![action("a"),action("b"),action("c")]),action("after")]});
+    let child = json!({"kind":"column","id":"stack","layout":{"maxWidth":"infinity"},"children":[scroll("scroll",60,vec![action("a"),action("b"),action("c")]),action("after")]});
     let mut r = runtime(child);
-    // The root column fills the 300pt window and centers its 100pt children.
+    // The flexible root column fills the 300pt window width and centers its 100pt children.
     wheel(&mut r, 120.0, 20.0, -40.0);
     let frame = r.build_frame(300.0, 300.0).unwrap();
     assert_eq!(frame.accessibility.node("after").unwrap().bounds.x, 100.0);
@@ -190,7 +195,7 @@ fn horizontal_scroll_and_line_input_use_logical_coordinates() {
 
 #[test]
 fn duplicate_ids_inside_scroll_fail_before_layout() {
-    let program = json!({"version":1,"sourceLanguage":"mun","entry":"Test","states":[],"root":{"kind":"window","id":"window","title":"Test","child":scroll("scroll",60,vec![action("same"),action("same")])}});
+    let program = json!({"version":1,"sourceLanguage":"mun","entry":"Test","states":[],"root":{"kind":"window","id":"window","title":"Test","child":top_leading(scroll("scroll",60,vec![action("same"),action("same")]))}});
     assert!(
         Runtime::from_json(&program.to_string())
             .err()

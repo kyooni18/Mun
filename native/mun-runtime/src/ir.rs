@@ -92,10 +92,15 @@ pub enum AccessibilityRole {
     Button,
     TextField,
     RadioGroup,
+    CheckBox,
+    ProgressIndicator,
     /// One option of a radio group. Runtime-derived from `radioGroup` options;
     /// never authored in the IR.
     #[serde(skip_deserializing)]
     RadioButton,
+    /// A `SecureField`. Runtime-derived from `textField` with `secure`.
+    #[serde(skip_deserializing)]
+    SecureTextField,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -216,7 +221,7 @@ pub struct UiLayout {
     #[serde(default)]
     pub height: Option<UiExpression>,
     #[serde(default)]
-    pub padding: Option<f32>,
+    pub padding: Option<UiPadding>,
     #[serde(default)]
     pub spacing: Option<f32>,
     #[serde(default)]
@@ -229,6 +234,34 @@ pub struct UiLayout {
     pub min_height: Option<f32>,
     #[serde(default)]
     pub max_height: Option<UiFrameBound>,
+}
+
+/// Uniform padding or per-edge insets (leading/trailing follow layout direction).
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum UiPadding {
+    Uniform(f32),
+    Edges {
+        top: f32,
+        leading: f32,
+        bottom: f32,
+        trailing: f32,
+    },
+}
+
+impl UiPadding {
+    /// `[top, leading, bottom, trailing]`.
+    pub fn edges(self) -> [f32; 4] {
+        match self {
+            Self::Uniform(value) => [value; 4],
+            Self::Edges {
+                top,
+                leading,
+                bottom,
+                trailing,
+            } => [top, leading, bottom, trailing],
+        }
+    }
 }
 
 /// Upper bound of a flexible frame: a length or `"infinity"`.
@@ -475,6 +508,18 @@ pub struct NodeBase {
     pub motion: Vec<UiMotionBinding>,
     #[serde(default)]
     pub transition: Option<UiTransition>,
+    /// Actions run when the View starts or stops being semantically present
+    /// (an active conditional branch, a materialized collection item).
+    #[serde(default)]
+    pub lifecycle: Option<UiLifecycle>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct UiLifecycle {
+    #[serde(default)]
+    pub appear: Option<UiAction>,
+    #[serde(default)]
+    pub disappear: Option<UiAction>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -556,6 +601,42 @@ pub enum UiNode {
         state: String,
         #[serde(default)]
         placeholder: Option<String>,
+        /// A secure field: presented masked, not copyable, no IME.
+        #[serde(default)]
+        secure: bool,
+    },
+    /// A Bool control (macOS checkbox presentation).
+    #[serde(rename = "toggle")]
+    Toggle {
+        #[serde(flatten)]
+        base: NodeBase,
+        state: String,
+        label: String,
+    },
+    /// Determinate progress: `value` of `total` (default 1).
+    #[serde(rename = "progress")]
+    Progress {
+        #[serde(flatten)]
+        base: NodeBase,
+        value: UiExpression,
+        #[serde(default)]
+        total: Option<UiExpression>,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// Flexible space along the containing stack's axis.
+    #[serde(rename = "spacer")]
+    Spacer {
+        #[serde(flatten)]
+        base: NodeBase,
+        #[serde(default, rename = "minLength")]
+        min_length: Option<f32>,
+    },
+    /// A separator line across the containing stack's axis.
+    #[serde(rename = "divider")]
+    Divider {
+        #[serde(flatten)]
+        base: NodeBase,
     },
     #[serde(rename = "radioGroup")]
     RadioGroup {
@@ -585,6 +666,10 @@ impl UiNode {
             | Self::Panel { base, .. }
             | Self::Scroll { base, .. }
             | Self::TextField { base, .. }
+            | Self::Toggle { base, .. }
+            | Self::Progress { base, .. }
+            | Self::Spacer { base, .. }
+            | Self::Divider { base, .. }
             | Self::RadioGroup { base, .. }
             | Self::Action { base, .. } => base,
         }

@@ -15,6 +15,7 @@ try {
     ['NativeDemo', 'compiler_contract', 'MUN_COMPILER_CONTRACT_IR'],
     ['NativeControlsStyle', 'native_controls_style', 'MUN_NATIVE_CONTROLS_IR'],
     ['NativeLayoutStyle', 'native_layout_style', 'MUN_NATIVE_UI_IR'],
+    ['NativeSettingsPane', 'native_settings_pane', 'MUN_NATIVE_SETTINGS_IR'],
   ]) {
     const path = resolve(directory, `${source}.json`)
     const test = (name, env, filter) => run('cargo', ['test', '--manifest-path', 'native/Cargo.toml', '--locked', '-p', 'mun-runtime', '--test', name, '--', '--ignored', ...filter], { ...process.env, ...env })

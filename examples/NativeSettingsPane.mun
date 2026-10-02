@@ -1,0 +1,39 @@
+struct SettingRow: View {
+  let title: string
+  @Binding var isOn: boolean
+
+  var body: some View {
+    HStack {
+      Toggle(title, isOn: $isOn)
+      Spacer()
+      Text(isOn ? "On" : "Off")
+    }
+  }
+}
+
+struct NativeSettingsPane: View {
+  @State var wifi: boolean = false
+  @State var bluetooth: boolean = true
+  @State var password: string = "pa55"
+  @State var synced: number = 3
+  @State var visits: number = 0
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      SettingRow(title: "Wi-Fi", isOn: $wifi)
+      SettingRow(title: "Bluetooth", isOn: $bluetooth)
+      Divider()
+      SecureField("Password", text: $password)
+      ProgressView("Sync", value: synced, total: 4)
+      if wifi {
+        Text("Networks")
+          .onAppear { visits = visits + 1 }
+          .onDisappear { visits = visits + 10 }
+      }
+      Text("Visits \(visits)")
+    }
+    .frame(width: 420)
+  }
+}
+
+export default NativeSettingsPane()

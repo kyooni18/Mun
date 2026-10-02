@@ -539,6 +539,16 @@ impl Expander<'_, '_> {
                 .take()
                 .map(|value| self.expression(&value, scopes));
         }
+        if let Some(lifecycle) = &mut output.lifecycle {
+            lifecycle.appear = lifecycle
+                .appear
+                .take()
+                .map(|action| self.action(&action, scopes));
+            lifecycle.disappear = lifecycle
+                .disappear
+                .take()
+                .map(|action| self.action(&action, scopes));
+        }
         for binding in &mut output.motion {
             binding.value = self.expression(&binding.value, scopes);
             binding.trigger = binding
@@ -662,10 +672,35 @@ impl Expander<'_, '_> {
                 base,
                 state,
                 placeholder,
+                secure,
             } => UiNode::TextField {
                 base: self.base(base, scopes),
                 state: self.rename_state(state, scopes),
                 placeholder: placeholder.clone(),
+                secure: *secure,
+            },
+            UiNode::Toggle { base, state, label } => UiNode::Toggle {
+                base: self.base(base, scopes),
+                state: self.rename_state(state, scopes),
+                label: label.clone(),
+            },
+            UiNode::Progress {
+                base,
+                value,
+                total,
+                label,
+            } => UiNode::Progress {
+                base: self.base(base, scopes),
+                value: self.expression(value, scopes),
+                total: total.as_ref().map(|total| self.expression(total, scopes)),
+                label: label.clone(),
+            },
+            UiNode::Spacer { base, min_length } => UiNode::Spacer {
+                base: self.base(base, scopes),
+                min_length: *min_length,
+            },
+            UiNode::Divider { base } => UiNode::Divider {
+                base: self.base(base, scopes),
             },
             UiNode::RadioGroup {
                 base,

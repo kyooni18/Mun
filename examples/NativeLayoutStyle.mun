@@ -3,31 +3,30 @@ struct NativeLayoutStyle: View {
     VStack(spacing: 12) {
       HStack(alignment: .bottom, spacing: 10) {
         Rectangle()
+          .fill(Color("#FF0000"))
           .frame(width: 40, height: 20)
-          .background("#FF0000")
           .cornerRadius(5)
         Rectangle()
+          .fill(Color("#00FF00"))
           .frame(width: 60, height: 30)
-          .background("#00FF00")
           .opacity(0.5)
       }
 
-      ZStack() {
-        Rectangle()
+      ZStack {
+        RoundedRectangle(cornerRadius: 12)
+          .fill(Color("#112233"))
           .frame(width: 120, height: 80)
-          .background("#112233")
-          .cornerRadius(12)
         Rectangle()
+          .fill(Color("#445566"))
           .frame(width: 40, height: 20)
-          .background("#445566")
       }
 
       Text("Styled")
-        .foregroundColor("#ABCDEF")
+        .foregroundStyle(Color("#ABCDEF"))
     }
     .frame(width: 240, height: 220)
     .padding(10)
-    .background("#010203")
+    .background(Color("#010203"))
   }
 }
 
