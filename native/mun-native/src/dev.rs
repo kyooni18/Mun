@@ -11,8 +11,10 @@ use std::{
     net::{SocketAddr, TcpStream},
     sync::{Arc, Mutex},
     thread,
+    time::Instant,
 };
 
+use mun_runtime::{HotUpdateReport, HotUpdateTimings, Runtime};
 use serde_json::{Value, json};
 use winit::event_loop::EventLoopProxy;
 
@@ -23,27 +25,183 @@ pub const DEV_PROTOCOL_VERSION: u64 = 2;
 /// is a protocol error, not a reason to allocate.
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
+/// When and at what cost a dev frame arrived (set by the reader thread).
+#[derive(Clone, Copy, Debug)]
+pub struct Received {
+    pub at: Instant,
+    /// JSON decode of the frame body, in microseconds.
+    pub decode_micros: u64,
+}
+
+impl Received {
+    pub fn now() -> Self {
+        Self {
+            at: Instant::now(),
+            decode_micros: 0,
+        }
+    }
+}
+
+/// A full program or a JSON path patch against the host's current program.
+#[derive(Clone, Debug)]
+pub enum UpdateBody {
+    Full(Value),
+    Patch(Vec<Value>),
+}
+
 #[derive(Clone, Debug)]
 pub enum DevCommand {
     Update {
         id: u64,
         base_revision: u64,
         revision: u64,
-        program: Value,
+        body: UpdateBody,
         preserve: Vec<String>,
-    },
-    Patch {
-        id: u64,
-        base_revision: u64,
-        revision: u64,
-        operations: Vec<Value>,
-        preserve: Vec<String>,
+        received: Received,
     },
     Inspect {
         id: u64,
         include_values: bool,
     },
     Disconnected(Option<String>),
+}
+
+fn micros(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+/// Host-side cost of applying one dev update, in microseconds.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UpdateTimings {
+    pub decode_micros: u64,
+    /// From frame receipt to the event loop starting to apply it.
+    pub queue_micros: u64,
+    /// Reconstructing the full program from a patch.
+    pub patch_micros: u64,
+    pub runtime: HotUpdateTimings,
+    /// Patch reconstruction plus `Runtime::hot_update`.
+    pub apply_micros: u64,
+}
+
+impl UpdateTimings {
+    pub fn to_json(self) -> Value {
+        json!({
+            "decodeMicros": self.decode_micros,
+            "queueMicros": self.queue_micros,
+            "patchMicros": self.patch_micros,
+            "loadMicros": self.runtime.load_micros,
+            "materializeMicros": self.runtime.materialize_micros,
+            "reconcileMicros": self.runtime.reconcile_micros,
+            "applyMicros": self.apply_micros,
+        })
+    }
+}
+
+/// Why an update was not applied; the host's program and revision are unchanged.
+#[derive(Clone, Debug)]
+pub struct UpdateRejection {
+    pub code: &'static str,
+    pub message: String,
+    pub current_revision: u64,
+}
+
+/// The host's development view of its program: the JSON it last committed
+/// and its revision. Both the windowed host and headless measurement apply
+/// updates through [`DevProgram::apply`], so they share one code path.
+pub struct DevProgram {
+    program: Value,
+    revision: u64,
+}
+
+impl DevProgram {
+    pub fn new(program: Value) -> Self {
+        Self {
+            program,
+            revision: 0,
+        }
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Check the revision, reconstruct the program and hot-update `runtime`.
+    /// Nothing is committed unless the runtime accepts the new program.
+    pub fn apply(
+        &mut self,
+        runtime: &mut Runtime,
+        base_revision: u64,
+        revision: u64,
+        body: UpdateBody,
+        preserve: &[String],
+        received: Received,
+    ) -> Result<(HotUpdateReport, UpdateTimings), UpdateRejection> {
+        let mut timings = UpdateTimings {
+            decode_micros: received.decode_micros,
+            queue_micros: micros(received.at),
+            ..UpdateTimings::default()
+        };
+        let reject = |code, message| UpdateRejection {
+            code,
+            message,
+            current_revision: self.revision,
+        };
+        if base_revision != self.revision || revision != base_revision.saturating_add(1) {
+            return Err(reject(
+                "revision-mismatch",
+                format!(
+                    "dev revision mismatch: host is {}, update is {base_revision} -> {revision}",
+                    self.revision
+                ),
+            ));
+        }
+        let started = Instant::now();
+        let program = match body {
+            UpdateBody::Full(program) => program,
+            UpdateBody::Patch(operations) => apply_program_patch(&self.program, &operations)
+                .map_err(|message| reject("patch-invalid", message))?,
+        };
+        timings.patch_micros = micros(started);
+        let report = runtime
+            .hot_update_value(&program, preserve)
+            .map_err(|error| reject("runtime-rejected", error.to_string()))?;
+        timings.runtime = report.timings;
+        timings.apply_micros = micros(started);
+        self.program = program;
+        self.revision = revision;
+        Ok((report, timings))
+    }
+}
+
+/// [`read_frame`], stamped with arrival time and the JSON decode cost.
+fn read_frame_timed(reader: &mut impl Read) -> io::Result<Option<(Value, Received)>> {
+    let mut length = [0; 4];
+    match reader.read_exact(&mut length) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    let body = read_body(reader, u32::from_be_bytes(length) as usize)?;
+    let started = Instant::now();
+    let message = serde_json::from_slice(&body)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let received = Received {
+        decode_micros: micros(started),
+        at: Instant::now(),
+    };
+    Ok(Some((message, received)))
+}
+
+fn read_body(reader: &mut impl Read, length: usize) -> io::Result<Vec<u8>> {
+    if length > MAX_FRAME_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("dev frame of {length} bytes exceeds {MAX_FRAME_BYTES}"),
+        ));
+    }
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body)?;
+    Ok(body)
 }
 
 pub fn read_frame(reader: &mut impl Read) -> io::Result<Option<Value>> {
@@ -53,15 +211,7 @@ pub fn read_frame(reader: &mut impl Read) -> io::Result<Option<Value>> {
         Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
         Err(error) => return Err(error),
     }
-    let length = u32::from_be_bytes(length) as usize;
-    if length > MAX_FRAME_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("dev frame of {length} bytes exceeds {MAX_FRAME_BYTES}"),
-        ));
-    }
-    let mut body = vec![0; length];
-    reader.read_exact(&mut body)?;
+    let body = read_body(reader, u32::from_be_bytes(length) as usize)?;
     serde_json::from_slice(&body)
         .map(Some)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
@@ -202,37 +352,41 @@ pub fn apply_program_patch(program: &Value, operations: &[Value]) -> Result<Valu
     Ok(result)
 }
 
-fn parse_command(message: &Value) -> Result<DevCommand, String> {
+pub fn parse_command(message: Value, received: Received) -> Result<DevCommand, String> {
     let id = message.get("id").and_then(Value::as_u64).unwrap_or(0);
+    let mut message = message;
     match message.get("type").and_then(Value::as_str) {
         Some("update") => {
-            let (base_revision, revision) = revisions(message)?;
+            let (base_revision, revision) = revisions(&message)?;
+            let preserve = preserve_states(&message);
             let program = message
-                .get("program")
+                .get_mut("program")
                 .filter(|program| program.is_object())
-                .cloned()
+                .map(Value::take)
                 .ok_or("update without program")?;
             Ok(DevCommand::Update {
                 id,
                 base_revision,
                 revision,
-                program,
-                preserve: preserve_states(message),
+                body: UpdateBody::Full(program),
+                preserve,
+                received,
             })
         }
         Some("patch") => {
-            let (base_revision, revision) = revisions(message)?;
-            let operations = message
-                .get("operations")
-                .and_then(Value::as_array)
-                .cloned()
-                .ok_or("patch without operations")?;
-            Ok(DevCommand::Patch {
+            let (base_revision, revision) = revisions(&message)?;
+            let preserve = preserve_states(&message);
+            let operations = match message.get_mut("operations").map(Value::take) {
+                Some(Value::Array(operations)) => operations,
+                _ => return Err("patch without operations".into()),
+            };
+            Ok(DevCommand::Update {
                 id,
                 base_revision,
                 revision,
-                operations,
-                preserve: preserve_states(message),
+                body: UpdateBody::Patch(operations),
+                preserve,
+                received,
             })
         }
         Some("inspect") => Ok(DevCommand::Inspect {
@@ -288,8 +442,8 @@ impl DevLink {
             .name("mun-dev-link".into())
             .spawn(move || {
                 let reason = loop {
-                    match read_frame(&mut reader) {
-                        Ok(Some(message)) => match parse_command(&message) {
+                    match read_frame_timed(&mut reader) {
+                        Ok(Some((message, received))) => match parse_command(message, received) {
                             Ok(command) => {
                                 if proxy.send_event(NativeEvent::Dev(command)).is_err() {
                                     break None;
@@ -339,21 +493,69 @@ mod tests {
 
     #[test]
     fn commands_parse_and_unknown_messages_are_rejected() {
-        let command = parse_command(&json!({
-            "type": "update", "id": 7, "baseRevision": 2, "revision": 3, "program": {"version": 1}, "preserve": ["a"]
-        }))
+        let command = parse_command(
+            json!({
+                "type": "update", "id": 7, "baseRevision": 2, "revision": 3, "program": {"version": 1}, "preserve": ["a"]
+            }),
+            Received::now(),
+        )
         .unwrap();
         assert!(
             matches!(command, DevCommand::Update { id: 7, ref preserve, .. } if preserve == &["a"])
         );
-        assert!(parse_command(&json!({"type": "eval"})).is_err());
-        assert!(parse_command(&json!({"type": "update"})).is_err());
+        assert!(parse_command(json!({"type": "eval"}), Received::now()).is_err());
+        assert!(parse_command(json!({"type": "update"}), Received::now()).is_err());
         assert!(
             parse_command(
-                &json!({"type": "patch", "baseRevision": 2, "revision": 4, "operations": []})
+                json!({"type": "patch", "baseRevision": 2, "revision": 4, "operations": []}),
+                Received::now()
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn dev_program_commits_only_accepted_updates_in_revision_order() {
+        let text = |label: &str| {
+            json!({
+                "version": 1, "sourceLanguage": "mun", "entry": "App",
+                "states": [{"name": "count", "initial": 0}],
+                "root": {"kind": "window", "id": "window-root", "title": "T", "child":
+                    {"kind": "text", "id": "label", "value": {"kind": "literal", "value": label}}}
+            })
+        };
+        let mut runtime = Runtime::from_json(&text("a").to_string()).unwrap();
+        let mut dev = DevProgram::new(text("a"));
+        let preserve = ["count".to_owned()];
+        let set_label = |label: &str| {
+            UpdateBody::Patch(vec![json!({
+                "op": "set", "path": ["root", "child", "value", "value"], "value": label
+            })])
+        };
+
+        let (_, timings) = dev
+            .apply(&mut runtime, 0, 1, set_label("b"), &preserve, Received::now())
+            .unwrap();
+        assert_eq!(dev.revision(), 1);
+        assert!(timings.apply_micros >= timings.patch_micros);
+
+        // Stale revision, malformed patch and a program the runtime rejects
+        // leave the committed program and revision untouched.
+        let stale = dev.apply(&mut runtime, 0, 1, set_label("c"), &preserve, Received::now());
+        assert_eq!(stale.unwrap_err().code, "revision-mismatch");
+        let missing = UpdateBody::Patch(vec![json!({"op": "set", "path": ["nope", "x"], "value": 1})]);
+        let invalid = dev.apply(&mut runtime, 1, 2, missing, &preserve, Received::now());
+        assert_eq!(invalid.unwrap_err().code, "patch-invalid");
+        let broken = UpdateBody::Full(json!({"version": 1, "states": 3}));
+        let rejected = dev.apply(&mut runtime, 1, 2, broken, &preserve, Received::now());
+        assert_eq!(rejected.unwrap_err().code, "runtime-rejected");
+        assert_eq!(dev.revision(), 1);
+        assert_eq!(dev.program["root"]["child"]["value"]["value"], "b");
+
+        dev.apply(&mut runtime, 1, 2, set_label("c"), &preserve, Received::now())
+            .unwrap();
+        assert_eq!(dev.revision(), 2);
+        assert_eq!(dev.program["root"]["child"]["value"]["value"], "c");
     }
 
     #[test]

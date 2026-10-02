@@ -38,8 +38,8 @@ pub use retained::{
     RetainedTree, RetainedTreeError,
 };
 pub use runtime::{
-    HotUpdateReport, ImeRequest, PlatformConventions, Runtime, RuntimeDiagnostic, RuntimeFrame,
-    RuntimeLoadError, SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,
+    HotUpdateReport, HotUpdateTimings, ImeRequest, PlatformConventions, Runtime, RuntimeDiagnostic,
+    RuntimeFrame, RuntimeLoadError, SEMANTIC_UI_IR_VERSION, StateMutation, Transaction,
 };
 pub use scene::{Color, Rect, Scene};
 pub use scroll::{

@@ -130,6 +130,21 @@ function sourceForNode(metadata, id) {
   return metadata?.nodes?.find(node => node.id === id && node.file && node.line && node.column)
 }
 
+const micros = value => `${(value / 1000).toFixed(2)} ms`
+
+/** Host-side stages of an applied update (`update-applied.timings`). */
+export function formatHostTimings(timings) {
+  return `Host: queue ${micros(timings.queueMicros)}, decode ${micros(timings.decodeMicros)}, patch ${micros(timings.patchMicros)}, load ${micros(timings.loadMicros)}, materialize ${micros(timings.materializeMicros)}, reconcile ${micros(timings.reconcileMicros)}`
+}
+
+/** First presented frame of a hot update (`update-presented`). */
+export function formatPresentation(message) {
+  const frame = message.frame
+  const skipped = message.skippedFrames ? `; ${message.skippedFrames} skipped frame(s) while hidden` : ''
+  const superseded = message.supersededRevisions ? `; superseded ${message.supersededRevisions} unpresented revision(s)` : ''
+  return `Presented revision ${message.revision} ${micros(message.receiveToPresentMicros)} after receipt: layout ${micros(frame.layoutMicros)}, prepare ${micros(frame.prepareMicros)}, acquire ${micros(frame.acquireMicros)}, submit ${micros(frame.submitMicros)}, present ${micros(frame.presentMicros)}${skipped}${superseded}`
+}
+
 export function formatRuntimeDiagnostic(message, metadata) {
   const source = sourceForNode(metadata, message.node)
   const location = source ? `${source.file}:${source.line}:${source.column}: ` : ''
@@ -178,6 +193,7 @@ export async function develop(project, { env, verbose = false }) {
       }
       console.error(formatRuntimeDiagnostic(message, running?.metadata))
     } else if (message.type === 'protocol-error') console.error(`Dev protocol error: ${message.message}`)
+    else if (message.type === 'update-presented' && verbose) log(formatPresentation(message))
   }
   loop = createDevLoop({
     verbose,
@@ -229,6 +245,7 @@ export async function develop(project, { env, verbose = false }) {
       if (verbose) {
         const reduction = update.fullBytes > 0 ? (100 * (1 - update.bytes / update.fullBytes)).toFixed(1) : '0.0'
         log(`Runtime round trip ${(performance.now() - started).toFixed(1)} ms; ${update.type} ${(update.bytes / 1024).toFixed(1)} KiB vs full ${(update.fullBytes / 1024).toFixed(1)} KiB (${reduction}% smaller); ${update.operationCount} patch op(s); revision ${revision}`)
+        if (reply.timings) log(formatHostTimings(reply.timings))
       }
       return reply
     },

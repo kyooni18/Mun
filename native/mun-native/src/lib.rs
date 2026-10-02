@@ -244,7 +244,25 @@ pub struct RendererStats {
     pub text_reshapes: u64,
 }
 
+/// Wall-clock cost of the stages of the last rendered frame, in microseconds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RenderTimings {
+    /// Scene geometry, vertex upload, text shaping and glyph preparation.
+    pub prepare_micros: u64,
+    /// Acquiring the swapchain texture (may wait on the compositor/vsync).
+    pub acquire_micros: u64,
+    /// Command encoding and queue submission.
+    pub submit_micros: u64,
+    /// Handing the frame to the platform presentation engine.
+    pub present_micros: u64,
+}
+
+fn micros_since(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
 struct GpuRenderer {
+    last_timings: RenderTimings,
     device: wgpu::Device,
     queue: wgpu::Queue,
     target: RenderTarget,
@@ -453,6 +471,7 @@ impl GpuRenderer {
                 rect_vertex_capacity_bytes: rect_vertex_capacity,
                 ..Default::default()
             },
+            last_timings: RenderTimings::default(),
             mirrored_text_reported: false,
         }
     }
@@ -533,10 +552,12 @@ impl GpuRenderer {
         presentation: &ScenePresentation,
         scale_factor: f32,
     ) -> FrameStatus {
+        self.last_timings = RenderTimings::default();
         if !scale_factor.is_finite() || scale_factor <= 0.0 {
             self.stats.skipped_frames += 1;
             return FrameStatus::Skipped;
         }
+        let stage = Instant::now();
         let surface_width = self.config.width.max(1);
         let surface_height = self.config.height.max(1);
         let physical_width = surface_width as f32;
@@ -703,10 +724,14 @@ impl GpuRenderer {
             });
         }
         drop(font_system);
+        self.last_timings.prepare_micros = micros_since(stage);
+        let stage = Instant::now();
 
         let (frame, view) = match &self.target {
             RenderTarget::Surface(surface) => {
-                let frame = match surface.get_current_texture() {
+                let acquired = surface.get_current_texture();
+                self.last_timings.acquire_micros = micros_since(stage);
+                let frame = match acquired {
                     wgpu::CurrentSurfaceTexture::Success(frame) => frame,
                     wgpu::CurrentSurfaceTexture::Timeout
                     | wgpu::CurrentSurfaceTexture::Occluded => {
@@ -734,6 +759,7 @@ impl GpuRenderer {
                 texture.create_view(&wgpu::TextureViewDescriptor::default()),
             ),
         };
+        let stage = Instant::now();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -815,9 +841,12 @@ impl GpuRenderer {
         }
 
         self.queue.submit(Some(encoder.finish()));
+        self.last_timings.submit_micros = micros_since(stage);
+        let stage = Instant::now();
         if let Some(frame) = frame {
             self.queue.present(frame);
         }
+        self.last_timings.present_micros = micros_since(stage);
         self.atlas.trim();
         self.stats.frames += 1;
         FrameStatus::Presented
@@ -1848,27 +1877,32 @@ impl WindowState {
         self.sync_text_input();
     }
 
-    fn redraw(&mut self) {
+    fn redraw(&mut self) -> Option<FrameReport> {
         let size = self.window.inner_size();
         if size.width == 0 || size.height == 0 {
-            return;
+            return None;
         }
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f32().min(0.05);
         self.last_frame = now;
         self.runtime.step(dt);
+        let step_micros = micros_since(now);
 
+        let stage = Instant::now();
         let (width, height) = self.logical_size();
         let frame = match self.runtime.build_frame(width, height) {
             Ok(frame) => frame,
             Err(error) => {
                 eprintln!("{}", GpuError::new("layout", error));
-                return;
+                return None;
             }
         };
+        let layout_micros = micros_since(stage);
+        let stage = Instant::now();
         self.update_ime_cursor_area(frame.ime_cursor_area);
         self.accessibility
             .update(frame.accessibility, self.window.scale_factor() as f32);
+        let accessibility_micros = micros_since(stage);
         let status = self
             .renderer
             .render(&frame.scene, self.window.scale_factor() as f32);
@@ -1876,6 +1910,13 @@ impl WindowState {
         if status == FrameStatus::Reconfigured || self.runtime.has_active_motion() {
             self.window.request_redraw();
         }
+        Some(FrameReport {
+            status,
+            step_micros,
+            layout_micros,
+            accessibility_micros,
+            render: self.renderer.last_timings,
+        })
     }
 }
 
@@ -1886,8 +1927,65 @@ struct Application {
     runtime: Option<Runtime>,
     smoke_frames: Option<u32>,
     dev: Option<dev::DevLink>,
-    dev_program: Option<serde_json::Value>,
-    dev_revision: u64,
+    dev_program: Option<dev::DevProgram>,
+    /// The latest applied dev revision not yet shown on screen.
+    pending_presentation: Option<PendingPresentation>,
+}
+
+/// Tell the toolchain when a hot update first reaches the screen, with the
+/// frame's stage costs. Skipped frames (occluded/minimized window) are counted
+/// and the update stays pending until a frame is actually presented.
+fn report_presentation(
+    link: &dev::DevLink,
+    pending: &mut Option<PendingPresentation>,
+    report: &FrameReport,
+) {
+    let Some(waiting) = pending.as_mut() else {
+        return;
+    };
+    if report.status != FrameStatus::Presented {
+        waiting.skipped_frames += 1;
+        return;
+    }
+    let waiting = pending.take().expect("pending presentation checked above");
+    link.send(&serde_json::json!({
+        "type": "update-presented",
+        "revision": waiting.revision,
+        "receiveToPresentMicros": micros_since(waiting.received),
+        "applyToPresentMicros": micros_since(waiting.applied),
+        "skippedFrames": waiting.skipped_frames,
+        "supersededRevisions": waiting.superseded,
+        "frame": {
+            "stepMicros": report.step_micros,
+            "layoutMicros": report.layout_micros,
+            "accessibilityMicros": report.accessibility_micros,
+            "prepareMicros": report.render.prepare_micros,
+            "acquireMicros": report.render.acquire_micros,
+            "submitMicros": report.render.submit_micros,
+            "presentMicros": report.render.present_micros,
+        },
+    }));
+}
+
+/// Measured cost of one windowed frame (development instrumentation).
+struct FrameReport {
+    status: FrameStatus,
+    step_micros: u64,
+    /// `Runtime::build_frame`: layout and scene/accessibility construction.
+    layout_micros: u64,
+    accessibility_micros: u64,
+    render: RenderTimings,
+}
+
+/// A hot update waiting for its first presented frame (development only).
+struct PendingPresentation {
+    revision: u64,
+    received: Instant,
+    applied: Instant,
+    /// Frames skipped (occluded/timeout) while waiting.
+    skipped_frames: u32,
+    /// Older applied revisions this one superseded before any was presented.
+    superseded: u32,
 }
 
 impl Application {
@@ -1900,7 +1998,7 @@ impl Application {
             smoke_frames: None,
             dev: None,
             dev_program: None,
-            dev_revision: 0,
+            pending_presentation: None,
         }
     }
 
@@ -1930,66 +2028,6 @@ impl Application {
         }
     }
 
-    fn apply_dev_program_update(
-        &mut self,
-        link: &dev::DevLink,
-        id: u64,
-        base_revision: u64,
-        revision: u64,
-        program: serde_json::Value,
-        preserve: Vec<String>,
-    ) {
-        if base_revision != self.dev_revision || revision != base_revision.saturating_add(1) {
-            link.send(&serde_json::json!({
-                "type": "update-rejected",
-                "id": id,
-                "code": "revision-mismatch",
-                "message": format!("dev revision mismatch: host is {}, update is {} -> {}", self.dev_revision, base_revision, revision),
-                "currentRevision": self.dev_revision,
-            }));
-            return;
-        }
-        let started = std::time::Instant::now();
-        let text = program.to_string();
-        let result = {
-            let Some(runtime) = self.runtime_mut() else {
-                return;
-            };
-            runtime.hot_update(&text, &preserve)
-        };
-        let micros = started.elapsed().as_micros() as u64;
-        match result {
-            Ok(report) => {
-                self.dev_program = Some(program);
-                self.dev_revision = revision;
-                if let Some(state) = &mut self.state {
-                    state.window.set_title(state.runtime.title());
-                    state.sync_text_input();
-                    state.window.request_redraw();
-                }
-                link.send(&serde_json::json!({
-                    "type": "update-applied",
-                    "id": id,
-                    "revision": revision,
-                    "applyMicros": micros,
-                    "preservedStates": report.preserved_states,
-                    "resetStates": report.reset_states,
-                    "insertedNodes": report.inserted_nodes,
-                    "removedNodes": report.removed_nodes,
-                    "lifecycleMutations": report.lifecycle_mutations,
-                }));
-            }
-            Err(error) => link.send(&serde_json::json!({
-                "type": "update-rejected",
-                "id": id,
-                "code": "runtime-rejected",
-                "currentRevision": self.dev_revision,
-                "message": error.to_string(),
-            })),
-        }
-        self.forward_diagnostics();
-    }
-
     fn handle_dev(&mut self, event_loop: &ActiveEventLoop, command: dev::DevCommand) {
         let Some(link) = self.dev.clone() else { return };
         match command {
@@ -1997,53 +2035,69 @@ impl Application {
                 id,
                 base_revision,
                 revision,
-                program,
+                body,
                 preserve,
+                received,
             } => {
-                self.apply_dev_program_update(&link, id, base_revision, revision, program, preserve)
-            }
-            dev::DevCommand::Patch {
-                id,
-                base_revision,
-                revision,
-                operations,
-                preserve,
-            } => {
-                if base_revision != self.dev_revision || revision != base_revision.saturating_add(1)
-                {
-                    link.send(&serde_json::json!({
+                let Some(mut dev_program) = self.dev_program.take() else {
+                    return;
+                };
+                let result = match self.runtime_mut() {
+                    Some(runtime) => dev_program.apply(
+                        runtime,
+                        base_revision,
+                        revision,
+                        body,
+                        &preserve,
+                        received,
+                    ),
+                    None => Err(dev::UpdateRejection {
+                        code: "runtime-unavailable",
+                        message: "native host has no runtime".into(),
+                        current_revision: dev_program.revision(),
+                    }),
+                };
+                self.dev_program = Some(dev_program);
+                match result {
+                    Ok((report, timings)) => {
+                        if let Some(state) = &mut self.state {
+                            state.window.set_title(state.runtime.title());
+                            state.sync_text_input();
+                            state.window.request_redraw();
+                        }
+                        let superseded = self
+                            .pending_presentation
+                            .as_ref()
+                            .map_or(0, |pending| pending.superseded + 1);
+                        self.pending_presentation = Some(PendingPresentation {
+                            revision,
+                            received: received.at,
+                            applied: Instant::now(),
+                            skipped_frames: 0,
+                            superseded,
+                        });
+                        link.send(&serde_json::json!({
+                            "type": "update-applied",
+                            "id": id,
+                            "revision": revision,
+                            "applyMicros": timings.apply_micros,
+                            "timings": timings.to_json(),
+                            "preservedStates": report.preserved_states,
+                            "resetStates": report.reset_states,
+                            "insertedNodes": report.inserted_nodes,
+                            "removedNodes": report.removed_nodes,
+                            "lifecycleMutations": report.lifecycle_mutations,
+                        }));
+                    }
+                    Err(rejection) => link.send(&serde_json::json!({
                         "type": "update-rejected",
                         "id": id,
-                        "code": "revision-mismatch",
-                        "message": format!("dev revision mismatch: host is {}, patch is {} -> {}", self.dev_revision, base_revision, revision),
-                        "currentRevision": self.dev_revision,
-                    }));
-                } else {
-                    let Some(current) = self.dev_program.as_ref() else {
-                        link.send(&serde_json::json!({
-                            "type": "update-rejected", "id": id, "code": "patch-unavailable",
-                            "currentRevision": self.dev_revision, "message": "native host has no dev program snapshot"
-                        }));
-                        return;
-                    };
-                    match dev::apply_program_patch(current, &operations) {
-                        Ok(program) => self.apply_dev_program_update(
-                            &link,
-                            id,
-                            base_revision,
-                            revision,
-                            program,
-                            preserve,
-                        ),
-                        Err(error) => link.send(&serde_json::json!({
-                            "type": "update-rejected",
-                            "id": id,
-                            "code": "patch-invalid",
-                            "currentRevision": self.dev_revision,
-                            "message": error,
-                        })),
-                    }
+                        "code": rejection.code,
+                        "currentRevision": rejection.current_revision,
+                        "message": rejection.message,
+                    })),
                 }
+                self.forward_diagnostics();
             }
             dev::DevCommand::Inspect { id, include_values } => {
                 let size = self
@@ -2264,7 +2318,10 @@ impl ApplicationHandler<NativeEvent> for Application {
                 state.dispatch_input(InputEvent::WindowFocusChanged(focused));
             }
             WindowEvent::RedrawRequested => {
-                state.redraw();
+                let report = state.redraw();
+                if let (Some(report), Some(link)) = (report, &self.dev) {
+                    report_presentation(link, &mut self.pending_presentation, &report);
+                }
                 if let Some(reason) = state.renderer.device_lost() {
                     self.failure = Some(NativeBackendError::Gpu(GpuError {
                         subsystem: "device",
@@ -2364,6 +2421,103 @@ pub fn render_program_png(
     Ok((encode_png(width, height, &rgba), report))
 }
 
+/// Headless development measurement: apply a recorded stream of dev updates
+/// (one `update`/`patch` message per line, as `mun dev` sends them) through the
+/// same [`dev::DevProgram::apply`] path the windowed host uses, rendering one
+/// offscreen frame through the production renderer after each. Returns a JSON
+/// report with per-update stage timings. Opens no window.
+pub fn replay_dev_updates(
+    program: &str,
+    updates: &str,
+    logical_width: f32,
+    logical_height: f32,
+    scale_factor: f32,
+) -> Result<serde_json::Value, NativeBackendError> {
+    let failure = |subsystem: &'static str, message: String| {
+        NativeBackendError::Gpu(GpuError { subsystem, message })
+    };
+    let mut session = OffscreenSession::new(program, logical_width, logical_height, scale_factor)?;
+    let initial = session.render().map_err(NativeBackendError::Gpu)?;
+    let initial_gpu = session.wait_for_gpu();
+    let mut dev_program = dev::DevProgram::new(
+        serde_json::from_str(program).map_err(|error| failure("replay", error.to_string()))?,
+    );
+    let mut records = Vec::new();
+    for (index, line) in updates
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+    {
+        let started = Instant::now();
+        let message: serde_json::Value = serde_json::from_str(line)
+            .map_err(|error| failure("replay", format!("update {}: {error}", index + 1)))?;
+        let received = dev::Received {
+            decode_micros: micros_since(started),
+            at: Instant::now(),
+        };
+        let Ok(dev::DevCommand::Update {
+            base_revision,
+            revision,
+            body,
+            preserve,
+            ..
+        }) = dev::parse_command(message, received)
+        else {
+            return Err(failure(
+                "replay",
+                format!("update {} is not an update/patch message", index + 1),
+            ));
+        };
+        let kind = if matches!(body, dev::UpdateBody::Patch(_)) {
+            "patch"
+        } else {
+            "update"
+        };
+        let (report, timings) = dev_program
+            .apply(
+                session.runtime_mut(),
+                base_revision,
+                revision,
+                body,
+                &preserve,
+                received,
+            )
+            .map_err(|rejection| {
+                failure(
+                    "replay",
+                    format!(
+                        "update {} rejected ({}): {}",
+                        index + 1,
+                        rejection.code,
+                        rejection.message
+                    ),
+                )
+            })?;
+        let frame = session.render().map_err(NativeBackendError::Gpu)?;
+        let render = session.last_render_timings();
+        let gpu_micros = session.wait_for_gpu();
+        records.push(serde_json::json!({
+            "revision": revision,
+            "type": kind,
+            "update": timings.to_json(),
+            "insertedNodes": report.inserted_nodes,
+            "removedNodes": report.removed_nodes,
+            "frame": {
+                "layoutMicros": frame.build_micros,
+                "prepareMicros": render.prepare_micros,
+                "submitMicros": render.submit_micros,
+                "gpuMicros": gpu_micros,
+            },
+            "totalMicros": micros_since(started),
+        }));
+    }
+    Ok(serde_json::json!({
+        "initial": { "layoutMicros": initial.build_micros, "renderMicros": initial.render_micros, "gpuMicros": initial_gpu },
+        "retainedNodes": session.runtime().retained_tree().len(),
+        "updates": records,
+    }))
+}
+
 /// Bounded real-window/GPU/accesskit smoke path; failures remain fatal.
 pub fn smoke_program(program: &str) -> Result<(), NativeBackendError> {
     let runtime = Runtime::from_json(program)?;
@@ -2382,8 +2536,10 @@ pub fn run_program_dev(
     token: &str,
 ) -> Result<(), NativeBackendError> {
     let runtime = Runtime::from_json(program)?;
-    let dev_program: serde_json::Value = serde_json::from_str(program)
-        .expect("Runtime::from_json accepted a program that serde_json then rejected");
+    let dev_program = dev::DevProgram::new(
+        serde_json::from_str(program)
+            .expect("Runtime::from_json accepted a program that serde_json then rejected"),
+    );
     let event_loop = EventLoop::<NativeEvent>::with_user_event().build()?;
     let proxy = event_loop.create_proxy();
     let link = dev::DevLink::connect(endpoint, token, proxy.clone())
@@ -2391,7 +2547,6 @@ pub fn run_program_dev(
     let mut application = Application::new(proxy, runtime);
     application.dev = Some(link);
     application.dev_program = Some(dev_program);
-    application.dev_revision = 0;
     event_loop.run_app(&mut application)?;
     application.failure.map_or(Ok(()), Err)
 }

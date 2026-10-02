@@ -16,7 +16,8 @@ use mun_runtime::{
 use serde_json::Value;
 
 use crate::{
-    FrameStatus, GpuError, GpuRenderer, NativeBackendError, RendererStats, text::TextShaping,
+    FrameStatus, GpuError, GpuRenderer, NativeBackendError, RenderTimings, RendererStats,
+    text::TextShaping,
 };
 
 pub struct OffscreenSession {
@@ -162,6 +163,22 @@ impl OffscreenSession {
 
     pub fn rgba(&self) -> Option<Vec<u8>> {
         self.renderer.read_offscreen_rgba()
+    }
+
+    /// Stage costs of the most recent [`Self::render`].
+    pub fn last_render_timings(&self) -> RenderTimings {
+        self.renderer.last_timings
+    }
+
+    /// Block until submitted GPU work finishes; returns the wait in microseconds.
+    /// Submission is asynchronous, so this is where GPU execution time shows up.
+    pub fn wait_for_gpu(&self) -> u64 {
+        let started = Instant::now();
+        let _ = self
+            .renderer
+            .device
+            .poll(wgpu::PollType::wait_indefinitely());
+        u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
     }
 
     /// Apply one scripted semantic step (see `apply_script`).

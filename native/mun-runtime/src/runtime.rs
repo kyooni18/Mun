@@ -4,6 +4,7 @@ use std::{
     rc::Rc,
 };
 
+use serde::Deserialize;
 use serde_json::Value;
 use taffy::prelude::*;
 use thiserror::Error;
@@ -379,6 +380,23 @@ pub struct HotUpdateReport {
     pub removed_nodes: usize,
     /// State mutations made by onAppear/onDisappear for real presence changes.
     pub lifecycle_mutations: usize,
+    /// Where the update spent its time (development instrumentation).
+    pub timings: HotUpdateTimings,
+}
+
+/// Wall-clock cost of the stages of one [`Runtime::hot_update`], in microseconds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HotUpdateTimings {
+    /// Schema validation and typed deserialization of the new program.
+    pub load_micros: u64,
+    /// Collection materialization with carried state (both passes).
+    pub materialize_micros: u64,
+    /// Retained-tree, focus/scroll/pointer and lifecycle reconciliation.
+    pub reconcile_micros: u64,
+}
+
+fn elapsed_micros(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
 
 fn collect_secure_states(node: &UiNode, output: &mut HashSet<String>) {
@@ -462,7 +480,11 @@ impl Runtime {
     /// Parse, validate and materialize a program without reconciling the
     /// retained tree or running lifecycle actions.
     fn load(source: &str) -> Result<Self, RuntimeLoadError> {
-        let raw: Value = serde_json::from_str(source)?;
+        Self::load_value(&serde_json::from_str(source)?)
+    }
+
+    /// [`Self::load`] for an already-parsed JSON program.
+    fn load_value(raw: &Value) -> Result<Self, RuntimeLoadError> {
         // Version and language gate everything else: a future version must be
         // reported as such, not as a pile of unknown fields.
         if let Some(found) = raw.get("version").and_then(Value::as_u64) {
@@ -480,8 +502,8 @@ impl Runtime {
                 });
             }
         }
-        crate::validate::validate_program(&raw)?;
-        let program: UiProgram = serde_json::from_value(raw)?;
+        crate::validate::validate_program(raw)?;
+        let program = UiProgram::deserialize(raw)?;
         validate_native_transitions(&program.root.child)?;
         validate_node_identities(&program)?;
         let mut scope_model =
@@ -556,7 +578,21 @@ impl Runtime {
         source: &str,
         preserve: &[String],
     ) -> Result<HotUpdateReport, RuntimeLoadError> {
-        let mut next = Self::load(source)?;
+        self.hot_update_value(&serde_json::from_str(source)?, preserve)
+    }
+
+    /// [`Self::hot_update`] for an already-parsed JSON program (the dev host
+    /// keeps its program as JSON; this avoids a serialize/parse round trip).
+    pub fn hot_update_value(
+        &mut self,
+        program: &Value,
+        preserve: &[String],
+    ) -> Result<HotUpdateReport, RuntimeLoadError> {
+        let mut timings = HotUpdateTimings::default();
+        let started = std::time::Instant::now();
+        let mut next = Self::load_value(program)?;
+        timings.load_micros = elapsed_micros(started);
+        let started = std::time::Instant::now();
         let preserved: HashSet<&str> = preserve.iter().map(String::as_str).collect();
         let declared: HashMap<&str, bool> = next
             .program
@@ -596,6 +632,8 @@ impl Runtime {
             }
         }
         next.materialize().map_err(RuntimeLoadError::Collection)?;
+        timings.materialize_micros = elapsed_micros(started);
+        let started = std::time::Instant::now();
         next.measurer = self.measurer.clone();
         next.conventions = self.conventions;
         next.revision = self.revision + 1;
@@ -626,12 +664,14 @@ impl Runtime {
         let _ = next.reset_replaced_runtime_state();
         next.reconcile_pointer_captures();
         let lifecycle = next.reconcile_lifecycle();
+        timings.reconcile_micros = elapsed_micros(started);
         let report = HotUpdateReport {
             preserved_states: preserved_scopes,
             reset_states: reset_scopes,
             inserted_nodes: next.last_reconciliation.inserted.len(),
             removed_nodes: next.last_reconciliation.removed.len(),
             lifecycle_mutations: lifecycle.len(),
+            timings,
         };
         *self = next;
         Ok(report)

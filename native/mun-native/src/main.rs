@@ -10,6 +10,11 @@ enum Mode {
         output: PathBuf,
         script: Option<PathBuf>,
     },
+    /// Headless dev measurement: `--dev-replay <ir> <updates.ndjson>` applies
+    /// recorded `mun dev` updates offscreen and prints per-stage timings.
+    DevReplay {
+        updates: PathBuf,
+    },
 }
 
 fn usage(message: &str) -> io::Error {
@@ -70,6 +75,19 @@ fn program_path() -> Result<(PathBuf, Mode), io::Error> {
             Mode::Render {
                 output: PathBuf::from(output),
                 script,
+            },
+        )
+    } else if first == "--dev-replay" {
+        let path = arguments
+            .next()
+            .ok_or_else(|| usage("--dev-replay requires an IR path"))?;
+        let updates = arguments
+            .next()
+            .ok_or_else(|| usage("--dev-replay requires an updates (NDJSON) path"))?;
+        (
+            path,
+            Mode::DevReplay {
+                updates: PathBuf::from(updates),
             },
         )
     } else if first.to_string_lossy().starts_with("-psn_") {
@@ -162,6 +180,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map_err(failed)?;
             fs::write(&output, png)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Mode::DevReplay { updates } => {
+            let size = |name: &str, fallback: f32| {
+                env::var(name)
+                    .ok()
+                    .and_then(|value| value.parse::<f32>().ok())
+                    .unwrap_or(fallback)
+            };
+            let report = mun_native::replay_dev_updates(
+                &source,
+                &fs::read_to_string(updates)?,
+                size("MUN_RENDER_WIDTH", 640.0),
+                size("MUN_RENDER_HEIGHT", 420.0),
+                size("MUN_RENDER_SCALE", 2.0),
+            )
+            .map_err(failed)?;
+            println!("{}", serde_json::to_string(&report)?);
             Ok(())
         }
     }

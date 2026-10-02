@@ -1,14 +1,24 @@
 // Hot-reload latency benchmark.
 //
-//   node scripts/benchmark-hot-reload.mjs [--host <mun-native>] [--edits N] [--compile-only]
+//   node scripts/benchmark-hot-reload.mjs [--edits N] [--compile-only | --window] [--host <mun-native>] [--json]
 //
-// For each case a throwaway project is generated, compiled with the same
-// incremental project compiler `mun dev` uses, and (unless --compile-only) a
-// real native host is launched over the dev link so every edit is applied by
-// `Runtime::hot_update`. Reported per case: compile time (file read + analysis
-// + lowering) and the host round trip, as p50/p95/max over N edits. Opening a
-// window needs a display and GPU; use --compile-only where there is none.
-import { spawn } from 'node:child_process'
+// For each case a throwaway project is generated and every edit is compiled
+// with the same incremental project compiler `mun dev` uses, then diffed into
+// the exact update message `mun dev` would send.
+//
+//   default         Headless: the recorded update stream is replayed through
+//                   `mun-native --dev-replay`, which applies each update with the
+//                   dev host's own code path and renders one offscreen frame
+//                   through the production renderer (waiting for the GPU). No
+//                   window opens.
+//   --window        A real windowed dev host over the loopback dev link; adds
+//                   the transport round trip and first-presented-frame timings
+//                   (`update-presented`). Opens a window; needs a display.
+//   --compile-only  Toolchain side only.
+//
+// All numbers are wall-clock p50 / p95 / max over N edits. Not measured: the
+// file watcher/debounce (80 ms by design) and display scan-out after present.
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
@@ -24,14 +34,15 @@ const args = process.argv.slice(2)
 const option = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined }
 const edits = Number(option('--edits') ?? 30)
 if (!Number.isSafeInteger(edits) || edits < 1 || edits > 10000) throw new Error('--edits must be an integer between 1 and 10000')
-const compileOnly = args.includes('--compile-only')
+const mode = args.includes('--compile-only') ? 'compile' : args.includes('--window') ? 'window' : 'headless'
+const asJson = args.includes('--json')
 const executable = process.platform === 'win32' ? 'mun-native.exe' : 'mun-native'
 const host = option('--host') ?? ['release', 'debug'].map(profile => resolve(root, 'native/target', profile, executable)).find(existsSync)
-if (!compileOnly && !host) throw new Error('No native host found: build one or pass --host <path> (or use --compile-only).')
+if (mode !== 'compile' && !host) throw new Error('No native host found: build one or pass --host <path> (or use --compile-only).')
 
 const manifest = name => `manifest_version = 1\nname = "${name}"\nentry = "Sources/App.mun"\nidentifier = "app.mun.bench"\nversion = "1.0.0"\nminimum_mun_version = "0.0.0"\nplatforms = ["macos", "windows", "linux"]\n`
-// Each case returns files plus an `edit(i)` that rewrites one file with a
-// compatible change (a text literal), so every iteration exercises hot_update.
+// Each case returns files for edit i; every edit is a compatible change (a
+// text literal), so every iteration exercises hot_update.
 const cases = {
   'small app': () => ({
     files: i => ({ 'Sources/App.mun': `@main\nstruct Small: View {\n  @State var count: Int = 0\n  var body: some View {\n    VStack(spacing: 12) {\n      Text("Hello \\(${i})")\n      Text("Count: \\(count)")\n      Button("Increase") { count += 1 }\n    }\n  }\n}\n` }),
@@ -57,98 +68,143 @@ const cases = {
 }
 
 const percentile = (values, p) => [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(values.length * p))]
-const summary = values => values.length ? `p50 ${percentile(values, 0.5).toFixed(1)} / p95 ${percentile(values, 0.95).toFixed(1)} / max ${Math.max(...values).toFixed(1)} ms` : 'n/a'
+const stat = values => values.length ? { p50: percentile(values, 0.5), p95: percentile(values, 0.95), max: Math.max(...values) } : undefined
+const fmt = s => s ? `p50 ${s.p50.toFixed(2)} / p95 ${s.p95.toFixed(2)} / max ${s.max.toFixed(2)} ms` : 'n/a'
+const ms = micros => micros / 1000
+const distinct = values => { const set = [...new Set(values)]; return set.length === 1 ? `${set[0]} (every edit)` : values.join(', ') }
 const written = new Map()
 const write = (directory, files) => { for (const [path, source] of Object.entries(files)) { const full = resolve(directory, path); if (written.get(full) === source) continue; mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, source); written.set(full, source) } }
 
+async function launchWindow(directory, program, onEvent) {
+  const listener = await listenForHost({ irVersion: program.version, onEvent })
+  const ir = resolve(directory, 'program.mun.ir.json')
+  writeFileSync(ir, JSON.stringify(program))
+  const child = spawn(host, ['--dev', ir], { cwd: directory, env: { ...process.env, MUN_DEV_ENDPOINT: listener.endpoint, MUN_DEV_TOKEN: listener.token }, stdio: 'ignore' })
+  let timer
+  try {
+    const channel = await Promise.race([listener.connection, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('host did not connect in 30 s')), 30000) })])
+    return { child, listener, channel }
+  } finally { clearTimeout(timer) }
+}
+
 async function runCase(name, build) {
   const directory = mkdtempSync(resolve(tmpdir(), 'mun-bench-'))
-  let child, listener
+  let session
   try {
     const spec = build()
     writeFileSync(resolve(directory, 'mun.toml'), manifest('Bench'))
     write(directory, spec.files(0))
-    const project = discoverProject(directory)
-    const compiler = createProjectCompiler(project)
+    const compiler = createProjectCompiler(discoverProject(directory))
     const initial = compiler.compile()
-    let channel, running = initial, revision = 0
-    if (!compileOnly) {
-      listener = await listenForHost({ irVersion: initial.program.version })
-      const ir = resolve(directory, 'program.mun.ir.json')
-      writeFileSync(ir, JSON.stringify(initial.program))
-      child = spawn(host, ['--dev', ir], { cwd: directory, env: { ...process.env, MUN_DEV_ENDPOINT: listener.endpoint, MUN_DEV_TOKEN: listener.token }, stdio: 'ignore' })
-      let timer
-      try {
-        channel = await Promise.race([listener.connection, new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('host did not connect in 30 s')), 30000)
-        })])
-      } finally { clearTimeout(timer) }
+    const presented = new Map()
+    if (mode === 'window') {
+      session = await launchWindow(directory, initial.program, message => { if (message.type === 'update-presented') presented.set(message.revision, message) })
     }
-    const compile = [], roundTrip = [], payload = [], wirePayload = [], read = [], lower = [], compatibility = [], serialization = [], filesRead = []
-    const filesReparsed = [], declarationsReparsed = [], declarationsRechecked = [], viewsRelowered = [], updateModes = [], patchOps = [], instances = [], affected = []
+    const toolchain = { compile: [], diff: [], roundTrip: [] }
+    const counts = { relowered: [], instances: [], affected: [], reparsed: [], rechecked: [], modes: [], wireKiB: [], fullKiB: [] }
+    const lines = []
+    let running = initial, revision = 0
     for (let i = 1; i <= edits; i++) {
       write(directory, spec.files(i))
-      const started = performance.now()
+      let started = performance.now()
       const next = compiler.compile()
-      compile.push(performance.now() - started)
-      read.push(next.timings?.read ?? 0)
-      lower.push(next.timings?.lower ?? 0)
-      filesRead.push(next.stats?.filesRead ?? next.filesRead ?? 0)
-      filesReparsed.push(next.stats?.filesReparsed ?? 0)
-      declarationsReparsed.push(next.stats?.declarationsReparsed ?? 0)
-      declarationsRechecked.push(next.stats?.declarationsRechecked ?? 0)
-      viewsRelowered.push(next.stats?.viewDeclarationsRelowered ?? 0)
-      instances.push(`${next.stats?.viewInstancesLowered ?? '?'}/${next.stats?.viewInstancesReused ?? '?'}`)
-      affected.push(next.stats?.affectedViews?.length ?? '?')
-      const compatibilityStart = performance.now()
+      toolchain.compile.push(performance.now() - started)
       const analysis = analyzeCompatibility(running, next)
-      compatibility.push(performance.now() - compatibilityStart)
-      const serializeStart = performance.now()
-      const fullBytes = Buffer.byteLength(JSON.stringify(next.program), 'utf8')
-      const update = createProgramUpdate(running.program, next.program, {
-        baseRevision: revision,
-        revision: revision + 1,
-        preserve: analysis.preserve,
-      })
-      serialization.push(performance.now() - serializeStart)
       if (analysis.mode !== 'hot') throw new Error(`${name}: edit ${i} unexpectedly needs a restart: ${analysis.reason}`)
-      if (channel) {
-        const sent = performance.now()
-        const reply = await channel.request(update.type, update.payload)
-        if (reply.type !== 'update-applied') throw new Error(`${name}: edit ${i} rejected: ${reply.message}`)
-        if (reply.revision !== revision + 1) throw new Error(`${name}: edit ${i} returned revision ${reply.revision}, expected ${revision + 1}`)
-        roundTrip.push(performance.now() - sent)
+      started = performance.now()
+      const update = createProgramUpdate(running.program, next.program, { baseRevision: revision, revision: revision + 1, preserve: analysis.preserve })
+      const line = JSON.stringify({ type: update.type, ...update.payload })
+      toolchain.diff.push(performance.now() - started)
+      lines.push(line)
+      if (session) {
+        started = performance.now()
+        const reply = await session.channel.request(update.type, update.payload)
+        if (reply.type !== 'update-applied' || reply.revision !== revision + 1) throw new Error(`${name}: edit ${i} not applied: ${reply.message ?? reply.type}`)
+        toolchain.roundTrip.push(performance.now() - started)
       }
       revision += 1
-      payload.push(fullBytes / 1024)
-      wirePayload.push(update.bytes / 1024)
-      updateModes.push(update.type)
-      patchOps.push(update.operationCount)
+      const stats = next.stats
+      counts.relowered.push(stats.viewDeclarationsRelowered)
+      counts.instances.push(`${stats.viewInstancesLowered}/${stats.viewInstancesReused}`)
+      counts.affected.push(stats.affectedViews?.length)
+      counts.reparsed.push(stats.declarationsReparsed)
+      counts.rechecked.push(stats.declarationsRechecked)
+      counts.modes.push(update.type)
+      counts.wireKiB.push(update.bytes / 1024)
+      counts.fullKiB.push(update.fullBytes / 1024)
       running = next
     }
-    console.log(`${name}`)
-    console.log(`  compile     ${summary(compile)}`)
-    console.log(`  host apply  ${compileOnly ? 'skipped (--compile-only)' : summary(roundTrip)}`)
-    console.log(`  full IR     ${payload.at(-1).toFixed(1)} KiB`)
-    console.log(`  wire update ${wirePayload.at(-1).toFixed(1)} KiB (${(100 * (1 - wirePayload.at(-1) / payload.at(-1))).toFixed(1)}% smaller); modes ${updateModes.join(', ')}; patch ops ${patchOps.join(', ')}`)
-    console.log(`  file read   ${summary(read)}`)
-    console.log(`  native compile (parse + semantics + lowering) ${summary(lower)}`)
-    console.log(`  compatibility ${summary(compatibility)}`)
-    console.log(`  serialization ${summary(serialization)}`)
-    console.log(`  files read per edit ${filesRead.join(', ')}`)
-    console.log(`  files reparsed per edit ${filesReparsed.join(', ')}`)
-    console.log(`  declarations reparsed/rechecked per edit ${declarationsReparsed.map((value, index) => `${value}/${declarationsRechecked[index]}`).join(', ')}`)
-    console.log(`  View declarations relowered per edit ${viewsRelowered.join(', ')}`)
-    console.log(`  View instances lowered/reused per edit ${[...new Set(instances)].join(', ')}${new Set(instances).size === 1 ? ' (every edit)' : ''}`)
-    console.log(`  affected Views (dependency graph) per edit ${[...new Set(affected)].join(', ')}${new Set(affected).size === 1 ? ' (every edit)' : ''}`)
-    console.log('  watcher/debounce, transfer, runtime, layout, presentation: not separately instrumented; host apply is request/ack round trip, not edit-to-screen')
+
+    const stages = {}
+    if (mode === 'headless') {
+      const ir = resolve(directory, 'initial.json'), stream = resolve(directory, 'updates.ndjson')
+      writeFileSync(ir, JSON.stringify(initial.program))
+      writeFileSync(stream, `${lines.join('\n')}\n`)
+      const replay = spawnSync(host, ['--dev-replay', ir, stream], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+      if (replay.status !== 0) throw new Error(`${name}: --dev-replay failed: ${replay.stderr}`)
+      const report = JSON.parse(replay.stdout)
+      const pick = path => report.updates.map(item => ms(path(item)))
+      Object.assign(stages, {
+        decode: pick(item => item.update.decodeMicros),
+        patch: pick(item => item.update.patchMicros),
+        load: pick(item => item.update.loadMicros),
+        materialize: pick(item => item.update.materializeMicros),
+        reconcile: pick(item => item.update.reconcileMicros),
+        layout: pick(item => item.frame.layoutMicros),
+        prepare: pick(item => item.frame.prepareMicros),
+        submit: pick(item => item.frame.submitMicros),
+        gpu: pick(item => item.frame.gpuMicros),
+        total: pick(item => item.totalMicros),
+      })
+      stages.retainedNodes = report.retainedNodes
+    } else if (mode === 'window') {
+      const deadline = Date.now() + 5000
+      while (presented.size < edits && Date.now() < deadline) await new Promise(r => setTimeout(r, 20))
+      const items = [...presented.values()]
+      const pick = path => items.map(item => ms(path(item)))
+      Object.assign(stages, {
+        receiveToPresent: pick(item => item.receiveToPresentMicros),
+        layout: pick(item => item.frame.layoutMicros),
+        prepare: pick(item => item.frame.prepareMicros),
+        acquire: pick(item => item.frame.acquireMicros),
+        submit: pick(item => item.frame.submitMicros),
+        present: pick(item => item.frame.presentMicros),
+      })
+      stages.presentedUpdates = items.length
+      stages.skippedFrames = items.reduce((sum, item) => sum + item.skippedFrames, 0)
+      stages.superseded = items.reduce((sum, item) => sum + item.supersededRevisions, 0)
+    }
+
+    const result = {
+      case: name,
+      mode,
+      toolchain: Object.fromEntries(Object.entries(toolchain).filter(([, v]) => v.length).map(([k, v]) => [k, stat(v)])),
+      host: Object.fromEntries(Object.entries(stages).map(([k, v]) => [k, Array.isArray(v) ? stat(v) : v])),
+      counts: {
+        viewDeclarationsRelowered: distinct(counts.relowered),
+        viewInstancesLoweredReused: distinct(counts.instances),
+        affectedViews: distinct(counts.affected),
+        declarationsReparsed: distinct(counts.reparsed),
+        declarationsRechecked: distinct(counts.rechecked),
+        updateModes: distinct(counts.modes),
+        wireKiB: counts.wireKiB.at(-1),
+        fullIrKiB: counts.fullKiB.at(-1),
+      },
+    }
+    if (asJson) { console.log(JSON.stringify(result)); return }
+    console.log(name)
+    for (const [key, value] of Object.entries(result.toolchain)) console.log(`  toolchain ${key.padEnd(18)} ${fmt(value)}`)
+    for (const [key, value] of Object.entries(result.host)) console.log(`  host ${key.padEnd(23)} ${typeof value === 'object' ? fmt(value) : value}`)
+    const c = result.counts
+    console.log(`  update ${c.updateModes}; wire ${c.wireKiB.toFixed(1)} KiB of ${c.fullIrKiB.toFixed(1)} KiB full IR`)
+    console.log(`  per edit: declarations reparsed ${c.declarationsReparsed}, rechecked ${c.declarationsRechecked}; Views relowered ${c.viewDeclarationsRelowered}; instances lowered/reused ${c.viewInstancesLoweredReused}; affected ${c.affectedViews}`)
   } finally {
-    listener?.close()
-    if (child) await stopChild(child)
+    if (session) { session.channel.close(); session.listener.close(); await stopChild(session.child) }
     rmSync(directory, { recursive: true, force: true })
     for (const path of written.keys()) if (path.startsWith(directory)) written.delete(path)
   }
 }
 
-console.log(`Hot-reload benchmark: ${edits} edits per case, ${compileOnly ? 'compile only' : `host ${host}`}, ${process.platform}-${process.arch}`)
-for (const [name, build] of Object.entries(cases)) await runCase(name, build)
+if (!asJson) console.log(`Hot-reload benchmark: ${edits} edits per case, ${mode}${mode === 'compile' ? '' : ` (host ${host})`}, ${process.platform}-${process.arch}`)
+const only = option('--case')
+for (const [name, build] of Object.entries(cases)) if (!only || name === only) await runCase(name, build)
