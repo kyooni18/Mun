@@ -218,7 +218,9 @@ export async function projectCommand(command, options) {
   if (command === 'fmt') {
     let changed = false
     for (const path of sourceFiles(project)) {
-      const source = readFileSync(path, 'utf8'), formatted = formatSource(source)
+      const source = readFileSync(path, 'utf8'), crlf = source.includes('\r\n')
+      // Line endings are preserved: a CRLF checkout (Windows autocrlf) is not "unformatted".
+      const formatted = crlf ? formatSource(source.replace(/\r\n/gu, '\n')).replace(/\n/gu, '\r\n') : formatSource(source)
       if (source !== formatted) { changed = true; console.log(`${options.check ? 'Needs formatting' : 'Formatted'}: ${path}`); if (!options.check) writeFileSync(path, formatted) }
     }
     return options.check && changed ? 1 : 0

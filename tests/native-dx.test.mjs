@@ -109,3 +109,14 @@ test('formatter preserves multiline literal whitespace', () => {
   const source = 'struct A {\nlet text = """\n    literal whitespace\n  """\n}\n'
   assert.equal(formatSource(source), source)
 })
+
+test('fmt --check accepts a CRLF checkout and keeps its line endings', t => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'mun-native-crlf-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  assert.equal(run(['create', 'Crlf'], directory).status, 0)
+  const file = resolve(directory, 'Crlf/Sources/App.mun')
+  writeFileSync(file, readFileSync(file, 'utf8').replace(/\n/gu, '\r\n'))
+  const checked = run(['fmt', '--check'], resolve(directory, 'Crlf'))
+  assert.equal(checked.status, 0, checked.stdout + checked.stderr)
+  assert.ok(readFileSync(file, 'utf8').includes('\r\n'))
+})
