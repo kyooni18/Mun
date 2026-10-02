@@ -15,7 +15,7 @@ const wasmNames = [
 ];
 
 rmSync(dist, { recursive: true, force: true });
-const result = spawnSync("tsc", ["-p", "tsconfig.json"], { cwd: root, stdio: "inherit", env: process.env });
+const result = spawnSync("tsc", ["-p", "tsconfig.json"], { cwd: root, stdio: "inherit", env: process.env, shell: process.platform === "win32" });
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
 
