@@ -85,6 +85,12 @@ impl OffscreenSession {
         self.shaping.cached_line_count()
     }
 
+    /// The shaped line the runtime and renderer use for `text` (whatever fonts
+    /// this system resolves it to).
+    pub fn shaped_line(&self, text: &str, font_size: f32) -> mun_runtime::TextLineLayout {
+        mun_runtime::IntrinsicMeasurer::text_line(self.shaping.as_ref(), text, font_size)
+    }
+
     pub fn size(&self) -> (u32, u32) {
         (self.renderer.config.width, self.renderer.config.height)
     }

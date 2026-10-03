@@ -1,7 +1,7 @@
 //! Pixel-level checks through the production wgpu/glyphon renderer.
 use mun_native::OffscreenSession;
-use mun_runtime::InputEvent;
 use mun_runtime::text_edit::{Composition, TextEdit};
+use mun_runtime::{InputEvent, IntrinsicMeasurer};
 
 const FIELD: &str = r##"{"version":1,"sourceLanguage":"mun","entry":"Pixels","states":[{"name":"name","initial":"한국어 text"}],"root":{"kind":"window","id":"window","title":"Pixels","child":{"kind":"column","id":"stack","layout":{"alignment":"leading","padding":10,"maxWidth":"infinity","maxHeight":"infinity"},"visual":{"background":"#101018"},"children":[{"kind":"textField","id":"field","state":"name","layout":{"width":{"kind":"literal","value":260},"height":{"kind":"literal","value":40}},"visual":{"background":"#202030"}}]}}}"##;
 
@@ -40,6 +40,21 @@ fn authored_srgb_colors_survive_srgb_render_targets() {
     );
 }
 
+/// Field origin of `FIELD`'s text: 10pt stack padding + 12pt field inset.
+const TEXT_ORIGIN_X: f32 = 22.0;
+
+fn assert_close(actual: f32, expected: f32, what: &str) {
+    assert!(
+        (actual - expected).abs() < 0.01,
+        "{what}: {actual} != shaped {expected}"
+    );
+}
+
+/// Selection, caret and preedit geometry comes from the same shaping the
+/// renderer draws with, and reaches the framebuffer there. Expectations are
+/// derived from the session's own shaped lines, never from assumed font
+/// metrics: which face covers Hangul (and so the glyph advances) differs per
+/// system, e.g. a Linux image without a CJK font shapes `.notdef` boxes.
 #[test]
 fn caret_selection_and_preedit_reach_the_framebuffer_at_shaped_positions() {
     let scale = 2.0;
@@ -55,11 +70,29 @@ fn caret_selection_and_preedit_reach_the_framebuffer_at_shaped_positions() {
     }
     session.render().unwrap();
     let rgba = session.rgba().unwrap();
+    let line = session.shaped_line("한국어 text", 16.0);
+    // Real shaping, not the uniform per-grapheme headless model: proportional
+    // Latin advances differ whatever face is chosen.
+    assert_ne!(
+        line.carets,
+        mun_runtime::FallbackIntrinsicMeasurer
+            .text_line("한국어 text", 16.0)
+            .carets,
+        "the session measures with shaped glyph advances"
+    );
     let selection = rect(&session, "field:selection");
-    // Shaped width of three Hangul syllables at 16pt is far wider than any
-    // per-character Latin estimate and narrower than the whole field.
+    assert_close(
+        selection.x,
+        TEXT_ORIGIN_X + line.x_for_offset(0),
+        "selection start",
+    );
+    assert_close(
+        selection.width,
+        line.x_for_offset(3) - line.x_for_offset(0),
+        "selection covers the three shaped syllables",
+    );
     assert!(
-        selection.width > 30.0 && selection.width < 70.0,
+        selection.width > 0.0 && selection.width < 236.0,
         "{selection:?}"
     );
     // Sample just below the glyph area inside the highlight: blue-tinted.
@@ -85,7 +118,14 @@ fn caret_selection_and_preedit_reach_the_framebuffer_at_shaped_positions() {
         .unwrap();
     session.render().unwrap();
     let rgba = session.rgba().unwrap();
+    let composed = session.shaped_line("한국어 text가", 16.0);
+    let committed = "한국어 text".chars().count();
     let caret = rect(&session, "field:caret");
+    assert_close(
+        caret.x + caret.width * 0.5,
+        TEXT_ORIGIN_X + composed.width,
+        "caret after the preedit",
+    );
     let [r, g, b, _] = pixel(
         &session,
         &rgba,
@@ -95,6 +135,16 @@ fn caret_selection_and_preedit_reach_the_framebuffer_at_shaped_positions() {
     );
     assert!(r > 180 && g > 180 && b > 180, "caret pixel {r} {g} {b}");
     let underline = rect(&session, "field:preedit");
+    assert_close(
+        underline.x,
+        TEXT_ORIGIN_X + composed.x_for_offset(committed),
+        "preedit start",
+    );
+    assert_close(
+        underline.width,
+        composed.width - composed.x_for_offset(committed),
+        "preedit underline spans the composing syllable",
+    );
     let [r, _, _, _] = pixel(
         &session,
         &rgba,

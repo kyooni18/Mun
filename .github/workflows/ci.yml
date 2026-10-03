@@ -68,7 +68,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libx11-dev libxcb1-dev xvfb mesa-vulkan-drivers
+          # fonts-nanum: a Hangul face, so Korean text and IME tests shape real
+          # glyphs as on macOS/Windows instead of .notdef boxes.
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libx11-dev libxcb1-dev xvfb mesa-vulkan-drivers fonts-nanum
       - name: Check native Rust formatting
         if: runner.os == 'Linux'
         run: cargo fmt --manifest-path native/Cargo.toml --all -- --check

@@ -166,7 +166,8 @@ fn retained_layout_matches_fresh_layout_through_structural_changes() {
     let (w, h) = (420.0, 360.0);
     assert_matches_fresh(&r, w, h, "launch");
 
-    let steps: Vec<(&str, Box<dyn Fn(&mut Runtime)>)> = vec![
+    type Step = (&'static str, Box<dyn Fn(&mut Runtime)>);
+    let steps: Vec<Step> = vec![
         ("append", Box::new(|r| drop(r.activate_action("append")))),
         (
             "append again",
