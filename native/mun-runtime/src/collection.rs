@@ -14,7 +14,10 @@
 //!   released when the key leaves its collection.
 //!
 //! Duplicate keys are rejected explicitly; they are never aliased.
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    rc::Rc,
+};
 
 use serde_json::Value;
 
@@ -302,23 +305,57 @@ struct Scope<'a> {
     item: Value,
 }
 
+/// What one top-level `forEach` expansion depended on and created. The
+/// expansion is a pure function of its template subtree, its evaluated
+/// collection and the item-scoped state declarations, so when all three are
+/// unchanged the previous instances are reused instead of re-expanded.
+#[derive(Clone, Debug)]
+pub(crate) struct ForEachMemo {
+    template: Rc<UiNode>,
+    collection: Rc<Value>,
+    /// Concrete per-key state instances the expansion renamed state to.
+    instances: Rc<[String]>,
+}
+
+/// Top-level `forEach` id -> its last expansion.
+pub(crate) type MaterializationMemo = HashMap<String, ForEachMemo>;
+
+/// A previous materialization whose unchanged `forEach` expansions may be reused.
+pub(crate) struct PreviousMaterialization<'a> {
+    pub(crate) memo: &'a MaterializationMemo,
+    pub(crate) model: &'a ScopeModel,
+}
+
 /// Result of materializing the template against the current state.
 pub(crate) struct Materialized {
     pub(crate) root: UiNode,
+    pub(crate) memo: MaterializationMemo,
+    /// `forEach` fragments emitted empty because the previous expansion is
+    /// still exact; the caller moves the previous instances in with
+    /// [`splice_reused`] once the new materialization is committed.
+    pub(crate) reused: Vec<String>,
 }
 
 pub(crate) fn materialize(
     template: &UiNode,
     model: &ScopeModel,
     state: &mut HashMap<String, Value>,
+    previous: Option<PreviousMaterialization<'_>>,
 ) -> Result<Materialized, CollectionError> {
+    // Renaming depends on which forEach declares each item-scoped state.
+    let previous = previous.filter(|previous| previous.model.scoped_states == model.scoped_states);
     let mut expander = Expander {
         model,
         state,
         live_instances: HashSet::new(),
+        previous: previous.map(|previous| previous.memo),
+        memo: MaterializationMemo::new(),
+        reused: Vec::new(),
+        recording: None,
     };
     let mut scopes = Vec::new();
     let root = expander.node(template, &mut scopes)?;
+    let (memo, reused) = (expander.memo, expander.reused);
     let live_instances = expander.live_instances;
     // Release instance state for keys that left their collection.
     let stale = state
@@ -329,13 +366,68 @@ pub(crate) fn materialize(
     for name in stale {
         state.remove(&name);
     }
-    Ok(Materialized { root })
+    Ok(Materialized { root, memo, reused })
+}
+
+/// Move the instances of every reused `forEach` fragment from `source` (the
+/// previous materialized tree) into the empty fragment of the same id in
+/// `target`.
+pub(crate) fn splice_reused(target: &mut UiNode, source: &mut UiNode, reused: &[String]) {
+    for id in reused {
+        let instances = fragment_mut(source, id)
+            .map(std::mem::take)
+            .expect("a reused forEach fragment exists in the previous materialization");
+        *fragment_mut(target, id).expect("a reused forEach fragment was emitted") = instances;
+    }
+}
+
+fn fragment_mut<'a>(node: &'a mut UiNode, id: &str) -> Option<&'a mut Vec<UiNode>> {
+    match node {
+        UiNode::Conditional {
+            base,
+            then_nodes,
+            otherwise,
+            ..
+        } => {
+            if base.id == id {
+                return Some(then_nodes);
+            }
+            then_nodes
+                .iter_mut()
+                .chain(otherwise.iter_mut())
+                .find_map(|child| fragment_mut(child, id))
+        }
+        UiNode::Column { children, .. }
+        | UiNode::Row { children, .. }
+        | UiNode::Scroll { children, .. }
+        | UiNode::Overlay { children, .. } => children
+            .iter_mut()
+            .find_map(|child| fragment_mut(child, id)),
+        _ => None,
+    }
+}
+
+fn contains_for_each(nodes: &[UiNode]) -> bool {
+    nodes.iter().any(|node| match node {
+        UiNode::ForEach { .. } => true,
+        UiNode::Conditional {
+            then_nodes,
+            otherwise,
+            ..
+        } => contains_for_each(then_nodes) || contains_for_each(otherwise),
+        _ => contains_for_each(node.children()),
+    })
 }
 
 struct Expander<'m, 's> {
     model: &'m ScopeModel,
     state: &'s mut HashMap<String, Value>,
     live_instances: HashSet<String>,
+    previous: Option<&'m MaterializationMemo>,
+    memo: MaterializationMemo,
+    reused: Vec<String>,
+    /// Instances renamed while expanding the current top-level forEach.
+    recording: Option<Vec<String>>,
 }
 
 impl Expander<'_, '_> {
@@ -362,6 +454,9 @@ impl Expander<'_, '_> {
                 .cloned()
                 .unwrap_or(Value::Null);
             self.state.insert(concrete.clone(), initial);
+        }
+        if let Some(recording) = &mut self.recording {
+            recording.push(concrete.clone());
         }
         self.live_instances.insert(concrete.clone());
         concrete
@@ -581,7 +676,49 @@ impl Expander<'_, '_> {
             } => {
                 let id = format!("{}{}", base.id, Self::suffix(scopes));
                 let collection_expression = self.expression(collection, scopes);
-                let items = match evaluate(&collection_expression, self.state) {
+                let evaluated = evaluate(&collection_expression, self.state);
+                // Only top-level expansions without nested forEach are pure
+                // functions of (template, collection, scoped declarations).
+                let memoized =
+                    scopes.is_empty() && self.recording.is_none() && !contains_for_each(children);
+                if memoized {
+                    let previous = self.previous.and_then(|memo| memo.get(&id)).filter(|memo| {
+                        *memo.collection == evaluated && memo.template.as_ref() == node
+                    });
+                    if let Some(memo) = previous {
+                        for instance in memo.instances.iter() {
+                            if !self.state.contains_key(instance) {
+                                let template = instance
+                                    .split_once('[')
+                                    .map_or(instance.as_str(), |(name, _)| name);
+                                let initial = self
+                                    .model
+                                    .initials
+                                    .get(template)
+                                    .cloned()
+                                    .unwrap_or(Value::Null);
+                                self.state.insert(instance.clone(), initial);
+                            }
+                            self.live_instances.insert(instance.clone());
+                        }
+                        self.memo.insert(id.clone(), memo.clone());
+                        self.reused.push(id.clone());
+                        return Ok(UiNode::Conditional {
+                            base: crate::ir::NodeBase {
+                                id,
+                                ..Default::default()
+                            },
+                            condition: UiExpression::Literal {
+                                value: Value::Bool(true),
+                            },
+                            then_nodes: Vec::new(),
+                            otherwise: Vec::new(),
+                        });
+                    }
+                    self.recording = Some(Vec::new());
+                }
+                let recorded_collection = memoized.then(|| Rc::new(evaluated.clone()));
+                let items = match evaluated {
                     Value::Array(items) => items,
                     Value::Null => Vec::new(),
                     _ => return Err(CollectionError::NotACollection { collection: id }),
@@ -608,6 +745,17 @@ impl Expander<'_, '_> {
                     let instance = self.nodes(children, scopes);
                     scopes.pop();
                     instances.extend(instance?);
+                }
+                if let Some(collection) = recorded_collection {
+                    let recorded = self.recording.take().unwrap_or_default();
+                    self.memo.insert(
+                        id.clone(),
+                        ForEachMemo {
+                            template: Rc::new(node.clone()),
+                            collection,
+                            instances: recorded.into(),
+                        },
+                    );
                 }
                 // Materialized as a transparent fragment: like a conditional's
                 // active branch, it contributes children without a layout box.

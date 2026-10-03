@@ -1,7 +1,8 @@
 #![recursion_limit = "512"]
-//! The layout tree is retained across frames and hot updates. It must always
-//! produce exactly the geometry a from-scratch layout produces, and an
-//! unchanged frame must not invalidate anything.
+//! Runtime work is retained across frames and hot updates: unchanged forEach
+//! expansions are reused and the layout tree is kept. Both must always produce
+//! exactly what a from-scratch materialization/layout produces, and unchanged
+//! input must not cause work.
 use std::rc::Rc;
 
 use mun_runtime::scene::Scene;
@@ -81,6 +82,10 @@ fn row_action(id: &str, operation: Value) -> Value {
 }
 
 fn program(header: &str) -> String {
+    program_with(header, 6.0)
+}
+
+fn program_with(header: &str, row_spacing: f64) -> String {
     let collection = json!({
         "kind": "conditional",
         "condition": {"kind": "state", "state": "onlyPinned"},
@@ -106,7 +111,7 @@ fn program(header: &str) -> String {
                 {"kind": "scroll", "id": "scroll", "axis": "vertical", "layout": {"maxWidth": "infinity", "maxHeight": "infinity"}, "children": [
                     {"kind": "conditional", "id": "gate", "condition": {"kind": "state", "state": "visible"}, "then": [
                         {"kind": "forEach", "id": "list", "collection": collection, "keyPath": ["id"], "children": [
-                            {"kind": "row", "id": "row", "layout": {"spacing": 6}, "children": [
+                            {"kind": "row", "id": "row", "layout": {"spacing": row_spacing}, "children": [
                                 {"kind": "text", "id": "title", "value": item(&["title"])},
                                 {"kind": "spacer", "id": "gap"},
                                 {"kind": "textField", "id": "note", "state": NOTE},
@@ -253,4 +258,66 @@ fn unchanged_frames_and_hot_updates_invalidate_only_what_changed() {
         append.created, 8,
         "one row and its seven children: {append:?}"
     );
+}
+
+const PRESERVE: [&str; 5] = ["rows", "onlyPinned", "visible", "next", NOTE];
+
+fn preserve() -> Vec<String> {
+    PRESERVE.iter().map(|name| (*name).to_owned()).collect()
+}
+
+#[test]
+fn reused_for_each_expansions_equal_fresh_materialization() {
+    let mut r = runtime("Header");
+    assert!(r.materialization_matches_fresh());
+    r.activate_action("append");
+    assert_eq!(r.last_reused_for_each_count(), 0, "the collection changed");
+    assert!(r.materialization_matches_fresh());
+    assert!(r.focus_action(&keyed("a", "note")));
+    r.handle_input(
+        InputEvent::TextEdit(TextEdit::Insert("kept".into())),
+        420.0,
+        360.0,
+    )
+    .unwrap();
+
+    // A hot update elsewhere reuses the list and keeps per-key state.
+    r.hot_update(&program("Edited header"), &preserve())
+        .unwrap();
+    assert_eq!(r.last_reused_for_each_count(), 1);
+    assert!(r.materialization_matches_fresh());
+    assert_eq!(r.state_value(&keyed("a", NOTE)), Some(&json!("kept")));
+    assert!(
+        r.build_frame(420.0, 360.0)
+            .unwrap()
+            .scene
+            .actions
+            .iter()
+            .any(|hit| hit.id == keyed("r10", "pin"))
+    );
+
+    // Editing the row template re-expands it.
+    r.hot_update(&program_with("Edited header", 9.0), &preserve())
+        .unwrap();
+    assert_eq!(r.last_reused_for_each_count(), 0, "the template changed");
+    assert!(r.materialization_matches_fresh());
+
+    // Toggling an unrelated structural state (a conditional around the
+    // list) re-materializes but reuses the unchanged list.
+    r.activate_action("hide");
+    r.activate_action("hide");
+    assert!(r.materialization_matches_fresh());
+
+    // Not preserving the collection resets it: a different value, no reuse.
+    r.hot_update(&program_with("Edited header", 9.0), &[NOTE.to_owned()])
+        .unwrap();
+    assert_eq!(r.last_reused_for_each_count(), 0);
+    assert!(r.materialization_matches_fresh());
+    assert_matches_fresh(&r, 420.0, 360.0, "reset hot update");
+
+    // A rejected update leaves the running materialization intact.
+    let before = r.build_frame(420.0, 360.0).unwrap().accessibility;
+    assert!(r.hot_update("{\"version\": 1}", &preserve()).is_err());
+    assert!(r.materialization_matches_fresh());
+    assert_eq!(r.build_frame(420.0, 360.0).unwrap().accessibility, before);
 }

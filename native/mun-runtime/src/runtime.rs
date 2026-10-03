@@ -435,6 +435,11 @@ pub struct Runtime {
     pub program: UiProgram,
     template: UiNode,
     scope_model: crate::collection::ScopeModel,
+    /// Last expansion of each top-level forEach, for reuse.
+    materialization: crate::collection::MaterializationMemo,
+    /// Bumped by every committed materialization.
+    materialization_generation: u64,
+    materialization_reused: usize,
     diagnostics: Vec<RuntimeDiagnostic>,
     state: HashMap<String, Value>,
     motion: MotionScheduler,
@@ -537,6 +542,9 @@ impl Runtime {
             program,
             template,
             scope_model,
+            materialization: Default::default(),
+            materialization_generation: 0,
+            materialization_reused: 0,
             diagnostics: Vec::new(),
             state,
             motion: MotionScheduler::default(),
@@ -630,13 +638,18 @@ impl Runtime {
             .filter(|item| self.state.contains_key(&item.name))
             .count();
         next.state.extend(carried.clone());
-        next.materialize().map_err(RuntimeLoadError::Collection)?;
+        // Unchanged forEach expansions are taken over from the running
+        // program once nothing can fail any more (see `splice_reused`).
+        let mut materialized =
+            Self::materialize_reusing(&mut next, self).map_err(RuntimeLoadError::Collection)?;
 
         // Validation is complete. Commit any IME preedit through the input
         // contract, then re-read carried values so committed text is kept.
-        // Materialize again only if committing changed a carried value.
+        // Materialize again only if committing changed a carried value (or
+        // re-materialized the running program the expansions are taken from).
+        let generation = self.materialization_generation;
         self.finish_composition();
-        let mut changed = false;
+        let mut changed = generation != self.materialization_generation;
         for (name, value) in &self.state {
             if carried.get(name).is_some_and(|before| before != value) {
                 next.state.insert(name.clone(), value.clone());
@@ -644,7 +657,18 @@ impl Runtime {
             }
         }
         if changed {
-            next.materialize().map_err(RuntimeLoadError::Collection)?;
+            materialized =
+                Self::materialize_reusing(&mut next, self).map_err(RuntimeLoadError::Collection)?;
+        }
+        if let Some(mut materialized) = materialized {
+            crate::collection::splice_reused(
+                &mut materialized.root,
+                &mut self.program.root.child,
+                &materialized.reused,
+            );
+            next.program.root.child = materialized.root;
+            next.materialization = materialized.memo;
+            next.materialization_reused = materialized.reused.len();
         }
         timings.materialize_micros = elapsed_micros(started);
         let started = std::time::Instant::now();
@@ -778,14 +802,73 @@ impl Runtime {
     }
 
     /// Re-instantiate keyed collections from the template and current state.
+    /// A `forEach` whose template, collection value and scoped declarations are
+    /// unchanged keeps its instances (moved, not re-expanded).
     fn materialize(&mut self) -> Result<(), crate::collection::CollectionError> {
         if !self.scope_model.has_collections() {
             return Ok(());
         }
-        let materialized =
-            crate::collection::materialize(&self.template, &self.scope_model, &mut self.state)?;
+        let previous = crate::collection::PreviousMaterialization {
+            memo: &self.materialization,
+            model: &self.scope_model,
+        };
+        let mut materialized = crate::collection::materialize(
+            &self.template,
+            &self.scope_model,
+            &mut self.state,
+            Some(previous),
+        )?;
+        crate::collection::splice_reused(
+            &mut materialized.root,
+            &mut self.program.root.child,
+            &materialized.reused,
+        );
         self.program.root.child = materialized.root;
+        self.materialization = materialized.memo;
+        self.materialization_reused = materialized.reused.len();
+        self.materialization_generation += 1;
         Ok(())
+    }
+
+    /// Materialize `next` (a freshly loaded program) reusing `previous`'s
+    /// unchanged expansions. Nothing is committed: the caller splices the
+    /// reused instances out of `previous` once the update can no longer fail.
+    fn materialize_reusing(
+        next: &mut Self,
+        previous: &Self,
+    ) -> Result<Option<crate::collection::Materialized>, crate::collection::CollectionError> {
+        if !next.scope_model.has_collections() {
+            return Ok(None);
+        }
+        crate::collection::materialize(
+            &next.template,
+            &next.scope_model,
+            &mut next.state,
+            Some(crate::collection::PreviousMaterialization {
+                memo: &previous.materialization,
+                model: &previous.scope_model,
+            }),
+        )
+        .map(Some)
+    }
+
+    /// Whether the materialized tree equals a from-scratch expansion of the
+    /// template against the current state (differential tests of reuse).
+    #[doc(hidden)]
+    pub fn materialization_matches_fresh(&self) -> bool {
+        if !self.scope_model.has_collections() {
+            return true;
+        }
+        let mut state = self.state.clone();
+        crate::collection::materialize(&self.template, &self.scope_model, &mut state, None)
+            .is_ok_and(|fresh| fresh.root == self.program.root.child && state == self.state)
+    }
+
+    /// Top-level forEach expansions the most recent materialization reused
+    /// unchanged instead of re-expanding (structural regression tests).
+    #[doc(hidden)]
+    pub fn last_reused_for_each_count(&self) -> usize {
+        self.materialization_reused
     }
 
     /// Diagnostics for rejected transactions since the last call.

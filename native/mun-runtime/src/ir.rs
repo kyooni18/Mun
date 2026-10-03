@@ -19,7 +19,7 @@ pub enum UiBinaryOperator {
     Or,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum UiExpression {
     #[serde(rename = "literal")]
@@ -73,7 +73,7 @@ pub enum UiFilterOperator {
     NotEqual,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiState {
     pub name: String,
@@ -103,7 +103,7 @@ pub enum AccessibilityRole {
     SecureTextField,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AccessibilitySemantics {
     pub role: AccessibilityRole,
@@ -113,7 +113,7 @@ pub struct AccessibilitySemantics {
     pub enabled: Option<UiExpression>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum UiAlignment {
     Leading,
@@ -122,7 +122,7 @@ pub enum UiAlignment {
     Stretch,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum UiOverlayAlignment {
     Center,
@@ -136,7 +136,7 @@ pub enum UiOverlayAlignment {
     BottomTrailing,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum UiPaint {
     Solid {
         color: String,
@@ -204,7 +204,7 @@ pub enum UiShapeKind {
     Capsule,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiSelectionOption {
     pub label: String,
@@ -213,7 +213,7 @@ pub struct UiSelectionOption {
     pub disabled: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiLayout {
     #[serde(default)]
@@ -288,7 +288,7 @@ impl UiFrameBound {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiVisual {
     #[serde(default)]
@@ -338,7 +338,7 @@ pub enum MotionProperty {
     LetterSpacing,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum MotionExecutionPlan {
     #[serde(rename = "spring")]
@@ -377,7 +377,7 @@ pub enum TransitionEdge {
     Right,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum TransitionEffect {
     #[serde(rename = "opacity")]
@@ -388,7 +388,7 @@ pub enum TransitionEffect {
     Move { edge: TransitionEdge, distance: f32 },
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiTransition {
     #[serde(default)]
@@ -399,7 +399,7 @@ pub struct UiTransition {
     pub animation: Option<MotionExecutionPlan>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiMotionBinding {
     pub property: MotionProperty,
@@ -411,7 +411,7 @@ pub struct UiMotionBinding {
     pub plan: Option<MotionExecutionPlan>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiTransaction {
     #[serde(default)]
@@ -423,7 +423,7 @@ pub struct UiTransaction {
 }
 
 /// Keyed collection mutation; items are addressed by key, never by index.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "operation", rename_all = "camelCase")]
 pub enum UiCollectionOperation {
     Insert {
@@ -447,7 +447,7 @@ pub enum UiCollectionOperation {
     },
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum UiAction {
     #[serde(rename = "toggle-state")]
@@ -492,7 +492,7 @@ impl UiAction {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeBase {
     pub id: String,
@@ -514,7 +514,7 @@ pub struct NodeBase {
     pub lifecycle: Option<UiLifecycle>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct UiLifecycle {
     #[serde(default)]
     pub appear: Option<UiAction>,
@@ -522,14 +522,14 @@ pub struct UiLifecycle {
     pub disappear: Option<UiAction>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum UiScrollAxis {
     Vertical,
     Horizontal,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum UiNode {
     #[serde(rename = "scroll")]
@@ -687,7 +687,7 @@ impl UiNode {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiWindow {
     pub kind: String,
@@ -708,7 +708,7 @@ pub struct UiWindow {
     pub child: UiNode,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiProgram {
     pub version: u32,
