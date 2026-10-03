@@ -485,10 +485,16 @@ impl Runtime {
     /// Parse, validate and materialize a program without reconciling the
     /// retained tree or running lifecycle actions.
     fn load(source: &str) -> Result<Self, RuntimeLoadError> {
-        Self::load_value(&serde_json::from_str(source)?)
+        let mut runtime = Self::load_value(&serde_json::from_str(source)?)?;
+        runtime
+            .materialize()
+            .map_err(RuntimeLoadError::Collection)?;
+        Ok(runtime)
     }
 
-    /// [`Self::load`] for an already-parsed JSON program.
+    /// Parse and validate an already-parsed JSON program. Collections are not
+    /// yet materialized: the caller materializes once, after deciding which
+    /// state the new program starts from.
     fn load_value(raw: &Value) -> Result<Self, RuntimeLoadError> {
         // Version and language gate everything else: a future version must be
         // reported as such, not as a pile of unknown fields.
@@ -525,7 +531,7 @@ impl Runtime {
             .map(|item| (item.name.clone(), item.initial.clone()))
             .collect();
         let template = program.root.child.clone();
-        let mut runtime = Self {
+        let runtime = Self {
             program,
             template,
             scope_model,
@@ -561,9 +567,6 @@ impl Runtime {
             last_live_scene: RefCell::new(None),
             last_live_accessibility: RefCell::new(None),
         };
-        runtime
-            .materialize()
-            .map_err(RuntimeLoadError::Collection)?;
         Ok(runtime)
     }
 

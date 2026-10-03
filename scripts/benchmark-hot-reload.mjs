@@ -1,6 +1,6 @@
 // Hot-reload latency benchmark.
 //
-//   node scripts/benchmark-hot-reload.mjs [--edits N] [--compile-only | --window] [--spacing MS] [--host <mun-native>] [--json]
+//   node scripts/benchmark-hot-reload.mjs [--edits N] [--compile-only | --window] [--spacing MS] [--host <mun-native>] [--keep DIR] [--json]
 //
 // For each case a throwaway project is generated and every edit is compiled
 // with the same incremental project compiler `mun dev` uses, then diffed into
@@ -19,6 +19,10 @@
 // --spacing MS (window mode) waits MS after each update is presented before
 // sending the next, measuring an idle app like a person saving edits; with the
 // default 0, edits arrive back to back and queue behind the previous frame.
+//
+// --keep DIR (headless) copies each case's initial IR and update stream to
+// DIR/<case>.initial.json and DIR/<case>.updates.ndjson for profiling the
+// replay outside the script.
 //
 // All numbers are wall-clock p50 / p95 / max over N edits. Not measured: the
 // file watcher/debounce (80 ms by design) and display scan-out after present.
@@ -40,6 +44,7 @@ const edits = Number(option('--edits') ?? 30)
 if (!Number.isSafeInteger(edits) || edits < 1 || edits > 10000) throw new Error('--edits must be an integer between 1 and 10000')
 const mode = args.includes('--compile-only') ? 'compile' : args.includes('--window') ? 'window' : 'headless'
 const asJson = args.includes('--json')
+const keep = option('--keep')
 const spacing = Number(option('--spacing') ?? 0)
 if (!Number.isFinite(spacing) || spacing < 0 || spacing > 5000) throw new Error('--spacing must be between 0 and 5000 ms')
 const executable = process.platform === 'win32' ? 'mun-native.exe' : 'mun-native'
@@ -158,6 +163,12 @@ async function runCase(name, build) {
       const ir = resolve(directory, 'initial.json'), stream = resolve(directory, 'updates.ndjson')
       writeFileSync(ir, JSON.stringify(initial.program))
       writeFileSync(stream, `${lines.join('\n')}\n`)
+      if (keep) {
+        const slug = name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()
+        mkdirSync(keep, { recursive: true })
+        writeFileSync(resolve(keep, `${slug}.initial.json`), JSON.stringify(initial.program))
+        writeFileSync(resolve(keep, `${slug}.updates.ndjson`), `${lines.join('\n')}\n`)
+      }
       const replay = spawnSync(host, ['--dev-replay', ir, stream], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
       if (replay.status !== 0) throw new Error(`${name}: --dev-replay failed: ${replay.stderr}`)
       const report = JSON.parse(replay.stdout)
