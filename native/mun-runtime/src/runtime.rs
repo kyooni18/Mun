@@ -617,8 +617,10 @@ impl Runtime {
             .iter()
             .map(|item| (item.name.as_str(), item.scope.is_some()))
             .collect();
-        let mut carried = HashMap::new();
-        let mut preserved_scopes = 0;
+        // Carried values are copied straight into the new state (once);
+        // `next.state` keeps them unchanged until compared below, because
+        // materialization only adds missing and drops stale instances.
+        let mut carried = HashSet::new();
         for (name, value) in &self.state {
             let template = name.split('[').next().unwrap_or(name);
             if !preserved.contains(template) || !declared.contains_key(template) {
@@ -627,17 +629,18 @@ impl Runtime {
             if declared[template] != (template != name) {
                 continue;
             }
-            carried.insert(name.clone(), value.clone());
-            preserved_scopes += 1;
+            carried.insert(name.as_str());
+            next.state.insert(name.clone(), value.clone());
         }
+        let preserved_scopes = carried.len();
         let reset_scopes = next
             .program
             .states
             .iter()
-            .filter(|item| item.scope.is_none() && !carried.contains_key(&item.name))
+            .filter(|item| item.scope.is_none() && !carried.contains(item.name.as_str()))
             .filter(|item| self.state.contains_key(&item.name))
             .count();
-        next.state.extend(carried.clone());
+        let carried: HashSet<String> = carried.into_iter().map(str::to_owned).collect();
         // Unchanged forEach expansions are taken over from the running
         // program once nothing can fail any more (see `splice_reused`).
         let mut materialized =
@@ -651,7 +654,8 @@ impl Runtime {
         self.finish_composition();
         let mut changed = generation != self.materialization_generation;
         for (name, value) in &self.state {
-            if carried.get(name).is_some_and(|before| before != value) {
+            if carried.contains(name) && next.state.get(name).is_some_and(|before| before != value)
+            {
                 next.state.insert(name.clone(), value.clone());
                 changed = true;
             }

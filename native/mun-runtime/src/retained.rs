@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use thiserror::Error;
 
@@ -158,7 +158,9 @@ impl RetainedNodeSpec {
 /// scene primitive indices never participate in reconciliation.
 #[derive(Clone, Debug, Default)]
 pub struct RetainedTree {
-    nodes: HashMap<String, RetainedNode>,
+    /// Long node-id keys hashed for every node on every reconciliation, so a
+    /// fast non-DoS hasher is used.
+    nodes: FxHashMap<String, RetainedNode>,
     order: Vec<String>,
     next_instance_id: u64,
     revision: u64,
@@ -199,83 +201,78 @@ impl RetainedTree {
         &mut self,
         specs: Vec<RetainedNodeSpec>,
     ) -> Result<RetainedReconciliation, RetainedTreeError> {
-        let mut seen = HashSet::with_capacity(specs.len());
-        for spec in &specs {
-            if !seen.insert(spec.id.clone()) {
-                return Err(RetainedTreeError::DuplicateIdentity(spec.id.clone()));
+        {
+            let mut seen = FxHashSet::with_capacity_and_hasher(specs.len(), Default::default());
+            for spec in &specs {
+                if !seen.insert(spec.id.as_str()) {
+                    return Err(RetainedTreeError::DuplicateIdentity(spec.id.clone()));
+                }
             }
         }
 
-        let previous_nodes = std::mem::take(&mut self.nodes);
+        // Retained nodes are moved out of the previous map and updated in
+        // place, so a reconciliation clones each id only for the order and diff.
+        let mut previous_nodes = std::mem::take(&mut self.nodes);
         let previous_order = std::mem::take(&mut self.order);
-        let mut next_nodes = HashMap::with_capacity(specs.len());
+        let mut next_nodes = FxHashMap::with_capacity_and_hasher(specs.len(), Default::default());
         let mut next_order = Vec::with_capacity(specs.len());
         let mut diff = RetainedReconciliation::default();
-        let mut identity_resets = HashSet::with_capacity(specs.len());
+        let mut identity_resets = FxHashSet::default();
 
         for spec in specs {
-            let id = spec.id.clone();
+            let RetainedNodeSpec {
+                id,
+                kind,
+                identity_key,
+                parent,
+                children,
+            } = spec;
             next_order.push(id.clone());
-            let ancestor_reset = spec
-                .parent
+            let ancestor_reset = parent
                 .as_ref()
                 .is_some_and(|parent| identity_resets.contains(parent));
 
-            let node = match previous_nodes.get(&id) {
-                Some(previous)
+            let node = match previous_nodes.remove(&id) {
+                Some(mut previous)
                     if !ancestor_reset
-                        && previous.kind == spec.kind
-                        && previous.identity_key == spec.identity_key =>
+                        && previous.kind == kind
+                        && previous.identity_key == identity_key =>
                 {
                     diff.retained.push(id.clone());
-                    if previous.parent != spec.parent {
+                    if previous.parent != parent {
                         diff.reparented.push(id.clone());
+                        previous.parent = parent;
                     }
-                    if previous.children != spec.children {
+                    if previous.children != children {
                         diff.children_changed.push(id.clone());
+                        previous.children = children;
                     }
-                    RetainedNode {
-                        id: id.clone(),
-                        kind: spec.kind,
-                        identity_key: spec.identity_key.clone(),
-                        instance_id: previous.instance_id,
-                        parent: spec.parent,
-                        children: spec.children,
-                    }
+                    previous
                 }
-                Some(_) => {
-                    diff.replaced.push(id.clone());
+                existing => {
+                    if existing.is_some() {
+                        diff.replaced.push(id.clone());
+                    } else {
+                        diff.inserted.push(id.clone());
+                    }
                     identity_resets.insert(id.clone());
                     RetainedNode {
                         id: id.clone(),
-                        kind: spec.kind,
-                        identity_key: spec.identity_key.clone(),
+                        kind,
+                        identity_key,
                         instance_id: self.allocate_instance_id(),
-                        parent: spec.parent,
-                        children: spec.children,
-                    }
-                }
-                None => {
-                    diff.inserted.push(id.clone());
-                    identity_resets.insert(id.clone());
-                    RetainedNode {
-                        id: id.clone(),
-                        kind: spec.kind,
-                        identity_key: spec.identity_key.clone(),
-                        instance_id: self.allocate_instance_id(),
-                        parent: spec.parent,
-                        children: spec.children,
+                        parent,
+                        children,
                     }
                 }
             };
             next_nodes.insert(id, node);
         }
 
-        for id in previous_order {
-            if !next_nodes.contains_key(&id) {
-                diff.removed.push(id);
-            }
-        }
+        diff.removed = previous_order
+            .into_iter()
+            .filter(|id| previous_nodes.contains_key(id))
+            .collect();
 
         self.nodes = next_nodes;
         self.order = next_order;
