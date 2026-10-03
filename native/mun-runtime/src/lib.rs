@@ -10,6 +10,7 @@ pub mod gesture;
 pub mod input;
 pub mod ir;
 pub mod layout;
+pub mod layout_cache;
 pub mod motion;
 pub mod retained;
 pub mod runtime;

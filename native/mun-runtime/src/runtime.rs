@@ -4,7 +4,6 @@ use std::{
     rc::Rc,
 };
 
-use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde_json::Value;
 use taffy::prelude::*;
@@ -20,7 +19,8 @@ use crate::{
         UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiOverlayAlignment, UiPaint,
         UiProgram, UiShapeKind, UiTransition,
     },
-    layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, IntrinsicSize},
+    layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer},
+    layout_cache::{LayoutCache, LayoutNodes, LayoutSpec, LayoutSyncStats, LayoutTree},
     motion::{MotionChannelKey, MotionScheduler},
     retained::{
         RetainedIdentityKey, RetainedNodeKind, RetainedNodeSpec, RetainedReconciliation,
@@ -91,6 +91,14 @@ const LIFECYCLE_PASSES: usize = 8;
 enum AxisLeaf {
     Spacer { min_length: f32 },
     Divider,
+}
+
+/// A node's layout input plus what its parent needs to finish its style.
+struct FrameLayoutSpec<'a> {
+    spec: LayoutSpec<'a>,
+    /// Flexible-frame intent ([width, height]); applied by the parent.
+    flexible: [bool; 2],
+    axis_leaf: Option<AxisLeaf>,
 }
 
 #[derive(Clone, Debug)]
@@ -189,8 +197,6 @@ struct LayoutFlip {
     delta_x: f32,
     delta_y: f32,
 }
-
-type LayoutTree = TaffyTree<IntrinsicSize>;
 
 #[derive(Clone, Copy, Debug)]
 struct PresenceValues {
@@ -370,9 +376,6 @@ pub(crate) fn evaluate_binary(operator: UiBinaryOperator, left: Value, right: Va
         }
     }
 }
-/// Semantic node id -> layout node of one frame. Keys are long node-id
-/// strings hashed for every node every frame, so a fast non-DoS hasher is used.
-type LayoutNodes = FxHashMap<String, NodeId>;
 
 /// Outcome of a committed [`Runtime::hot_update`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -443,10 +446,9 @@ pub struct Runtime {
     reveal_request: RefCell<Option<String>>,
     /// Inputs of the last layout that refreshed scroll viewport geometry.
     geometry_stamp: Cell<Option<GeometryStamp>>,
-    /// Flexible-frame intent ([width, height]) of layout nodes in the tree
-    /// being built; consumed by each node's parent.
-    flexible_frames: RefCell<FxHashMap<NodeId, [bool; 2]>>,
-    axis_leaves: RefCell<FxHashMap<NodeId, AxisLeaf>>,
+    /// Layout tree retained across frames and compatible hot updates; synced
+    /// from the semantic tree every frame (see `layout_cache`).
+    layout: RefCell<LayoutCache>,
     /// Semantically present Views with lifecycle actions, in traversal order,
     /// with the disappear action to run when they leave.
     lifecycle_present: Vec<(String, Option<UiAction>)>,
@@ -543,8 +545,7 @@ impl Runtime {
             reveal_focus: Cell::new(false),
             reveal_request: RefCell::new(None),
             geometry_stamp: Cell::new(None),
-            flexible_frames: RefCell::new(FxHashMap::default()),
-            axis_leaves: RefCell::new(FxHashMap::default()),
+            layout: RefCell::new(LayoutCache::default()),
             lifecycle_present: Vec::new(),
             lifecycle_running: false,
             scroll_views: RefCell::new(HashMap::new()),
@@ -651,6 +652,9 @@ impl Runtime {
         next.conventions = self.conventions;
         next.revision = self.revision + 1;
         next.retained = std::mem::take(&mut self.retained);
+        // Semantic ids are stable across compatible updates: unchanged nodes
+        // keep their retained layout (and its cache) instead of starting over.
+        next.layout = std::mem::take(&mut self.layout);
         next.lifecycle_present = std::mem::take(&mut self.lifecycle_present);
         next.ime_requests = std::mem::take(&mut self.ime_requests);
         next.clipboard_revision = self.clipboard_revision;
@@ -2379,7 +2383,8 @@ impl Runtime {
         height: f32,
         measurer: &dyn IntrinsicMeasurer,
     ) -> Result<RuntimeFrame, taffy::TaffyError> {
-        let (taffy, nodes) = self.build_layout_tree_with_measurer(width, height, measurer)?;
+        let layout = self.build_layout_tree_with_measurer(width, height, measurer)?;
+        let (taffy, nodes) = (&layout.taffy, &layout.nodes);
         self.reconcile_scroll_layout(&taffy, &nodes)?;
         self.reveal_focused_layout(&taffy, &nodes)?;
         let mut scene = Scene::default();
@@ -2454,7 +2459,8 @@ impl Runtime {
         height: f32,
         measurer: &dyn IntrinsicMeasurer,
     ) -> Result<AccessibilityTree, taffy::TaffyError> {
-        let (taffy, nodes) = self.build_layout_tree_with_measurer(width, height, measurer)?;
+        let layout = self.build_layout_tree_with_measurer(width, height, measurer)?;
+        let (taffy, nodes) = (&layout.taffy, &layout.nodes);
         self.reconcile_scroll_layout(&taffy, &nodes)?;
         self.reveal_focused_layout(&taffy, &nodes)?;
         let mut accessibility =
@@ -2526,7 +2532,7 @@ impl Runtime {
         &self,
         width: f32,
         height: f32,
-    ) -> Result<(LayoutTree, LayoutNodes), taffy::TaffyError> {
+    ) -> Result<std::cell::Ref<'_, LayoutCache>, taffy::TaffyError> {
         let measurer = self.measurer.clone();
         self.build_layout_tree_with_measurer(width, height, measurer.as_ref())
     }
@@ -2536,23 +2542,16 @@ impl Runtime {
         width: f32,
         height: f32,
         measurer: &dyn IntrinsicMeasurer,
-    ) -> Result<(LayoutTree, LayoutNodes), taffy::TaffyError> {
-        let mut taffy: LayoutTree = TaffyTree::new();
-        let mut nodes = LayoutNodes::default();
-        self.flexible_frames.borrow_mut().clear();
-        self.axis_leaves.borrow_mut().clear();
-        let children =
-            self.build_layout_nodes(&mut taffy, &self.program.root.child, &mut nodes, measurer)?;
+    ) -> Result<std::cell::Ref<'_, LayoutCache>, taffy::TaffyError> {
+        let mut specs = Vec::with_capacity(self.layout.borrow().nodes.len());
+        let roots = self.build_layout_nodes(&self.program.root.child, &mut specs, measurer);
         // Like a SwiftUI window, the window proposes its size to the root
         // view and centers it; the root fills an axis only where it is
         // flexible (e.g. `.frame(maxWidth: .infinity)`, a ScrollView, or a
         // stack containing one). The window bounds flexible content.
-        for child in &children {
-            let Some([horizontal, vertical]) = self.flexible_frames.borrow().get(child).copied()
-            else {
-                continue;
-            };
-            let mut style = taffy.style(*child)?.clone();
+        for &child in &roots {
+            let [horizontal, vertical] = specs[child].flexible;
+            let style = &mut specs[child].spec.style;
             if horizontal {
                 style.flex_grow = 1.0;
                 style.flex_shrink = 1.0;
@@ -2567,40 +2566,55 @@ impl Runtime {
                     style.min_size.height = LengthPercentageAuto::length(0.0);
                 }
             }
-            taffy.set_style(*child, style)?;
         }
-        let wrapper = taffy.new_with_children(
-            Style {
-                size: Size {
-                    width: Dimension::length(width),
-                    height: Dimension::length(height),
+        let wrapper_style = Style {
+            size: Size {
+                width: Dimension::length(width),
+                height: Dimension::length(height),
+            },
+            justify_content: Some(JustifyContent::CENTER),
+            align_items: Some(AlignItems::CENTER),
+            ..Default::default()
+        };
+        {
+            let specs = specs.into_iter().map(|item| item.spec).collect::<Vec<_>>();
+            let mut cache = self.layout.borrow_mut();
+            cache.sync(&specs, &roots, wrapper_style)?;
+            let wrapper = cache.wrapper().expect("synced layout has a window node");
+            cache.taffy.compute_layout_with_measure(
+                wrapper,
+                Size {
+                    width: AvailableSpace::Definite(width),
+                    height: AvailableSpace::Definite(height),
                 },
-                justify_content: Some(JustifyContent::CENTER),
-                align_items: Some(AlignItems::CENTER),
-                ..Default::default()
-            },
-            &children,
-        )?;
-        taffy.compute_layout_with_measure(
-            wrapper,
-            Size {
-                width: AvailableSpace::Definite(width),
-                height: AvailableSpace::Definite(height),
-            },
-            |inputs, _, context, style| {
-                let intrinsic = context.copied().unwrap_or_default();
-                taffy::compute_leaf_layout(
-                    inputs,
-                    style,
-                    |_, _| 0.0,
-                    |known_dimensions, _| Size {
-                        width: known_dimensions.width.unwrap_or(intrinsic.width),
-                        height: known_dimensions.height.unwrap_or(intrinsic.height),
-                    },
-                )
-            },
-        )?;
-        Ok((taffy, nodes))
+                |inputs, _, context, style| {
+                    let intrinsic = context.copied().unwrap_or_default();
+                    taffy::compute_leaf_layout(
+                        inputs,
+                        style,
+                        |_, _| 0.0,
+                        |known_dimensions, _| Size {
+                            width: known_dimensions.width.unwrap_or(intrinsic.width),
+                            height: known_dimensions.height.unwrap_or(intrinsic.height),
+                        },
+                    )
+                },
+            )?;
+        }
+        Ok(self.layout.borrow())
+    }
+
+    /// Work done by the most recent layout sync (development instrumentation
+    /// and structural regression tests).
+    pub fn last_layout_sync(&self) -> LayoutSyncStats {
+        self.layout.borrow().last_sync
+    }
+
+    /// Drop the retained layout tree so the next frame lays out from scratch.
+    /// Differential tests compare retained against fresh layout with it.
+    #[doc(hidden)]
+    pub fn discard_retained_layout(&self) {
+        *self.layout.borrow_mut() = LayoutCache::default();
     }
 
     fn eval(&self, expression: &UiExpression) -> Value {
@@ -2800,18 +2814,19 @@ impl Runtime {
         let Some(root) = before_geometry.node(&before_geometry.root_id) else {
             return;
         };
-        let Ok((taffy, nodes)) = self.build_layout_tree(root.bounds.width, root.bounds.height)
-        else {
+        let Ok(layout) = self.build_layout_tree(root.bounds.width, root.bounds.height) else {
             return;
         };
         let measurer = self.measurer.clone();
-        let Ok(after_geometry) = self.accessibility_from_layout(
-            &taffy,
-            &nodes,
+        let after_geometry = self.accessibility_from_layout(
+            &layout.taffy,
+            &layout.nodes,
             root.bounds.width,
             root.bounds.height,
             measurer.as_ref(),
-        ) else {
+        );
+        drop(layout);
+        let Ok(after_geometry) = after_geometry else {
             return;
         };
 
@@ -3162,19 +3177,20 @@ impl Runtime {
         output
     }
 
-    fn build_layout_nodes(
-        &self,
-        taffy: &mut LayoutTree,
-        node: &UiNode,
-        nodes: &mut LayoutNodes,
+    /// Append the layout input of `node` (children first) to `specs` and
+    /// return the indices of the layout nodes it contributes to its parent.
+    fn build_layout_nodes<'a>(
+        &'a self,
+        node: &'a UiNode,
+        specs: &mut Vec<FrameLayoutSpec<'a>>,
         measurer: &dyn IntrinsicMeasurer,
-    ) -> Result<Vec<NodeId>, taffy::TaffyError> {
+    ) -> Vec<usize> {
         if matches!(node, UiNode::Conditional { .. }) {
             let mut output = Vec::new();
             for child in self.active_children(node) {
-                output.extend(self.build_layout_nodes(taffy, child, nodes, measurer)?);
+                output.extend(self.build_layout_nodes(child, specs, measurer));
             }
-            return Ok(output);
+            return output;
         }
 
         let base = node.base();
@@ -3368,11 +3384,12 @@ impl Runtime {
             _ => None,
         };
         for child in self.active_children(node) {
-            let child_nodes = self.build_layout_nodes(taffy, child, nodes, measurer)?;
-            for child_id in &child_nodes {
-                let axis_leaf = self.axis_leaves.borrow().get(child_id).copied();
+            let child_nodes = self.build_layout_nodes(child, specs, measurer);
+            for &child_id in &child_nodes {
+                let axis_leaf = specs[child_id].axis_leaf;
+                let child_flex = specs[child_id].flexible;
+                let child_style = &mut specs[child_id].spec.style;
                 if let (Some(leaf), Some(main)) = (axis_leaf, main_axis_horizontal) {
-                    let mut child_style = taffy.style(*child_id)?.clone();
                     let fixed = |dimension: Dimension| dimension != Dimension::auto();
                     match leaf {
                         // Fills the stack's axis down to its minimum length; a
@@ -3414,13 +3431,11 @@ impl Runtime {
                             }
                         }
                     }
-                    taffy.set_style(*child_id, child_style)?;
                     continue;
                 }
-                let Some(child_flex) = self.flexible_frames.borrow().get(child_id).copied() else {
+                if child_flex == [false, false] {
                     continue;
-                };
-                let mut child_style = taffy.style(*child_id)?.clone();
+                }
                 for (axis, wants) in [(true, child_flex[0]), (false, child_flex[1])] {
                     if !wants {
                         continue;
@@ -3449,18 +3464,15 @@ impl Runtime {
                     child_style.justify_self = child_flex[0].then_some(AlignItems::STRETCH);
                     child_style.align_self = child_flex[1].then_some(AlignItems::STRETCH);
                 }
-                taffy.set_style(*child_id, child_style)?;
             }
             if matches!(node, UiNode::Scroll { .. }) {
-                for child_id in &child_nodes {
-                    let mut child_style = taffy.style(*child_id)?.clone();
-                    child_style.flex_shrink = 0.0;
-                    taffy.set_style(*child_id, child_style)?;
+                for &child_id in &child_nodes {
+                    specs[child_id].spec.style.flex_shrink = 0.0;
                 }
             }
             if matches!(node, UiNode::Overlay { .. }) {
-                for child_id in &child_nodes {
-                    let mut child_style = taffy.style(*child_id)?.clone();
+                for &child_id in &child_nodes {
+                    let child_style = &mut specs[child_id].spec.style;
                     child_style.grid_row = Line {
                         start: line(1),
                         end: line(2),
@@ -3469,38 +3481,28 @@ impl Runtime {
                         start: line(1),
                         end: line(2),
                     };
-                    taffy.set_style(*child_id, child_style)?;
                 }
             }
             children.extend(child_nodes);
         }
-        let id = if children.is_empty() {
-            match intrinsic {
-                Some(intrinsic) => taffy.new_leaf_with_context(style, intrinsic)?,
-                None => taffy.new_leaf(style)?,
-            }
-        } else {
-            taffy.new_with_children(style, &children)?
+        let axis_leaf = match node {
+            UiNode::Spacer { min_length, .. } => Some(AxisLeaf::Spacer {
+                min_length: min_length.unwrap_or(DEFAULT_SPACER_LENGTH),
+            }),
+            UiNode::Divider { .. } => Some(AxisLeaf::Divider),
+            _ => None,
         };
-        nodes.insert(base.id.clone(), id);
-        match node {
-            UiNode::Spacer { min_length, .. } => {
-                self.axis_leaves.borrow_mut().insert(
-                    id,
-                    AxisLeaf::Spacer {
-                        min_length: min_length.unwrap_or(DEFAULT_SPACER_LENGTH),
-                    },
-                );
-            }
-            UiNode::Divider { .. } => {
-                self.axis_leaves.borrow_mut().insert(id, AxisLeaf::Divider);
-            }
-            _ => {}
-        }
-        if flexible[0] || flexible[1] {
-            self.flexible_frames.borrow_mut().insert(id, flexible);
-        }
-        Ok(vec![id])
+        specs.push(FrameLayoutSpec {
+            spec: LayoutSpec {
+                id: &base.id,
+                style,
+                context: if children.is_empty() { intrinsic } else { None },
+                children,
+            },
+            flexible,
+            axis_leaf,
+        });
+        vec![specs.len() - 1]
     }
 
     pub fn scroll_view(&self, id: &str) -> Option<crate::scroll_view::ScrollViewport> {
@@ -5050,6 +5052,7 @@ fn validate_native_transitions(node: &UiNode) -> Result<(), RuntimeLoadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::IntrinsicSize;
 
     const SELF_DISABLING_ACTION: &str = r#"
     {
@@ -5622,7 +5625,8 @@ mod tests {
     fn stretch_overrides_intrinsic_width_but_preserves_explicit_width() {
         let runtime =
             Runtime::from_json(STRETCH_INTRINSIC_LAYOUT).expect("valid intrinsic layout program");
-        let (taffy, nodes) = runtime.build_layout_tree(400.0, 240.0).expect("layout");
+        let layout = runtime.build_layout_tree(400.0, 240.0).expect("layout");
+        let (taffy, nodes) = (&layout.taffy, &layout.nodes);
 
         let stretched = taffy
             .layout(*nodes.get("stretched").expect("stretched layout node"))
@@ -5831,7 +5835,8 @@ mod tests {
     fn column_padding_spacing_and_center_alignment_are_semantic() {
         let runtime =
             Runtime::from_json(CONTAINER_LAYOUT_SEMANTICS).expect("valid container layout program");
-        let (taffy, nodes) = runtime.build_layout_tree(400.0, 320.0).expect("layout");
+        let layout = runtime.build_layout_tree(400.0, 320.0).expect("layout");
+        let (taffy, nodes) = (&layout.taffy, &layout.nodes);
         let first = taffy
             .layout(*nodes.get("column-a").expect("first column child"))
             .expect("first column layout");
@@ -5849,7 +5854,8 @@ mod tests {
     fn row_padding_spacing_and_trailing_alignment_are_semantic() {
         let runtime =
             Runtime::from_json(CONTAINER_LAYOUT_SEMANTICS).expect("valid container layout program");
-        let (taffy, nodes) = runtime.build_layout_tree(400.0, 320.0).expect("layout");
+        let layout = runtime.build_layout_tree(400.0, 320.0).expect("layout");
+        let (taffy, nodes) = (&layout.taffy, &layout.nodes);
         let first = taffy
             .layout(*nodes.get("row-a").expect("first row child"))
             .expect("first row layout");
