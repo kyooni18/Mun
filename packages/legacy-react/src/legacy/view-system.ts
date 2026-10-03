@@ -256,18 +256,28 @@ function initializerScore(candidate: InitializerMatch, args: readonly unknown[],
   return score
 }
 
+function isReactLegacyContextCall(args: readonly unknown[]): boolean {
+  const [props, context] = args
+  return args.length === 2
+    && (props === null || typeof props === 'object')
+    && context !== null
+    && typeof context === 'object'
+    && Object.getPrototypeOf(context) === Object.prototype
+    && Reflect.ownKeys(context).length === 0
+}
+
 /** Resolve overloads exactly once at the View boundary. */
 export function resolveInitializer(target: unknown, args: readonly unknown[]): InitializerResolution {
   // React 19 invokes function components with a legacy second argument. It is
   // always undefined for Mun constructors and must not become an initializer
   // argument when a callable View is used directly as a React component.
-  const suppliedArgs = args.length === 2
+  let suppliedArgs = args.length === 2
     && args[1] === undefined
     && (args[0] === null || typeof args[0] === 'object')
     ? args.slice(0, -1)
     : args
   const candidates = metadataOf(target)
-  const match = candidates
+  const best = (suppliedArgs: readonly unknown[]) => candidates
     .map(candidate => {
       const candidateArgs = namedArgumentsFor(candidate, suppliedArgs)
       if (!namedObjectMatches(candidate, suppliedArgs) || !candidate.accepts(candidateArgs)) return null
@@ -285,6 +295,13 @@ export function resolveInitializer(target: unknown, args: readonly unknown[]): I
     })
     .filter((value): value is { candidate: InitializerMatch; args: readonly unknown[]; score: number } => value !== null)
     .sort((left, right) => right.score - left.score)[0]
+  // React 18 passes the (empty) legacy context object instead; it is dropped
+  // only when the call matches no initializer with it.
+  let match = best(suppliedArgs)
+  if (!match && isReactLegacyContextCall(suppliedArgs)) {
+    suppliedArgs = suppliedArgs.slice(0, 1)
+    match = best(suppliedArgs)
+  }
   const initializer = match?.candidate
   if (!initializer) throw new MunInitializerError(typeName(target), suppliedArgs, candidates.map(candidate => candidate.signature))
   return { initializer, args: match?.args ?? suppliedArgs }

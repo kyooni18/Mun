@@ -15,9 +15,13 @@ import {
 } from "@mun/core/compat"
 import { snapshotArrayValues } from "./arrays.js"
 
-/** Legacy-only graph leaves retain direct ReactNode compatibility. */
-export type ViewGraphLeaf = ReactNode
-export type ViewGraphValue = ReactNode | ViewNode | readonly ViewGraphValue[]
+/**
+ * Legacy-only graph leaves retain direct ReactNode compatibility. `bigint` is
+ * listed explicitly because the core graph allows it and React 18's ReactNode
+ * type does not include it (React 19's does).
+ */
+export type ViewGraphLeaf = ReactNode | bigint
+export type ViewGraphValue = ViewGraphLeaf | ViewNode | readonly ViewGraphValue[]
 export type ViewGraphChild = ViewGraphValue
 
 export type {
