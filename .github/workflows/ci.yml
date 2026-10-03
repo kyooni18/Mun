@@ -25,11 +25,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Select React compatibility version
-        run: >-
-          pnpm add --workspace-root --save-dev --ignore-scripts
-          react@${{ matrix.react }}
-          react-dom@${{ matrix.react }}
-          ${{ matrix.react == '18.3.1' && '@types/react@18.3.23 @types/react-dom@18.3.7' || '@types/react@19.2.18 @types/react-dom@19.2.4' }}
+        # Overrides apply to every workspace package (packages/react keeps its
+        # own React type devDependencies), so the whole build sees one React.
+        env:
+          TYPES_REACT: ${{ matrix.react == '18.3.1' && '18.3.23' || '19.2.18' }}
+          TYPES_REACT_DOM: ${{ matrix.react == '18.3.1' && '18.3.7' || '19.2.4' }}
+        run: |
+          printf "overrides:\n  react: %s\n  react-dom: %s\n  '@types/react': %s\n  '@types/react-dom': %s\n" \
+            "${{ matrix.react }}" "${{ matrix.react }}" "$TYPES_REACT" "$TYPES_REACT_DOM" >> pnpm-workspace.yaml
+          pnpm install --no-frozen-lockfile --ignore-scripts
       - run: pnpm test
       - run: pnpm run demo:build
       - run: pnpm run demo:vue:build
@@ -69,8 +73,10 @@ jobs:
         run: |
           sudo apt-get update
           # fonts-nanum: a Hangul face, so Korean text and IME tests shape real
-          # glyphs as on macOS/Windows instead of .notdef boxes.
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libx11-dev libxcb1-dev xvfb mesa-vulkan-drivers fonts-nanum
+          # glyphs as on macOS/Windows instead of .notdef boxes. The X11 runtime
+          # libraries are loaded dynamically by winit for the windowed smoke.
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libx11-dev libxcb1-dev xvfb mesa-vulkan-drivers fonts-nanum \
+            libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxrandr2 libxi6
       - name: Check native Rust formatting
         if: runner.os == 'Linux'
         run: cargo fmt --manifest-path native/Cargo.toml --all -- --check
