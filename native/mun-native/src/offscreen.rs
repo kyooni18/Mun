@@ -85,6 +85,13 @@ impl OffscreenSession {
         self.shaping.cached_line_count()
     }
 
+    /// Disable renderer culling of fully clipped primitives (differential
+    /// tests compare culled and unculled framebuffers).
+    #[doc(hidden)]
+    pub fn set_culling(&mut self, enabled: bool) {
+        self.renderer.culling = enabled;
+    }
+
     /// The shaped line the runtime and renderer use for `text` (whatever fonts
     /// this system resolves it to).
     pub fn shaped_line(&self, text: &str, font_size: f32) -> mun_runtime::TextLineLayout {

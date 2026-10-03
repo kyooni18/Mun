@@ -357,6 +357,38 @@ fn bounded_resources_under_churn() {
     assert_eq!(session.shaped_line_count(), shaped);
 }
 
+/// Rows scrolled out of the ScrollView are culled before GPU preparation, and
+/// the framebuffer is identical to drawing everything.
+#[test]
+fn culling_offscreen_rows_leaves_pixels_unchanged() {
+    let mut session = OffscreenSession::new(&program(300, 200), 800.0, 600.0, 1.0).unwrap();
+    for dy in [0.0, -2400.0, -900.0] {
+        if dy != 0.0 {
+            scroll(&mut session, dy);
+        }
+        session.set_culling(true);
+        session.render().unwrap();
+        let culled = session.rgba().unwrap();
+        let skipped = session.renderer_stats().culled_primitives;
+        let primitives = {
+            let frame = session.runtime().build_frame(800.0, 600.0).unwrap();
+            frame.scene.rects.len() + frame.scene.texts.len()
+        };
+        // ~20 rows of 300 are visible; nearly everything else is skipped.
+        assert!(
+            skipped * 10 > primitives * 8,
+            "{skipped} of {primitives} culled after scrolling {dy}"
+        );
+        session.set_culling(false);
+        session.render().unwrap();
+        assert_eq!(session.renderer_stats().culled_primitives, 0);
+        assert!(
+            culled == session.rgba().unwrap(),
+            "culled frame differs after scrolling {dy}"
+        );
+    }
+}
+
 #[test]
 #[ignore = "measurement report; run with --release --ignored --nocapture"]
 fn stress_measurement_report() {

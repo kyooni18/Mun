@@ -142,6 +142,15 @@ struct CachedTextBuffer {
     buffer: Buffer,
     text: String,
     font_size: f32,
+    /// Shaped advance width of the line (logical points).
+    width: f32,
+}
+
+fn shaped_width(buffer: &Buffer) -> f32 {
+    buffer
+        .layout_runs()
+        .map(|run| run.line_w)
+        .fold(0.0, f32::max)
 }
 
 impl CachedTextBuffer {
@@ -159,6 +168,7 @@ impl CachedTextBuffer {
         buffer.set_text(text, &text_attrs(), Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
         Self {
+            width: shaped_width(&buffer),
             buffer,
             text: text.to_owned(),
             font_size,
@@ -182,6 +192,7 @@ impl CachedTextBuffer {
         }
         if dirty {
             self.buffer.shape_until_scroll(font_system, false);
+            self.width = shaped_width(&self.buffer);
         }
         dirty
     }
@@ -242,6 +253,9 @@ pub struct RendererStats {
     pub skipped_frames: u64,
     pub surface_reconfigurations: u64,
     pub text_reshapes: u64,
+    /// Rects and texts of the last frame skipped because they lie entirely
+    /// outside their clip (e.g. scrolled out of a ScrollView) or the surface.
+    pub culled_primitives: usize,
 }
 
 /// Wall-clock cost of the stages of the last rendered frame, in microseconds.
@@ -279,6 +293,8 @@ struct GpuRenderer {
     device_lost: Arc<std::sync::Mutex<Option<String>>>,
     stats: RendererStats,
     mirrored_text_reported: bool,
+    /// Skip fully clipped primitives (always on; off only for differential tests).
+    pub(crate) culling: bool,
 }
 
 /// Outcome of one frame realization. Recoverable surface states never panic.
@@ -473,6 +489,7 @@ impl GpuRenderer {
             },
             last_timings: RenderTimings::default(),
             mirrored_text_reported: false,
+            culling: true,
         }
     }
 
@@ -563,12 +580,13 @@ impl GpuRenderer {
         let physical_width = surface_width as f32;
         let physical_height = surface_height as f32;
 
-        let (vertices, rect_batches) = scene_geometry(
+        let (vertices, rect_batches, culled_rects) = scene_geometry(
             scene,
             presentation,
             surface_width,
             surface_height,
             scale_factor,
+            self.culling,
         );
         if !vertices.is_empty() {
             let bytes = bytemuck::cast_slice(&vertices);
@@ -588,7 +606,55 @@ impl GpuRenderer {
                 .collect::<std::collections::HashSet<_>>();
             self.text_buffers.retain(|id, _| live.contains(id.as_str()));
         }
-        for text in &scene.texts {
+        // A text whose line box (plus a one-em margin for overhang) lies
+        // outside its clip draws nothing: it is neither reshaped nor prepared.
+        // Its horizontal extent is known only once it has been shaped.
+        let mut culled_texts = 0;
+        let visible = scene
+            .texts
+            .iter()
+            .map(|text| {
+                let Some(scissor) = scissor_for_clip(
+                    presentation.clip_for(&text.id),
+                    surface_width,
+                    surface_height,
+                    scale_factor,
+                ) else {
+                    return false;
+                };
+                let transform = presentation.transform_for(&text.id);
+                let margin = text.font_size;
+                let bottom = text.y + text.font_size * LINE_HEIGHT_FACTOR + margin;
+                let width = self
+                    .text_buffers
+                    .get(&text.id)
+                    .filter(|cached| {
+                        cached.text == text.text
+                            && cached.font_size.to_bits() == text.font_size.to_bits()
+                    })
+                    .map(|cached| cached.width);
+                let (left, top) = transform.transform_point(text.x - margin, text.y - margin);
+                let (right, bottom) =
+                    transform.transform_point(text.x + width.unwrap_or(0.0) + margin, bottom);
+                let overlaps = !self.culling
+                    || overlaps_scissor(
+                        width.map(|_| (left, right)),
+                        (top, bottom),
+                        scale_factor,
+                        scissor,
+                        1.0,
+                    );
+                culled_texts += usize::from(!overlaps);
+                overlaps
+            })
+            .collect::<Vec<_>>();
+        self.stats.culled_primitives = culled_rects + culled_texts;
+        for (text, _) in scene
+            .texts
+            .iter()
+            .zip(&visible)
+            .filter(|(_, visible)| **visible)
+        {
             match self.text_buffers.get_mut(&text.id) {
                 Some(cached) => {
                     if cached.update(&mut font_system, &text.text, text.font_size) {
@@ -608,6 +674,10 @@ impl GpuRenderer {
         let mut groups = Vec::new();
         let mut start = 0;
         while start < scene.texts.len() {
+            if !visible[start] {
+                start += 1;
+                continue;
+            }
             let text = &scene.texts[start];
             let transform = presentation.transform_for(&text.id);
             let Some(scissor) = scissor_for_clip(
@@ -622,7 +692,8 @@ impl GpuRenderer {
             let mut end = start + 1;
             while end < scene.texts.len() {
                 let next = &scene.texts[end];
-                if presentation.transform_for(&next.id) != transform
+                if !visible[end]
+                    || presentation.transform_for(&next.id) != transform
                     || scissor_for_clip(
                         presentation.clip_for(&next.id),
                         surface_width,
@@ -1028,11 +1099,13 @@ fn scene_geometry(
     surface_width: u32,
     surface_height: u32,
     scale: f32,
-) -> (Vec<Vertex>, Vec<RectDrawBatch>) {
+    cull: bool,
+) -> (Vec<Vertex>, Vec<RectDrawBatch>, usize) {
     let width = surface_width.max(1) as f32;
     let height = surface_height.max(1) as f32;
     let mut vertices = Vec::with_capacity(scene.rects.len() * 6);
     let mut batches: Vec<RectDrawBatch> = Vec::new();
+    let mut culled = 0;
     for item in &scene.rects {
         let Some(scissor) = scissor_for_clip(
             presentation.clip_for(&item.id),
@@ -1048,6 +1121,10 @@ fn scene_geometry(
             item.rect.x + item.rect.width,
             item.rect.y + item.rect.height,
         );
+        if cull && !overlaps_scissor(Some((left, right)), (top, bottom), scale, scissor, 1.0) {
+            culled += 1;
+            continue;
+        }
         let x0 = left * scale / width * 2.0 - 1.0;
         let x1 = right * scale / width * 2.0 - 1.0;
         let y0 = 1.0 - top * scale / height * 2.0;
@@ -1115,7 +1192,26 @@ fn scene_geometry(
             scissor,
         });
     }
-    (vertices, batches)
+    (vertices, batches, culled)
+}
+
+/// Whether a primitive's transformed logical extent (`x` is `None` when the
+/// horizontal extent is unknown) can produce pixels inside `scissor`. The
+/// physical `margin` keeps anti-aliasing and glyph overhang conservative.
+fn overlaps_scissor(
+    x: Option<(f32, f32)>,
+    y: (f32, f32),
+    scale: f32,
+    scissor: ScissorRect,
+    margin: f32,
+) -> bool {
+    let within = |a: f32, b: f32, start: u32, length: u32| {
+        let (low, high) = (a.min(b) * scale - margin, a.max(b) * scale + margin);
+        // NaN extents fail closed (drawn), never culled.
+        !(high < start as f32 || low > (start + length) as f32)
+    };
+    x.is_none_or(|(left, right)| within(left, right, scissor.x, scissor.width))
+        && within(y.0, y.1, scissor.y, scissor.height)
 }
 
 #[cfg(test)]
@@ -1132,6 +1228,7 @@ fn scene_vertices(
         width.max(1.0) as u32,
         height.max(1.0) as u32,
         scale,
+        false,
     )
     .0
 }
@@ -1336,7 +1433,7 @@ mod tests {
         presentation.bind_clip("a", clip);
         presentation.bind_clip("b", clip);
 
-        let (vertices, batches) = scene_geometry(&scene, &presentation, 100, 80, 2.0);
+        let (vertices, batches, _) = scene_geometry(&scene, &presentation, 100, 80, 2.0, false);
         assert_eq!(vertices.len(), 12);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].start, 0);
