@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks'
 import { createElement } from 'react'
-import { Text, VStack, modifiedContent } from '../packages/core/dist/index.js'
+import { Text, VStack, modifiedContent } from '../packages/core/dist/compat.js'
 
 const ci = process.env.MUN_BENCH_CI === '1'
 const defaultCounts = process.env.MUN_BENCH_CI === '1' ? [100, 1000] : [100, 1000, 10000]

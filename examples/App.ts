@@ -10,7 +10,7 @@ import {
   TextField,
   Toggle,
   VStack,
-} from '@mun/ui'
+} from '@mun/core/compat'
 import { view } from '@mun/react'
 import moduleStyles from './demo.module.css'
 

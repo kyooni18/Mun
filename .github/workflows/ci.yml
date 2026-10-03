@@ -26,7 +26,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Select React compatibility version
         run: >-
-          pnpm add --save-dev --ignore-scripts
+          pnpm add --workspace-root --save-dev --ignore-scripts
           react@${{ matrix.react }}
           react-dom@${{ matrix.react }}
           ${{ matrix.react == '18.3.1' && '@types/react@18.3.23 @types/react-dom@18.3.7' || '@types/react@19.2.18 @types/react-dom@19.2.4' }}
@@ -107,6 +107,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      - name: Build workspace packages
+        run: pnpm run build
       - name: Build production browser fixtures
         run: pnpm run demo:all:build
       - name: Validate production browser fixtures

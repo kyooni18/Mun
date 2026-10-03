@@ -17,7 +17,7 @@ import {
   initializer,
   initializerKinds,
   subscribeState,
-} from "../packages/core/dist/index.js"
+} from "../packages/core/dist/compat.js"
 import { compiledCollectionContent } from "../packages/core/dist/internal-runtime.js"
 import { render as renderReact } from "../packages/react/dist/index.js"
 import { mount, renderToHTML } from "../packages/web/dist/index.js"
