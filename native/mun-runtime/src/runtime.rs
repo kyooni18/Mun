@@ -4272,13 +4272,18 @@ impl Runtime {
                 .chain(scene.texts[start.1..].iter().map(|item| item.id.clone()))
                 .chain(scene.actions[start.2..].iter().map(|item| item.id.clone()))
                 .collect::<Vec<_>>();
+            // Content without a clip of its own shares one viewport clip node.
+            let mut viewport_clip = None;
             for id in ids {
-                let clip = scene
-                    .presentation
-                    .clip_for(&id)
-                    .map(|clip| clip.intersection(viewport))
-                    .unwrap_or(viewport);
-                let clip = scene.presentation.push_clip(None, clip, None);
+                let clip = match scene.presentation.clip_for(&id) {
+                    Some(clip) => {
+                        scene
+                            .presentation
+                            .push_clip(None, clip.intersection(viewport), None)
+                    }
+                    None => *viewport_clip
+                        .get_or_insert_with(|| scene.presentation.push_clip(None, viewport, None)),
+                };
                 scene.presentation.bind_clip(id, clip);
             }
             // Scrollbars are presentation of runtime scroll state; they sit above

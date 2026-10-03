@@ -31,17 +31,54 @@ pub fn text_attrs() -> Attrs<'static> {
 /// fixed capacity is exceeded.
 pub struct TextShaping {
     font_system: RefCell<FontSystem>,
-    lines: RefCell<HashMap<(String, u32), TextLineLayout>>,
-    previous: RefCell<HashMap<(String, u32), TextLineLayout>>,
+    lines: RefCell<LineCache>,
+    previous: RefCell<LineCache>,
     shaped_lines: Cell<u64>,
+}
+
+/// Font size bits -> text -> shaped line. Keyed so that a hit is looked up by
+/// `&str` without allocating.
+#[derive(Default)]
+struct LineCache {
+    sizes: HashMap<u32, HashMap<String, TextLineLayout>>,
+    len: usize,
+}
+
+impl LineCache {
+    fn get(&self, text: &str, size: u32) -> Option<&TextLineLayout> {
+        self.sizes.get(&size)?.get(text)
+    }
+
+    fn remove(&mut self, text: &str, size: u32) -> Option<TextLineLayout> {
+        let line = self.sizes.get_mut(&size)?.remove(text)?;
+        self.len -= 1;
+        Some(line)
+    }
+
+    fn insert(&mut self, text: &str, size: u32, line: TextLineLayout) {
+        if self
+            .sizes
+            .entry(size)
+            .or_default()
+            .insert(text.to_owned(), line)
+            .is_none()
+        {
+            self.len += 1;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.sizes.clear();
+        self.len = 0;
+    }
 }
 
 impl TextShaping {
     pub fn new(font_system: FontSystem) -> Self {
         Self {
             font_system: RefCell::new(font_system),
-            lines: RefCell::new(HashMap::new()),
-            previous: RefCell::new(HashMap::new()),
+            lines: RefCell::new(LineCache::default()),
+            previous: RefCell::new(LineCache::default()),
             shaped_lines: Cell::new(0),
         }
     }
@@ -56,7 +93,7 @@ impl TextShaping {
     }
 
     pub fn cached_line_count(&self) -> usize {
-        self.lines.borrow().len() + self.previous.borrow().len()
+        self.lines.borrow().len + self.previous.borrow().len
     }
 
     /// Frame boundary: lines not used since the previous boundary are dropped.
@@ -76,11 +113,11 @@ impl TextShaping {
         font_size: f32,
         read: impl FnOnce(&TextLineLayout) -> R,
     ) -> R {
-        let key = (text.to_owned(), font_size.to_bits());
-        if let Some(line) = self.lines.borrow().get(&key) {
+        let size = font_size.to_bits();
+        if let Some(line) = self.lines.borrow().get(text, size) {
             return read(line);
         }
-        let line = match self.previous.borrow_mut().remove(&key) {
+        let line = match self.previous.borrow_mut().remove(text, size) {
             Some(line) => line,
             None => {
                 self.shaped_lines.set(self.shaped_lines.get() + 1);
@@ -89,10 +126,10 @@ impl TextShaping {
         };
         let result = read(&line);
         let mut lines = self.lines.borrow_mut();
-        if lines.len() >= LINE_CACHE_LIMIT {
+        if lines.len >= LINE_CACHE_LIMIT {
             lines.clear();
         }
-        lines.insert(key, line);
+        lines.insert(text, size, line);
         result
     }
 }
