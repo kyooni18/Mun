@@ -65,22 +65,56 @@ adds the loopback round trip and first-presented-frame timings;
 threshold blocks CI. Not measured: the file watcher's 80 ms debounce and display
 scan-out after the frame is handed to the platform.
 
-darwin-arm64 headless sample (30 compatible edits per case; p50 / p95 ms). These
-are local measurements, not CI thresholds:
+darwin-arm64 headless sample (30 compatible edits per case; p50 / p95 ms).
+These are local measurements, not CI thresholds:
 
-| Case | Compile | Diff | Host load | Materialize | Reconcile | Layout | Render prepare | GPU | Host total |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Small app | 0.39 / 0.89 | 0.03 / 0.09 | 0.05 / 0.07 | 0.00 / 0.00 | 0.00 / 0.01 | 0.04 / 0.07 | 0.07 / 0.10 | 0.34 / 0.41 | 0.56 / 0.74 |
-| 25 custom Views | 0.51 / 0.78 | 0.06 / 0.15 | 0.53 / 0.58 | 0.01 / 0.01 | 0.04 / 0.05 | 0.22 / 0.27 | 0.06 / 0.08 | 0.35 / 0.43 | 1.33 / 1.54 |
-| 1,000 keyed rows | 3.24 / 3.77 | 0.24 / 0.49 | 3.77 / 4.19 | 3.52 / 3.90 | 2.08 / 2.22 | 8.72 / 9.02 | 1.01 / 1.08 | 0.61 / 0.72 | 21.16 / 22.34 |
-| Cross-file View body edit | 0.16 / 0.19 | 0.01 / 0.02 | 0.05 / 0.08 | 0.00 / 0.00 | 0.00 / 0.01 | 0.04 / 0.07 | 0.07 / 0.11 | 0.70 / 0.76 | 0.93 / 1.12 |
+| Case | Compile | Host load | Materialize | Reconcile | Layout | Render prepare | GPU | Host total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Small app | 0.27 / 0.70 | 0.04 / 0.05 | 0.00 / 0.00 | 0.00 / 0.00 | 0.02 / 0.04 | 0.04 / 0.07 | 0.30 / 0.58 | 0.43 / 0.77 |
+| 25 custom Views | 0.37 / 0.57 | 0.32 / 0.37 | 0.01 / 0.01 | 0.01 / 0.02 | 0.06 / 0.09 | 0.03 / 0.05 | 0.32 / 0.67 | 0.87 / 1.20 |
+| 1,000 keyed rows | 2.26 / 2.62 | 0.67 / 0.77 | 0.84 / 1.10 | 1.25 / 1.50 | 3.02 / 3.41 | 0.34 / 0.39 | 0.50 / 0.81 | 7.30 / 8.37 |
+| Cross-file View body edit | 0.11 / 0.15 | 0.03 / 0.05 | 0.00 / 0.00 | 0.00 / 0.00 | 0.02 / 0.05 | 0.04 / 0.06 | 0.29 / 0.61 | 0.42 / 0.83 |
 
-"Host load" is IR schema validation, typed deserialization and one collection
-materialization of the new program. In the same cases at the start of this
-work, compile p50 was 0.6 / 2.9 / 14.3 / 0.2 ms and host total p50 was
-0.77 / 4.50 / 29.8 / 0.78 ms. Headless p95 stays within roughly 10% of p50.
-For 1,000 rows, per-frame layout of ~3,000 nodes is now the largest remaining
-cost; the layout tree is rebuilt every frame and is not yet incremental.
+"Host load" is IR schema validation and typed deserialization of the new
+program; "Layout" is the whole `Runtime::build_frame` (layout, scene and
+accessibility). For 1,000 rows the same benchmark measured, before the
+retained-runtime work below, load 2.48 / 2.82, materialize 2.37 / 2.87,
+reconcile 1.63 / 2.06, layout 6.15 / 6.71, render prepare 0.88 / 0.98 and host
+total 15.22 / 16.62 ms (and 29.8 ms host total before incremental compilation).
+The benchmark also prints structural per-frame work: a 1,000-row edit
+invalidates 0–1 of 3,003 retained layout nodes, reuses the list's expansion and
+culls 2,969 offscreen primitives.
+
+**Retained runtime.** A hot update or frame does work in proportion to what
+changed where the result can be proven identical:
+
+- *Materialization* runs once per hot update (with carried state). A top-level
+  `forEach` whose template subtree, evaluated collection and item-scoped state
+  declarations are unchanged keeps its previous instances: they are moved from
+  the running program once the update can no longer fail, instead of being
+  re-expanded. The same reuse applies when another collection changes at run
+  time. A `forEach` containing a nested `forEach` is always re-expanded.
+- *Layout* keeps one Taffy tree across frames and compatible hot updates, keyed
+  by semantic node id. Every frame still derives each live node's complete
+  layout input (style, intrinsic size, children) from Mün semantics and diffs
+  it into that tree; only nodes whose input changed are invalidated (with all
+  ancestors), and Taffy's cache answers every unchanged subtree. Stale layout
+  is impossible by construction because nothing is skipped on the input side.
+- *Rendering* skips primitives that lie entirely outside their clip (rows
+  scrolled out of a ScrollView): they are neither reshaped nor prepared.
+- *Reconciliation* moves retained nodes instead of cloning them.
+
+Differential tests check retained layout against a from-scratch layout and
+reused materialization against a fresh expansion through inserts, moves,
+removals, filters, conditionals, text edits, resizes and hot updates, and
+culled against unculled framebuffers pixel for pixel.
+
+Still O(program) per update or frame: IR validation/deserialization of the
+whole new program (the 1,000 row initial values are part of it), carrying
+state, retained-tree reconciliation, and scene and accessibility construction
+(every live node is visited each frame; the accessibility tree must be
+complete, and the previous frame's scene/accessibility are kept for exit and
+FLIP transitions).
 
 Windowed sample (`--window --spacing 120`: an idle app, one update at a time,
 30 edits; p50 / p95 ms from the host receiving the update to the frame being
@@ -88,10 +122,16 @@ handed to the platform):
 
 | Case | Receive → present | Layout | Surface acquire |
 | --- | ---: | ---: | ---: |
-| Small app | 2.09 / 2.46 | 0.1 | 0.12 |
-| 25 custom Views | 3.95 / 4.89 | 0.3 | 0.12 |
-| 1,000 keyed rows | 26.3 / 27.8 | 9.2 | 0.03 |
-| Cross-file View body edit | 2.10 / 2.66 | 0.1 | 0.13 |
+| Small app | 1.30 / 1.97 | 0.2 | 0.06 |
+| 25 custom Views | 2.57 / 3.66 | 0.3 | 0.06 |
+| 1,000 keyed rows | 16.6 / 17.7 | 6.0 | 0.03 |
+| Cross-file View body edit | 1.87 / 2.40 | 0.3 | 0.10 |
+
+Before the retained-runtime work, 1,000 keyed rows measured 26.3 / 27.8 ms
+receive → present with 9.2 ms layout. The windowed frame build runs about twice
+as long as the same build headless even though the retained counters are
+identical (0–1 invalidated layout nodes); that difference has not been
+attributed (a background window's scheduling class is the leading suspect).
 
 Two measurement artifacts to know about. Sending edits back to back (the
 `--spacing 0` default) makes each one queue behind the previous frame's vsync
@@ -127,7 +167,8 @@ event-loop queue, patch reconstruction, load, materialize, reconcile, total
 apply). After an update the windowed host sends `update-presented` for the
 first frame that reaches the platform presentation engine: receive-to-present
 and apply-to-present latency plus step, layout, accessibility, render prepare,
-surface acquire, submit and present times. Frames skipped while the window is
+surface acquire, submit and present times, plus the frame's retained layout
+node count, invalidated layout nodes and culled primitives. Frames skipped while the window is
 occluded are counted and the update stays pending until one is presented.
 `mun dev --verbose` prints both.
 

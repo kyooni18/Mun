@@ -85,7 +85,11 @@ const ms = micros => micros / 1000
 // Structural per-frame counters: retained layout nodes invalidated (of all
 // live), primitives culled, forEach expansions reused.
 const frameWork = frames => {
-  const pick = key => distinct(frames.map(frame => frame[key]).filter(value => value !== undefined))
+  const pick = key => {
+    const values = frames.map(frame => frame[key]).filter(value => value !== undefined)
+    const [low, high] = [Math.min(...values), Math.max(...values)]
+    return low === high ? `${low}` : `${low}-${high}`
+  }
   return `layout invalidated ${pick('layoutInvalidated')} of ${pick('layoutNodes')} nodes; culled ${pick('culledPrimitives')} primitives${frames.some(frame => 'reusedForEach' in frame) ? `; forEach reused ${pick('reusedForEach')}` : ''}`
 }
 const distinct = values => { const set = [...new Set(values)]; return set.length === 1 ? `${set[0]} (every edit)` : values.join(', ') }
