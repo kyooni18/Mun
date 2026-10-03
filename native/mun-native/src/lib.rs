@@ -2013,6 +2013,8 @@ impl WindowState {
             layout_micros,
             accessibility_micros,
             render: self.renderer.last_timings,
+            layout_sync: self.runtime.last_layout_sync(),
+            culled_primitives: self.renderer.stats.culled_primitives,
         })
     }
 }
@@ -2060,6 +2062,9 @@ fn report_presentation(
             "acquireMicros": report.render.acquire_micros,
             "submitMicros": report.render.submit_micros,
             "presentMicros": report.render.present_micros,
+            "layoutNodes": report.layout_sync.live,
+            "layoutInvalidated": report.layout_sync.invalidated(),
+            "culledPrimitives": report.culled_primitives,
         },
     }));
 }
@@ -2072,6 +2077,8 @@ struct FrameReport {
     layout_micros: u64,
     accessibility_micros: u64,
     render: RenderTimings,
+    layout_sync: mun_runtime::layout_cache::LayoutSyncStats,
+    culled_primitives: usize,
 }
 
 /// A hot update waiting for its first presented frame (development only).
@@ -2604,6 +2611,10 @@ pub fn replay_dev_updates(
                 "prepareMicros": render.prepare_micros,
                 "submitMicros": render.submit_micros,
                 "gpuMicros": gpu_micros,
+                "layoutNodes": session.runtime().last_layout_sync().live,
+                "layoutInvalidated": session.runtime().last_layout_sync().invalidated(),
+                "culledPrimitives": session.renderer_stats().culled_primitives,
+                "reusedForEach": session.runtime().last_reused_for_each_count(),
             },
             "totalMicros": micros_since(started),
         }));

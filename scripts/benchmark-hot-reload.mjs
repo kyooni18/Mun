@@ -82,6 +82,12 @@ const percentile = (values, p) => [...values].sort((a, b) => a - b)[Math.min(val
 const stat = values => values.length ? { p50: percentile(values, 0.5), p95: percentile(values, 0.95), max: Math.max(...values) } : undefined
 const fmt = s => s ? `p50 ${s.p50.toFixed(2)} / p95 ${s.p95.toFixed(2)} / max ${s.max.toFixed(2)} ms` : 'n/a'
 const ms = micros => micros / 1000
+// Structural per-frame counters: retained layout nodes invalidated (of all
+// live), primitives culled, forEach expansions reused.
+const frameWork = frames => {
+  const pick = key => distinct(frames.map(frame => frame[key]).filter(value => value !== undefined))
+  return `layout invalidated ${pick('layoutInvalidated')} of ${pick('layoutNodes')} nodes; culled ${pick('culledPrimitives')} primitives${frames.some(frame => 'reusedForEach' in frame) ? `; forEach reused ${pick('reusedForEach')}` : ''}`
+}
 const distinct = values => { const set = [...new Set(values)]; return set.length === 1 ? `${set[0]} (every edit)` : values.join(', ') }
 const written = new Map()
 const write = (directory, files) => { for (const [path, source] of Object.entries(files)) { const full = resolve(directory, path); if (written.get(full) === source) continue; mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, source); written.set(full, source) } }
@@ -186,6 +192,7 @@ async function runCase(name, build) {
         total: pick(item => item.totalMicros),
       })
       stages.retainedNodes = report.retainedNodes
+      stages.frameWork = frameWork(report.updates.map(item => item.frame))
     } else if (mode === 'window') {
       const deadline = Date.now() + 5000
       while (presented.size < edits && Date.now() < deadline) await new Promise(r => setTimeout(r, 20))
@@ -200,6 +207,7 @@ async function runCase(name, build) {
         present: pick(item => item.frame.presentMicros),
       })
       stages.firstUpdateReceiveToPresentMs = Number(ms(presented.get(1)?.receiveToPresentMicros ?? 0).toFixed(1))
+      stages.frameWork = frameWork(items.map(item => item.frame))
       stages.presentedUpdates = items.length
       stages.skippedFrames = items.reduce((sum, item) => sum + item.skippedFrames, 0)
       stages.superseded = items.reduce((sum, item) => sum + item.supersededRevisions, 0)
