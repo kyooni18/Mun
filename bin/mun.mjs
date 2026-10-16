@@ -344,7 +344,7 @@ Initializer aliases after publishing:
   npm create mun <directory>
   pnpm create mun <directory>
 
-new/create/init scaffold a canonical native application by default. Use --target web for Vite compatibility.
+new/create/init scaffold a web application with Vite by default. Use --target native for the experimental native runtime.
 --local rewrites Mün dependencies to link: paths pointing at the source checkout.
 Local source mode always uses pnpm because it relies on pnpm workspace overrides.
 --no-install leaves dependency installation to you and prints the exact commands to continue.
@@ -398,7 +398,7 @@ function scaffold(projectRoot, commandName) {
     console.warn('Using --force: Mün template files will be replaced; unrelated files will be kept.')
   }
 
-  const target = options.target ?? (options.renderer === 'web' ? 'web' : 'native')
+  const target = options.target ?? (options.renderer === 'native' ? 'native' : 'web')
   if (!['native', 'web'].includes(target)) throw new Error(`Unsupported project target: ${target}. Use native or web.`)
   if (target === 'native') {
     if (options.renderer && options.renderer !== 'native') throw new Error('Native scaffolds do not use a Web renderer.')
@@ -411,7 +411,7 @@ function scaffold(projectRoot, commandName) {
       ['templates/native/gitignore', '.gitignore'],
     ])
     mkdirSync(resolve(projectRoot, 'Assets'), { recursive: true })
-    console.log(`Created native Mün app in ${projectRoot}`)
+    console.log(`Created experimental native Mün app in ${projectRoot}`)
     console.log(`\nNext steps:\n  cd ${projectRoot}\n  mun dev`)
     return 0
   }

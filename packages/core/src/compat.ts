@@ -1,10 +1,4 @@
-/**
- * Transitional compatibility surface for the pre-IR TypeScript View graph.
- *
- * Canonical Mün source compiles to Semantic UI IR through @mun/core. Renderer
- * adapters that still consume the historical graph import this module
- * explicitly so DOM/HTML-oriented compatibility does not define core Mün.
- */
+/** Backward-compatible alias for the public Mün View graph API. */
 export * from "./animation.js"
 export * from "./api-manifest.js"
 export * from "./closures.js"

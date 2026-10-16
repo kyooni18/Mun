@@ -2,7 +2,7 @@
   "name": "@mun/ui",
   "version": "0.1.20",
   "packageManager": "pnpm@11.22.0",
-  "description": "Native-first Mün UI language, compiler, runtime, and compatibility adapters.",
+  "description": "SwiftUI-inspired JavaScript UI framework with declarative View graphs and a DOM frontend.",
   "type": "module",
   "sideEffects": false,
   "bin": {

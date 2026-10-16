@@ -1,7 +1,7 @@
 {
   "name": "@mun/web",
   "version": "0.1.20",
-  "description": "Secondary DOM/HTML backend for Mün Semantic UI IR and compatibility View graphs.",
+  "description": "Primary DOM, HTML, and hydration renderer for Mün View graphs.",
   "type": "module",
   "files": [
     "dist"

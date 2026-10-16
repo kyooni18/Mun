@@ -1,7 +1,7 @@
 {
   "name": "@mun/core",
   "version": "0.1.20",
-  "description": "Backend-neutral Mün semantics, motion values, and Semantic UI IR.",
+  "description": "SwiftUI-inspired JavaScript View graphs, state, layout, and modifiers.",
   "type": "module",
   "files": [
     "dist"
