@@ -133,3 +133,48 @@ On macOS ARM64, Node 26.11.1, pnpm 11.22.0:
 No hot-path replacement was justified by these measurements. Follow-up work should
 capture paired browser measurements and heap snapshots before extracting the
 collection/scheduler internals or changing reconciliation algorithms.
+
+### Additional Patch IR and transition hardening
+
+Patch IR now rejects unknown location kinds and dirty indexes outside the allocated
+bitset without 32-bit wraparound. A child range must have distinct Comment anchors
+in forward sibling order under an Element or DocumentFragment. Replacement arrays
+are validated **before that range is mutated**: malformed/non-Node entries,
+self/ancestor insertion, unsupported node types and duplicate nodes are rejected.
+Fragments are materialized and cross-document nodes remain supported. This is
+per-range validation, not transactional rollback across an entire patch batch or
+arbitrary custom-element callbacks.
+
+An exactly unchanged range now retains its children in place. This avoids both
+unnecessary writes and loss of input focus/custom-element lifecycle continuity.
+Other changed ranges retain the existing replacement algorithm; this does not
+replace the renderer's optimized keyed reconciliation.
+
+Transition frames preserve an existing opacity of zero rather than interpreting
+it as a missing value. Completion, cancellation and disposal explicitly release
+both Web Animation listeners, timer handles and completion callbacks. Partially
+initialized animations are cancelled immediately before falling back to a timer.
+
+Reproduce the range measurements after building `@mun/web`:
+
+```sh
+node benchmarks/patch-ranges.mjs
+MUN_PATCH_BASE_REF=730348c node benchmarks/patch-ranges-browser.mjs
+```
+
+The Chromium comparison uses 1,000 nodes, five warmups and 21 measured rounds,
+comparing this hardening with the prior committed source. Unchanged ranges went
+from **2,000 DOM writes/update to zero**, with median DOM-only time from roughly
+0.2–0.3 ms to below timer resolution. Changed/reversed ranges still performed 2,000
+writes, and measured roughly 0.3 ms before versus 0.4 ms after, reflecting the added
+validation cost. These isolated measurements exclude application rendering,
+layout and paint; they are not an application FPS claim. JSDOM timings were much
+more variable, so browser results and deterministic mutation counts should guide
+interpretation. No reverse-reconciliation speedup is claimed.
+
+Follow-up verification: `pnpm test` passed 979 tests (animation 116, runtime 105,
+packages 705, DX 53), with zero failures/skips. The focused Patch IR/transition
+suites passed 25/25 tests. Eighteen regression tests were added in this follow-up.
+Production React/web builds and built Chromium smoke passed again (2/2), along
+with declarations, types, parity, documentation, package/export and offline-install
+checks. The independent icon work remains outside these commits.
