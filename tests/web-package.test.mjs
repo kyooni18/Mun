@@ -2828,3 +2828,29 @@ test("@mun/web preserves duplicate occurrence identity after append falls back t
   unmount()
   dom.window.close()
 })
+
+test('public JavaScript authoring mounts a reactive SwiftUI-like counter without a compiler', async () => {
+  const { Button, State, Text, VStack, defineView, initializer } = await import('../dist/index.js')
+  const count = State(0)
+  const Counter = defineView('PublicWebCounter', {
+    initializers: [initializer('PublicWebCounter()', args => args.length === 0)],
+    body: () => VStack({ spacing: 12 }, () => [
+      Text(`Count: ${count.value}`),
+      Button('Increase', () => { count.value += 1 }),
+    ]).padding(16),
+  })
+  assert.match(renderToHTML(Counter()), /Count: 0/)
+  const dom = new JSDOM('<main></main>')
+  const container = dom.window.document.querySelector('main')
+  const cleanup = mount(Counter(), container)
+  try {
+    assert.equal(container.querySelector('span').textContent, 'Count: 0')
+    container.querySelector('button').click()
+    await new Promise(resolve => setTimeout(resolve, 30))
+    assert.equal(container.querySelector('span').textContent, 'Count: 1')
+    assert.equal(container.firstElementChild.style.padding, '16px')
+  } finally {
+    cleanup()
+    dom.window.close()
+  }
+})

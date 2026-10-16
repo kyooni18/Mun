@@ -55,16 +55,12 @@ function declarationExports(path) {
   return checker.getExportsOfModule(symbol).map(item => item.name).sort()
 }
 
-test("canonical runtime exports are backend-neutral", () => {
-  assert.deepEqual(Object.keys(core).sort(), canonicalRuntimeExports)
-  assert.deepEqual(Object.keys(mun).sort(), canonicalRuntimeExports)
+test("public runtime exports expose View authoring without renderer entry points", () => {
+  for (const name of canonicalRuntimeExports) assert.ok(name in core)
+  assert.deepEqual(Object.keys(core).sort(), Object.keys(compat).sort())
+  assert.deepEqual(Object.keys(mun).sort(), Object.keys(core).sort())
 
   for (const name of [
-    "Element",
-    "Text",
-    "State",
-    "MunInitializerError",
-    "semanticHtmlTagNames",
     "mount",
     "renderToHTML",
   ]) {
@@ -109,7 +105,7 @@ test("Web and compiler surfaces expose semantic IR routes without redefining cor
   }
 })
 
-test("canonical declaration surfaces contain Semantic UI IR and exclude browser graph contracts", () => {
+test("public declaration surfaces expose View graphs and retain experimental IR", () => {
   const coreDeclarations = declarationExports("packages/core/dist/index.d.ts")
   for (const name of [
     "MunUiProgram",
@@ -129,7 +125,7 @@ test("canonical declaration surfaces contain Semantic UI IR and exclude browser 
     "MunStyleProperties",
     "SemanticHtmlElementSymbol",
   ]) {
-    assert.equal(coreDeclarations.includes(name), false, `${name} belongs outside canonical core`)
+    assert.equal(coreDeclarations.includes(name), name !== "SemanticHtmlElementSymbol", `${name} declaration boundary`)
   }
 
   const compilerDeclarations = declarationExports("packages/compiler/dist/index.d.ts")

@@ -124,7 +124,7 @@ test('the published package carries the locked native Rust fallback used by mun 
 
 test('canonical @mun/ui create scaffolds a Web project without React or Vue', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-cli-'))
-  const result = run(['create', 'hello-mun', '--target', 'web', '--no-install'], workspace)
+  const result = run(['create', 'hello-mun', '--no-install'], workspace)
   const project = resolve(workspace, 'hello-mun')
 
   assert.equal(result.status, 0, result.stderr)
@@ -161,7 +161,7 @@ test('canonical @mun/ui create scaffolds a Web project without React or Vue', ()
 
 test('create prints complete next steps when installation is skipped', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-cli-steps-'))
-  const result = run(['create', 'hello-mun', '--target', 'web', '--no-install'], workspace, { npm_config_user_agent: '' })
+  const result = run(['create', 'hello-mun', '--no-install'], workspace, { npm_config_user_agent: '' })
 
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /Next steps:\n  cd hello-mun\n  npm install\n  npm run dev/u)

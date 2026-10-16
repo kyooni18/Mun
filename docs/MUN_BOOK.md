@@ -1,5 +1,9 @@
 # The Mün book
 
+> **Historical native design reference.** The current default is the SwiftUI-inspired
+> JavaScript/web frontend described in [Architecture](./ARCHITECTURE.md). Native
+> material below is experimental and requires `--target native` when scaffolding.
+
 ## 1. What Mün is
 
 Mün is a native-first UI language, compiler, runtime, and framework. A

@@ -1,5 +1,9 @@
 # Mün design
 
+> **Historical native design reference.** The current default is the SwiftUI-inspired
+> JavaScript/web frontend described in [Architecture](./ARCHITECTURE.md). Native
+> material below is experimental and requires `--target native` when scaffolding.
+
 Mün is a native-first standalone UI language and runtime. The canonical source
 format is `.mun`. The compiler parses Mün source and lowers it into Mün Semantic
 UI IR before any backend-specific representation is chosen.

@@ -1,5 +1,9 @@
 # Build a native Mün screen
 
+> **Historical native design reference.** The current default is the SwiftUI-inspired
+> JavaScript/web frontend described in [Architecture](./ARCHITECTURE.md). Native
+> material below is experimental and requires `--target native` when scaffolding.
+
 This tutorial follows the canonical path:
 
 ```text

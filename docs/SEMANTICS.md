@@ -1,5 +1,9 @@
 # Mün semantics
 
+> **Historical native design reference.** The current default is the SwiftUI-inspired
+> JavaScript/web frontend described in [Architecture](./ARCHITECTURE.md). Native
+> material below is experimental and requires `--target native` when scaffolding.
+
 This document describes canonical Mün semantics. The canonical source format is
 `.mun`, and the canonical compiler result is Mün Semantic UI IR.
 
