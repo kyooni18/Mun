@@ -31,6 +31,8 @@ const unsafePropertyKeys = new Set([
   "srcdoc",
 ])
 
+const patchKinds = new Set(["text", "attribute", "property", "style", "class", "child-range"])
+
 const attributeNamePattern = /^[A-Za-z_:][A-Za-z0-9_.:-]*$/u
 const styleNamePattern = /^(?:--[A-Za-z0-9_-]+|[A-Za-z-][A-Za-z0-9-]*)$/u
 
@@ -39,6 +41,7 @@ function assertNodeIndex(value: number, label: string): void {
 }
 
 function validateLocation(location: PatchLocation): PatchLocation {
+  if (!patchKinds.has(location.kind)) throw new TypeError(`unknown patch kind: ${JSON.stringify(location.kind)}`)
   assertNodeIndex(location.node, "patch node index")
   if (location.kind === "attribute") {
     if (!attributeNamePattern.test(location.key) || /^on/iu.test(location.key)
@@ -77,7 +80,7 @@ export function allocatePatchValues(ir: PatchIR): { dirty: Uint32Array; values: 
 
 export function markPatchDirty(dirty: Uint32Array, index: number): void {
   assertNodeIndex(index, "patch index")
-  const word = index >>> 5
+  const word = Math.floor(index / 32)
   if (word >= dirty.length) throw new RangeError(`patch index ${index} exceeds the dirty bitset`)
   dirty[word] |= 1 << (index & 31)
 }
@@ -87,7 +90,7 @@ export function clearPatchDirty(dirty: Uint32Array): void {
 }
 
 function patchIsDirty(dirty: Uint32Array, index: number): boolean {
-  const word = dirty[index >>> 5]
+  const word = dirty[Math.floor(index / 32)]
   return word !== undefined && (word & (1 << (index & 31))) !== 0
 }
 
@@ -114,21 +117,59 @@ function patchChildRange(nodes: readonly Node[], location: Extract<PatchLocation
   if (!start || !end || start.nodeType !== 8 || end.nodeType !== 8 || start.parentNode !== end.parentNode || !start.parentNode) {
     throw new TypeError("child-range patch requires live sibling Comment anchors")
   }
+  if (start === end) throw new TypeError("child-range patch requires distinct anchors")
   const parent = start.parentNode
+  if (parent.nodeType !== 1 && parent.nodeType !== 11) throw new TypeError("child-range patch requires an Element or DocumentFragment parent")
+  let boundary: Node | null = start.nextSibling
+  while (boundary && boundary !== end) boundary = boundary.nextSibling
+  if (!boundary) throw new TypeError("child-range anchors must be in forward sibling order")
+
+  // Validate all replacement nodes before removing anything. In particular,
+  // insertBefore's own validation would run too late to preserve the old range.
+  if (value != null && !Array.isArray(value)) throw new TypeError("child-range patch value must be an array of renderer-owned Nodes")
+  // Exact identity with the already validated live range proves that these
+  // are distinct, legal DOM children. Avoid both writes and per-node native
+  // brand/ancestor checks on this common path.
+  let cursor = start.nextSibling
+  let unchanged = true
+  for (const child of value ?? []) {
+    if (!cursor || cursor === end || cursor !== child) { unchanged = false; break }
+    cursor = cursor.nextSibling
+  }
+  if (unchanged && cursor === end) return
+
+  const children: Node[] = []
+  const seen = new Set<Node>()
+  const append = (child: unknown): void => {
+    try {
+      // Native DOM brand checking accepts nodes from other windows/documents,
+      // unlike instanceof against the target window's Node constructor.
+      parent.compareDocumentPosition(child as Node)
+    } catch {
+      throw new TypeError("child-range patch value contains a non-Node")
+    }
+    const node = child as Node
+    if (node === start || node === end || node.contains(parent)) {
+      throw new TypeError("child-range replacement cannot contain its anchors or an ancestor")
+    }
+    if (node.nodeType === 11) {
+      for (const item of [...node.childNodes]) append(item)
+      return
+    }
+    if (![1, 3, 4, 7, 8].includes(node.nodeType)) throw new TypeError("child-range patch contains an unsupported Node type")
+    if (seen.has(node)) throw new TypeError("child-range replacement contains a duplicate Node")
+    seen.add(node)
+    children.push(node)
+  }
+  for (const child of value ?? []) append(child)
+
   let current = start.nextSibling
   while (current && current !== end) {
     const next = current.nextSibling
     parent.removeChild(current)
     current = next
   }
-  if (value == null) return
-  if (!Array.isArray(value)) throw new TypeError("child-range patch value must be an array of renderer-owned Nodes")
-  for (const child of value) {
-    if (!child || typeof child !== "object" || typeof (child as Node).nodeType !== "number") {
-      throw new TypeError("child-range patch value contains a non-Node")
-    }
-    parent.insertBefore(child as Node, end)
-  }
+  for (const child of children) parent.insertBefore(child, end)
 }
 
 /** Apply dirty compiler-owned patches in stable location order. */
