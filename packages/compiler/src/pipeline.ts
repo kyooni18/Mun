@@ -1625,7 +1625,11 @@ function ensureImports(source: string, includeViewBuiltins = false): string {
   const internalRequired = ["compiledCollectionContent", "mapStateArrayData"].filter(name => new RegExp(`\\b${name}\\s*\\(`).test(source))
   if (required.length === 0 && internalRequired.length === 0) return result
   const imports = [...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*(["'])(@mun\/core\/compat|@mun\/react)\2[\t ]*;?/g)]
-  const imported = new Set(imports.flatMap(match => match[1].split(",").map(value => value.trim()).filter(Boolean)))
+  // Respect local named bindings from every entrypoint, including @mun/core
+  // and @mun/ui, so adding implicit helpers cannot duplicate explicit imports.
+  const imported = new Set([...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'][^"']+["']/g)]
+    .flatMap(match => match[1].split(",").map(value => value.trim()).filter(value => value && !/^type\s/.test(value))
+      .map(value => value.split(/\s+as\s+/).at(-1)!)))
   const missing = required.filter(name => !imported.has(name))
   if (missing.length > 0) {
     const existingCore = imports.find(match => match[3] === "@mun/core/compat")
