@@ -47,6 +47,7 @@ export function transitionFrames(
   const effects = entering ? transition.descriptor.insertion : transition.descriptor.removal
   const baseOpacity = current.opacity || "1"
   const baseTransform = current.transform && current.transform !== "none" ? current.transform : ""
+  const parsedOpacity = Number.parseFloat(baseOpacity)
   const hasOpacity = effects.some(effect => effect.kind === "opacity")
   const extras = effects.map(transformPart).filter((value): value is string => Boolean(value))
   const transformed = [baseTransform, ...extras].filter(Boolean).join(" ") || "none"
@@ -56,7 +57,7 @@ export function transitionFrames(
     ...(extras.length > 0 ? { transform: transformed } : {}),
   }
   const active: Keyframe = {
-    ...(hasOpacity ? { opacity: Number.parseFloat(baseOpacity) || 1 } : {}),
+    ...(hasOpacity ? { opacity: Number.isFinite(parsedOpacity) ? parsedOpacity : 1 } : {}),
     ...(extras.length > 0 ? { transform: identityTransform } : {}),
   }
   return entering ? [inactive, active] : [active, inactive]
@@ -82,12 +83,25 @@ export function playWebTransition(
   let finished = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let animation: globalThis.Animation | undefined
+  const disposeAnimation = () => {
+    const running = animation
+    animation = undefined
+    if (!running) return
+    // A finish only removes its own once-listener. Explicitly release the
+    // other listener too, including partial attachment and native cancel paths.
+    try { running.removeEventListener?.("finish", finish) } catch { /* best effort */ }
+    try { running.removeEventListener?.("cancel", finish) } catch { /* best effort */ }
+    try { running.cancel() } catch { /* best effort */ }
+  }
   const finish = () => {
     if (finished) return
     finished = true
     if (timer !== undefined) clearTimeout(timer)
-    try { animation?.cancel() } catch { /* best effort */ }
-    onFinish?.()
+    timer = undefined
+    disposeAnimation()
+    const callback = onFinish
+    onFinish = undefined
+    callback?.()
   }
   if (effects.length === 0 || reducedMotion(element)) {
     queueMicrotask(finish)
@@ -119,6 +133,7 @@ export function playWebTransition(
       timer = setTimeout(finish, total + 34)
       return { durationMs: total, cancel: finish }
     } catch {
+      disposeAnimation()
       // Fall back to a lifecycle timer below. Rendering semantics still hold.
     }
   }

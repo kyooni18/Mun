@@ -86,3 +86,57 @@ test('presentation coordinator locks modal scroll and restores focus', { skip: j
   assert.equal(document.body.style.overflow, '')
   assert.equal(document.activeElement, before)
 })
+
+test("transition frames preserve zero base opacity", () => {
+  const [enterFrom, enterTo] = transitionFrames(Transition.opacity, true, { opacity: "0" })
+  const [leaveFrom, leaveTo] = transitionFrames(Transition.opacity, false, { opacity: "0" })
+  assert.equal(enterFrom.opacity, 0)
+  assert.equal(enterTo.opacity, 0)
+  assert.equal(leaveFrom.opacity, 0)
+  assert.equal(leaveTo.opacity, 0)
+})
+
+for (const reason of ["finish", "cancel", "dispose"]) {
+  test(`transition playback releases both animation listeners after ${reason}`, () => {
+    const listeners = new Map()
+    let cancellations = 0
+    let completions = 0
+    const animation = {
+      addEventListener(type, listener) { listeners.set(type, listener) },
+      removeEventListener(type, listener) { if (listeners.get(type) === listener) listeners.delete(type) },
+      cancel() { cancellations++; listeners.get("cancel")?.() },
+    }
+    const element = {
+      ownerDocument: { defaultView: { getComputedStyle: () => ({ opacity: "0", transform: "none" }) } },
+      animate: () => animation,
+    }
+    const playback = playWebTransition(element, Transition.opacity, true, Animation.linear(0.2), () => { completions++ })
+    if (reason === "dispose") playback.cancel()
+    else listeners.get(reason)()
+    playback.cancel()
+    assert.equal(completions, 1)
+    assert.equal(cancellations, 1)
+    assert.equal(listeners.size, 0)
+  })
+}
+
+test("transition playback cancels partially initialized animations before timer fallback", () => {
+  const listeners = new Map()
+  let cancellations = 0
+  const element = {
+    ownerDocument: { defaultView: { getComputedStyle: () => ({ opacity: "1", transform: "none" }) } },
+    animate: () => ({
+      addEventListener(type, listener) {
+        if (type === "cancel") throw new Error("listener attachment failed")
+        listeners.set(type, listener)
+      },
+      removeEventListener(type) { listeners.delete(type) },
+      cancel() { cancellations++ },
+    }),
+  }
+  const playback = playWebTransition(element, Transition.opacity, true, Animation.linear(0.2))
+  assert.equal(cancellations, 1)
+  assert.equal(listeners.size, 0)
+  playback.cancel()
+  assert.equal(cancellations, 1)
+})
