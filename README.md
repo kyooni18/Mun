@@ -94,6 +94,7 @@ also optional research infrastructure, not the core authoring model.
 
 - [Getting started](docs/GETTING_STARTED.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Rendering reliability, URL safety and release gates](docs/rendering-reliability.md)
 - [API](docs/API.md)
 - [SwiftUI parity](docs/SWIFTUI_PARITY.md)
 - [Local development](docs/LOCAL_DEVELOPMENT.md)
