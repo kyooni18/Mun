@@ -1,5 +1,8 @@
 # Native hardening status
 
+> **Experimental native area.** Web/JavaScript is the default Mün frontend.
+> Native scaffolds require `--target native`; this document describes the opt-in backend.
+
 This is a hardening checkpoint, not a production-readiness declaration. The
 architecture is unchanged: compiler → Semantic UI IR → `mun-runtime` (state,
 editing, layout via Taffy, retained scene, accessibility semantics) →

@@ -1,5 +1,8 @@
 # Native host release assembly
 
+> **Experimental native area.** Web/JavaScript is the default Mün frontend.
+> Native scaffolds require `--target native`; this document describes the opt-in backend.
+
 `@mun/ui` ships a prebuilt `mun-native` host per OS/architecture under
 `native/bin/<platform>-<arch>/`. `mun run` uses that host; it never compiles
 Rust on an installed consumer's machine.

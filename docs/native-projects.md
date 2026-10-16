@@ -1,5 +1,8 @@
 # Native project workflow
 
+> **Experimental native area.** Web/JavaScript is the default Mün frontend.
+> Native scaffolds require `--target native`; this document describes the opt-in backend.
+
 ## Toolchain
 
 Install `@mun/ui` globally with npm or invoke its installed `mun` binary. Native

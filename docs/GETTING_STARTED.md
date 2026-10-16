@@ -1,67 +1,39 @@
-# Getting started with Mün
+# Getting started
 
-Mün is a native-first standalone UI language. Start with a `.mun` file; do not
-start with React, Vue, HTML, or CSS.
+Mün is a SwiftUI-inspired JavaScript frontend framework. Start with the web
+renderer, a normal Vite application, and Node.js 20.19 or newer:
 
-## Build the repository
+```bash
+npm install -g @mun/ui
+mun create HelloMun
+cd HelloMun
+npm run dev
+```
+
+The scaffold installs its dependencies. Use `--no-install` to install manually,
+or `--pm pnpm` to select pnpm. `mun new` and `npm create mun` use the same web
+template. Edit `src/App.mun` to compose stacks, text, buttons, and state using
+SwiftUI-like syntax; Vite compiles this to JavaScript and renders it to the DOM.
+Run `npm run build` for static deployment and `npm run preview` to preview it.
+No native host or Rust installation is needed.
+
+For direct JS/TS authoring, import View builders from `@mun/core` and `mount`
+from `@mun/web`. React and Vue are optional integrations, not dependencies of
+the web renderer. See the [API reference](./API.md).
+
+## Developing from a checkout
 
 ```bash
 pnpm install
 pnpm build
-pnpm native:build
+pnpm dev:create ../HelloMun --no-install
+cd ../HelloMun
+pnpm install
+pnpm dev
 ```
 
-## Create a screen
+## Native experiments
 
-```mun
-@main
-struct App: View {
-  @State private var count: Int = 0
-
-  var body: some View {
-    VStack(spacing: 12) {
-      Text("Count: \(count)")
-      Button("Increase") { count = count + 1 }
-    }
-    .padding(24)
-  }
-}
-```
-
-Save it as `App.mun`.
-
-## Run natively
-
-```bash
-pnpm native:run -- App.mun
-```
-
-The path is `.mun -> @mun/compiler -> Semantic UI IR -> native runtime`.
-
-## Inspect the IR
-
-```bash
-node bin/compile.mjs App.mun
-```
-
-The output is backend-neutral. HTML and CSS are not generated until a secondary
-Web backend is selected.
-
-## Repository demo
-
-```bash
-pnpm native:demo
-```
-
-This runs `examples/NativeDemo.mun` through the same compiler and native host.
-
-## Secondary Web and Astro targets
-
-`@mun/web` and `@mun/astro` consume the same Mün compiler/semantic model.
-Astro `@mun { ... }` regions contain Mün Views, not host HTML.
-
-Existing React/Vue integrations remain compatibility adapters while the native
-path becomes the primary runtime.
-
-For architecture details, read [DESIGN.md](./DESIGN.md) and
-[NATIVE_ARCHITECTURE.md](./NATIVE_ARCHITECTURE.md).
+Native work is retained in an experimental area. Explicitly opt in with
+`mun create HelloNative --target native`. See [native projects](./native-projects.md)
+for its distinct `mun.toml`/`Sources` workflow and limitations.

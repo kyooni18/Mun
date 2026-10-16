@@ -1,5 +1,8 @@
 # Native-first Mün architecture
 
+> **Experimental native area.** Web/JavaScript is the default Mün frontend.
+> Native scaffolds require `--target native`; this document describes the opt-in backend.
+
 Mün is a standalone UI language and runtime. The canonical source format is `.mun`. Web and Astro are backend targets; they do not define Mün's language, semantic model, layout model, state model, motion model, or lifecycle.
 
 ```text

@@ -1,5 +1,8 @@
 # Manual platform validation (macOS)
 
+> **Experimental native area.** Web/JavaScript is the default Mün frontend.
+> Native scaffolds require `--target native`; this document describes the opt-in backend.
+
 Some behavior can only be proven with the real platform: input methods, screen
 readers and trackpads. Run the production smoke with the platform trace on, do
 the steps below, and keep the trace — it records each platform event and the

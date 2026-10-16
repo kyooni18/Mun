@@ -194,9 +194,9 @@ test('create-mun accepts the npm/pnpm create directory shape', () => {
   const result = runInitializer(['.', '--no-install'], project)
 
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Created native Mün app/u)
-  assert.equal(existsSync(resolve(project, 'Sources/App.mun')), true)
-  assert.equal(existsSync(resolve(project, 'mun.toml')), true)
+  assert.match(result.stdout, /Created Mün app/u)
+  assert.equal(existsSync(resolve(project, 'src/App.mun')), true)
+  assert.equal(existsSync(resolve(project, 'package.json')), true)
 })
 
 test('create-mun tolerates npm create argument separators', () => {
@@ -204,7 +204,7 @@ test('create-mun tolerates npm create argument separators', () => {
   const result = runInitializer(['hello-mun', '--', '--no-install'], workspace)
 
   assert.equal(result.status, 0, result.stderr)
-  assert.equal(existsSync(resolve(workspace, 'hello-mun', 'mun.toml')), true)
+  assert.equal(existsSync(resolve(workspace, 'hello-mun', 'package.json')), true)
 })
 
 test('local create mode wires a separate app to the source checkout without npm publication', () => {

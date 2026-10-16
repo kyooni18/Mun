@@ -18,7 +18,7 @@ function run(args, cwd, env = {}) {
 test('public native scaffold -> nested check/fmt -> compile/run/build/package', { skip: process.platform === 'win32' }, t => {
   const directory = mkdtempSync(resolve(tmpdir(), 'mun-native-dx-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
-  const result = run(['create', 'HelloMun'], directory)
+  const result = run(['create', 'HelloMun', '--target', 'native'], directory)
   assert.equal(result.status, 0, result.stderr)
   const project = resolve(directory, 'HelloMun')
   const source = readFileSync(resolve(project, 'Sources/App.mun'), 'utf8')
@@ -113,7 +113,7 @@ test('formatter preserves multiline literal whitespace', () => {
 test('fmt --check accepts a CRLF checkout and keeps its line endings', t => {
   const directory = mkdtempSync(resolve(tmpdir(), 'mun-native-crlf-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
-  assert.equal(run(['create', 'Crlf'], directory).status, 0)
+  assert.equal(run(['create', 'Crlf', '--target', 'native'], directory).status, 0)
   const file = resolve(directory, 'Crlf/Sources/App.mun')
   writeFileSync(file, readFileSync(file, 'utf8').replace(/\r?\n/gu, '\r\n'))
   const checked = run(['fmt', '--check'], resolve(directory, 'Crlf'))
