@@ -256,7 +256,7 @@ function styleFor(
   }
 
   if (visual?.background) declarations.push(`background:${paintCss(visual.background)}`)
-  if (visual?.foreground) declarations.push(`color:${paintCss(visual.foreground)}`)
+  if (visual?.foreground) declarations.push(`${node.kind === "panel" ? "background" : "color"}:${paintCss(visual.foreground)}`)
   if (visual?.cornerRadius !== undefined) declarations.push(`border-radius:${visual.cornerRadius}px`)
 
   return declarations.length > 0 ? declarations.join(";") : undefined

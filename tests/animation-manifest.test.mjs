@@ -224,20 +224,20 @@ test("withAnimation lowers Swift-style Animation factories and action closures",
   const source = 'withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { expanded.value = true }'
   assert.equal(
     transformMunSource(source, "Animation.mun.ts"),
-    'withAnimation(Animation.spring(0.4, 0.8), () => { expanded.value = true })',
+    'import { withAnimation, Animation } from "@mun/core/compat"\nwithAnimation(Animation.spring(0.4, 0.8), () => { expanded.value = true })',
   )
   assert.deepEqual(diagnoseMunSource(source), [])
 
   const skippedDefault = 'Animation.spring(dampingFraction: 0.7)'
-  assert.equal(transformMunSource(skippedDefault, "Animation.mun.ts"), 'Animation.spring(undefined, 0.7)')
+  assert.equal(transformMunSource(skippedDefault, "Animation.mun.ts"), 'import { Animation } from "@mun/core/compat"\nAnimation.spring(undefined, 0.7)')
   assert.deepEqual(diagnoseMunSource(skippedDefault), [])
 
   assert.equal(
     transformMunSource('withAnimation(.default) { expanded.value = false }', "Animation.mun.ts"),
-    'withAnimation(Animation.default, () => { expanded.value = false })',
+    'import { withAnimation, Animation } from "@mun/core/compat"\nwithAnimation(Animation.default, () => { expanded.value = false })',
   )
   assert.equal(
     transformMunSource('Text("Hi").animation(.easeInOut, value: active)', "Animation.mun.ts"),
-    'Text("Hi").animation(Animation.easeInOut(), active)',
+    'import { Animation } from "@mun/core/compat"\nText("Hi").animation(Animation.easeInOut(), active)',
   )
 })

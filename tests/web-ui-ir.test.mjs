@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import test from "node:test"
+import { JSDOM } from "jsdom"
 import { compileMunUiProgram } from "../packages/compiler/dist/index.js"
 import { renderMunUiProgramToHTML } from "../packages/web/dist/index.js"
 
@@ -31,7 +32,10 @@ test("web backend preserves native overlay semantics from shared IR", () => {
   assert.match(html, /display:grid/)
   assert.match(html, /align-items:center/)
   assert.match(html, /justify-items:center/)
-  assert.equal((html.match(/grid-area:1 \/ 1/g) ?? []).length, 2)
+  const document = new JSDOM(html).window.document
+  const overlay = [...document.querySelectorAll("div")].find(node => node.style.display === "grid" && node.children.length === 2)
+  assert.ok(overlay)
+  assert.equal([...overlay.children].filter(node => node.style.gridArea === "1 / 1").length, 2)
   assert.match(html, /background:#112233/)
   assert.match(html, /border-radius:12px/)
 })

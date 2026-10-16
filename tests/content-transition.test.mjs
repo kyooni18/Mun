@@ -469,7 +469,7 @@ test("compiler lowers Swift-style contentTransition and symbol-effect shorthand"
   )
   assert.equal(
     transformMunSource('Text(String(count)).contentTransition(.numericText(value: count)).animation(.easeInOut, value: count)', "NumericTransition.mun.ts"),
-    'import { ContentTransition } from "@mun/core/compat"\nText(String(count)).contentTransition(ContentTransition.numericText(count)).animation(Animation.easeInOut(), count)',
+    'import { Animation, ContentTransition } from "@mun/core/compat"\nText(String(count)).contentTransition(ContentTransition.numericText(count)).animation(Animation.easeInOut(), count)',
   )
   assert.equal(
     transformMunSource('Text("Saved").contentTransition(.blurReplace(radius: 9))', "BlurTransition.mun.ts"),

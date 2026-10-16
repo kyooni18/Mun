@@ -52,7 +52,7 @@ struct App: View {
   var body: some View {
     Rectangle()
       .frame(width: expanded.value ? 320 : 160, height: 80)
-      .animation(Animation.easeInOut(0.4), expanded.value)
+      .animation(Animation.easeInOut(duration: 0.4), value: expanded.value)
   }
 }
 export default App()`
@@ -84,7 +84,7 @@ struct App: View {
   var body: some View {
     Rectangle()
       .frame(width: expanded.value ? 320 : 160, height: 80)
-      .animation(Animation.snappy(0.6, 0.2).delay(0.12).speed(2), expanded.value)
+      .animation(Animation.snappy(duration: 0.6, extraBounce: 0.2).delay(0.12).speed(2), value: expanded.value)
   }
 }
 export default App()`
@@ -116,7 +116,7 @@ struct App: View {
   var body: some View {
     Rectangle()
       .frame(width: expanded.value ? 320 : 160, height: 80)
-      .animation(Animation.easeInOut(0.4).repeatCount(3, false), expanded.value)
+      .animation(Animation.easeInOut(duration: 0.4).repeatCount(3, autoreverses: false), value: expanded.value)
   }
 }
 export default App()`
@@ -136,7 +136,7 @@ struct App: View {
   var body: some View {
     Rectangle()
       .frame(width: expanded.value ? 320 : 160, height: 80)
-      .animation(Animation.linear(0.2).repeatForever(true), expanded.value)
+      .animation(Animation.linear(duration: 0.2).repeatForever(autoreverses: true), value: expanded.value)
   }
 }
 export default App()`
@@ -155,7 +155,7 @@ struct App: View {
   var body: some View {
     VStack() {
       Button("Toggle") {
-        withAnimation(Animation.easeInOut(0.4)) {
+        withAnimation(Animation.easeInOut(duration: 0.4)) {
           expanded.toggle()
         }
       }
@@ -218,11 +218,7 @@ struct App: View {
   var body: some View {
     VStack() {
       Button("Toggle") {
-        withTransaction(new Transaction({
-          animation: Animation.easeOut(0.5),
-          disablesAnimations: true,
-          isContinuous: true
-        })) {
+        withTransaction(Transaction(animation: .easeOut(duration: 0.5))) {
           expanded.toggle()
         }
       }
@@ -238,8 +234,8 @@ export default App()`
   if (action.kind !== "action") return
 
   assert.equal(action.action.transaction?.animation?.kind, "timing")
-  assert.equal(action.action.transaction?.disablesAnimations, true)
-  assert.equal(action.action.transaction?.isContinuous, true)
+  assert.equal(action.action.transaction?.disablesAnimations, false)
+  assert.equal(action.action.transaction?.isContinuous, false)
 })
 
 
@@ -248,28 +244,28 @@ test("native Transition lowering rejects dynamic parameters instead of replacing
 const scale = State(0.8)
 struct App: View {
   var body: some View {
-    Rectangle().transition(Transition.scale(scale.value))
+    Rectangle().transition(.scale(scale: scale.value, anchor: .center))
   }
 }
 export default App()`
 
   assert.throws(
     () => compileMunUiProgram(dynamicScale, "dynamic-transition-scale.mun"),
-    /Native Transition scale must be a finite static number/,
+    /AnyTransition\.scale\(scale:anchor:\) does not match a supported signature/,
   )
 
   const dynamicDistance = `import { Rectangle, State, Transition } from "@mun/core"
 const distance = State(24)
 struct App: View {
   var body: some View {
-    Rectangle().transition(Transition.move(.leading, distance.value))
+    Rectangle().transition(.move(edge: distance.value))
   }
 }
 export default App()`
 
   assert.throws(
     () => compileMunUiProgram(dynamicDistance, "dynamic-transition-distance.mun"),
-    /Native Transition distance must be a finite static number/,
+    /AnyTransition\.move\(edge:\) does not match a supported signature/,
   )
 })
 
@@ -284,7 +280,7 @@ export default App()`
 
   assert.throws(
     () => compileMunUiProgram(unsupportedModifier, "unsupported-modifier.mun"),
-    /View modifier '\.shadow' is not representable in Mün semantic UI IR/,
+    /View modifier \.shadow\(color:radius:x:y:\) is a SwiftUI modifier implemented only by the compatibility Web graph; native Semantic UI IR does not support it/,
   )
 
   const unsupportedPadding = `import { Rectangle } from "@mun/core"
@@ -297,7 +293,7 @@ export default App()`
 
   assert.throws(
     () => compileMunUiProgram(unsupportedPadding, "unsupported-padding.mun"),
-    /Native semantic numeric value must be a finite static number: "wide"/,
+    /padding edges must be Edge.Set members/,
   )
 
   const unsupportedBackground = `import { Rectangle, State } from "@mun/core"
@@ -311,19 +307,19 @@ export default App()`
 
   assert.throws(
     () => compileMunUiProgram(unsupportedBackground, "unsupported-background.mun"),
-    /Native semantic string value must be static/,
+    /Expected a static Color, received/,
   )
 })
 
 test("native UI IR expands custom View structs with bound values, defaults, state, and conditionals", () => {
-  const source = `import { Rectangle, State, Text, VStack } from "@mun/core"
+  const source = `import { Color, Rectangle, State, Text, VStack } from "@mun/core"
 const expanded = State(false)
 
 struct StatusCard: View {
-  let title: string
-  let collapsedWidth: number = 120
-  let expandedWidth: number
-  let expandedValue: boolean
+  let title: String
+  let collapsedWidth: Double = 120
+  let expandedWidth: Double
+  let expandedValue: Bool
 
   var body: some View {
     VStack(spacing: 6) {
@@ -331,11 +327,11 @@ struct StatusCard: View {
       if (expandedValue) {
         Rectangle()
           .frame(width: expandedWidth, height: 24)
-          .background("#6750A4")
+          .background(Color("#6750A4"))
       } else {
         Rectangle()
           .frame(width: collapsedWidth, height: 24)
-          .background("#333333")
+          .background(Color("#333333"))
       }
     }
     .padding(10)
@@ -365,19 +361,21 @@ export default App()`
 
   const expandedPanel = branch.then[0]
   const collapsedPanel = branch.otherwise[0]
-  assert.equal(expandedPanel?.kind, "panel")
-  assert.equal(collapsedPanel?.kind, "panel")
-  assert.deepEqual(expandedPanel?.layout?.width, { kind: "literal", value: 260 })
-  assert.deepEqual(collapsedPanel?.layout?.width, { kind: "literal", value: 120 })
-  assert.equal(expandedPanel?.visual?.background, "#6750A4")
-  assert.equal(collapsedPanel?.visual?.background, "#333333")
+  assert.equal(expandedPanel?.kind, "overlay")
+  assert.equal(expandedPanel.children[0].kind, "panel")
+  assert.equal(collapsedPanel?.kind, "overlay")
+  assert.equal(collapsedPanel.children[0].kind, "panel")
+  assert.deepEqual(expandedPanel.children[0].layout?.width, { kind: "literal", value: 260 })
+  assert.deepEqual(collapsedPanel.children[0].layout?.width, { kind: "literal", value: 120 })
+  assert.equal(expandedPanel?.visual?.background?.color, "#6750A4")
+  assert.equal(collapsedPanel?.visual?.background?.color, "#333333")
 })
 
 test("custom View expansion keeps per-instance bindings isolated and node identities distinct", () => {
   const source = `import { Text, VStack } from "@mun/core"
 
 struct Badge: View {
-  let title: string
+  let title: String
 
   var body: some View {
     Text(title)
@@ -412,7 +410,7 @@ test("nested custom Views resolve by qualified lexical scope instead of simple-n
 
 struct First: View {
   struct Badge: View {
-    let first: string
+    let first: String
 
     var body: some View {
       Text(first)
@@ -426,7 +424,7 @@ struct First: View {
 
 struct Second: View {
   struct Badge: View {
-    let second: string
+    let second: String
 
     var body: some View {
       Text(second)
@@ -480,16 +478,16 @@ export default App()`
 
   assert.deepEqual(root.children[0].value, { kind: "literal", value: "First badge" })
   assert.deepEqual(root.children[1].value, { kind: "literal", value: "Second badge" })
-  assert.match(root.children[0].id, /component\/First\/body\/component\/First\.Badge\/body/)
-  assert.match(root.children[1].id, /component\/Second\/body\/component\/Second\.Badge\/body/)
+  assert.match(root.children[0].id, /component\/First\/body\/child\/#0\/component\/First\.Badge\/body/)
+  assert.match(root.children[1].id, /component\/Second\/body\/child\/#0\/component\/Second\.Badge\/body/)
 })
 
 test("custom View memberwise calls use the shared semantic initializer contract", () => {
   const source = `import { Text } from "@mun/core"
 
 struct Badge: View {
-  let title: string
-  let tone: string = "normal"
+  let title: String
+  let tone: String = "normal"
 
   var body: some View {
     Text(title)
@@ -538,10 +536,10 @@ test("native explicit initializer assigns fields and honors default arguments", 
   const source = `import { Rectangle, Text, VStack } from "@mun/core"
 
 struct Badge: View {
-  let title: string
-  let width: number
+  let title: String
+  let width: Double
 
-  init(_ label: string, width: number = 140) {
+  init(_ label: String, width: Double = 140) {
     self.title = label
     self.width = width
   }
@@ -613,13 +611,13 @@ export default App()`
   const unlabeledStack = source.replace("VStack(spacing: 8)", "VStack(8)")
   assert.throws(
     () => compileMunUiProgram(unlabeledStack, "builtin-stack-label-contract.mun"),
-    /No matching initializer for native View 'VStack'/,
+    /VStack\(_:\) \{ … \} does not match VStack\(alignment:spacing:content:\)/,
   )
 
   const wrongTextType = source.replace('Text("Ready")', "Text(42)")
   assert.throws(
     () => compileMunUiProgram(wrongTextType, "builtin-text-type-contract.mun"),
-    /No matching initializer for native View 'Text'/,
+    /Text\(_:\) does not match Text\(_:\): 'content' expects String, received Double/,
   )
 })
 
@@ -627,7 +625,7 @@ test("entry View @State lowers to owned semantic state used by reads and actions
   const source = `import { Button, Text, VStack } from "@mun/core"
 
 struct App: View {
-  @State var enabled: boolean = false
+  @State var enabled: Bool = false
 
   var body: some View {
     VStack(spacing: 8) {
@@ -665,8 +663,8 @@ test("custom View instances own distinct @State identities and initial values", 
   const source = `import { Button, Text, VStack } from "@mun/core"
 
 struct Counter: View {
-  let initiallyEnabled: boolean
-  @State var enabled: boolean = initiallyEnabled
+  let initiallyEnabled: Bool
+  @State var enabled: Bool = initiallyEnabled
 
   var body: some View {
     VStack() {
@@ -697,11 +695,11 @@ export default App()`
   assert.notEqual(program.states[0].name, program.states[1].name)
   assert.equal(
     program.states[0].name,
-    "@component/entry/App/body/content/child/#0/component/Counter/enabled",
+    "@component/entry/App/body/child/#0/content/child/#0/component/Counter/enabled",
   )
   assert.equal(
     program.states[1].name,
-    "@component/entry/App/body/content/child/#1/component/Counter/enabled",
+    "@component/entry/App/body/child/#0/content/child/#1/component/Counter/enabled",
   )
 
   const root = program.root.child
@@ -726,7 +724,7 @@ export default App()`
 test("source .id(_:) keys literal structural identity while preserving dynamic runtime identity", () => {
   const source = `import { State, Text, VStack } from "@mun/core"
 struct App: View {
-  @State var selection: string = "alpha"
+  @State var selection: String = "alpha"
 
   var body: some View {
     VStack() {
@@ -748,9 +746,9 @@ export default App()`
   assert.equal(dynamicNode?.kind, "text")
   if (staticNode?.kind !== "text" || dynamicNode?.kind !== "text") return
 
-  assert.equal(staticNode.id, "@node/entry/App/body/content/key/s:hero/kind/text")
+  assert.equal(staticNode.id, "@node/entry/App/body/child/#0/content/key/s:hero/kind/text")
   assert.deepEqual(staticNode.identityKey, { kind: "literal", value: "hero" })
-  assert.equal(dynamicNode.id, "@node/entry/App/body/content/child/#1/kind/text")
+  assert.equal(dynamicNode.id, "@node/entry/App/body/child/#0/content/child/#1/kind/text")
   assert.deepEqual(dynamicNode.identityKey, { kind: "state", state: "@component/entry/App/selection" })
 
   assert.throws(
@@ -794,7 +792,7 @@ export default App()`
 
 test("static .id scopes component-owned @State independently of sibling position", () => {
   const counter = `struct Counter: View {
-  @State var enabled: boolean = false
+  @State var enabled: Bool = false
 
   var body: some View {
     Button("Toggle") { enabled.toggle() }
@@ -834,7 +832,7 @@ export default App()`
   assert.equal(beforeState.name, afterState.name)
   assert.equal(
     beforeState.name,
-    "@component/entry/App/body/content/key/s:primary-counter/component/Counter/enabled",
+    "@component/entry/App/body/child/#0/content/key/s:primary-counter/component/Counter/enabled",
   )
 
   const beforeRoot = beforeProgram.root.child
@@ -850,7 +848,7 @@ export default App()`
   assert.equal(beforeCounter?.id, afterCounter?.id)
   assert.equal(
     beforeCounter?.id,
-    "@node/entry/App/body/content/key/s:primary-counter/component/Counter/body/kind/action",
+    "@node/entry/App/body/child/#0/content/key/s:primary-counter/component/Counter/body/child/#0/kind/action",
   )
 })
 
@@ -858,7 +856,7 @@ test("dynamic .id rejects stateful native subtrees until runtime state scopes ca
   const source = `import { Button, State, VStack } from "@mun/core"
 
 struct Counter: View {
-  @State var enabled: boolean = false
+  @State var enabled: Bool = false
 
   var body: some View {
     Button("Toggle") { enabled.toggle() }
@@ -866,7 +864,7 @@ struct Counter: View {
 }
 
 struct App: View {
-  @State var identity: string = "primary"
+  @State var identity: String = "primary"
 
   var body: some View {
     VStack() {
@@ -895,7 +893,7 @@ struct Decoration: View {
 }
 
 struct Counter: View {
-  @State var enabled: boolean = false
+  @State var enabled: Bool = false
 
   var body: some View {
     Button("Toggle") { enabled.toggle() }
@@ -916,7 +914,7 @@ export default App()`
   const changedSource = `import { Button, Text, VStack } from "@mun/core"
 
 struct Decoration: View {
-  @State var pulse: boolean = false
+  @State var pulse: Bool = false
 
   var body: some View {
     VStack() {
@@ -927,7 +925,7 @@ struct Decoration: View {
 }
 
 struct Counter: View {
-  @State var enabled: boolean = false
+  @State var enabled: Bool = false
 
   var body: some View {
     Button("Toggle") { enabled.toggle() }
@@ -967,7 +965,7 @@ export default App()`
   assert.equal(baselineCounter.id, changedCounter.id)
   assert.equal(
     baselineCounter.id,
-    "@node/entry/App/body/content/child/#1/component/Counter/body/kind/action",
+    "@node/entry/App/body/child/#0/content/child/#1/component/Counter/body/child/#0/kind/action",
   )
 })
 
@@ -975,7 +973,7 @@ test("custom View @Binding aliases parent-owned State without copying storage", 
   const source = `import { Button, Text, VStack } from "@mun/core"
 
 struct ToggleRow: View {
-  @Binding var enabled: boolean
+  @Binding var enabled: Bool
 
   var body: some View {
     VStack() {
@@ -990,7 +988,7 @@ struct ToggleRow: View {
 }
 
 struct App: View {
-  @State var enabled: boolean = false
+  @State var enabled: Bool = false
 
   var body: some View {
     VStack() {
@@ -1033,7 +1031,7 @@ test("native custom View expansion still rejects unsupported binding ownership a
   const entryBinding = `import { Text } from "@mun/core"
 
 struct App: View {
-  @Binding var enabled: boolean
+  @Binding var enabled: Bool
   var body: some View {
     Text("Binding")
   }
@@ -1068,7 +1066,7 @@ struct App: View {
   var body: some View {
     VStack() {
       if (visible.value) {
-        Rectangle().frame(width: 120, height: 48).transition(Transition.opacity.combined(Transition.scale(0.8)).combined(Transition.move("bottom", 20)).animation(Animation.linear(0.2).delay(0.1)))
+        Rectangle().frame(width: 120, height: 48).transition(.opacity.combined(with: .scale(scale: 0.8)).combined(with: .move(edge: .bottom)).animation(Animation.linear(duration: 0.2).delay(0.1)))
       }
     }
   }
@@ -1086,15 +1084,28 @@ export default App()`
   assert.deepEqual(panel.transition?.insertion, [
     { kind: "opacity" },
     { kind: "scale", scale: 0.8 },
-    { kind: "move", edge: "bottom", distance: 20 },
+    { kind: "move", edge: "bottom", distance: 24 },
   ])
   assert.deepEqual(panel.transition?.removal, [
     { kind: "opacity" },
     { kind: "scale", scale: 0.8 },
-    { kind: "move", edge: "bottom", distance: 20 },
+    { kind: "move", edge: "bottom", distance: 24 },
   ])
   assert.equal(panel.transition?.animation?.kind, "timing")
   if (panel.transition?.animation?.kind !== "timing") return
   assert.equal(panel.transition.animation.duration, 0.2)
   assert.equal(panel.transition.animation.delayMs, 100)
+})
+
+test("native transactions reject compatibility object options rather than discarding flags", () => {
+  const source = `struct App: View {
+    var body: some View {
+      Button("Toggle") {
+        withTransaction(Transaction(animation: .linear(duration: 0.2), disablesAnimations: true, isContinuous: true)) { enabled.toggle() }
+      }
+    }
+    @State var enabled: Bool = false
+  }
+  export default App()`
+  assert.throws(() => compileMunUiProgram(source, "transaction-flags.mun"), /withTransaction requires Transaction\(animation: …\)/)
 })
