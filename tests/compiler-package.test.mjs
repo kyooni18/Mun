@@ -13,7 +13,7 @@ test("@mun/compiler lowers .mun.ts builders through declaration-neutral syntax",
   assert.match(output, /if \(enabled\)[\s\S]*Text\("On"\)[\s\S]*Text\("Off"\)/)
   assert.match(output, /ForEach\(items, \(item\) => \[Row\(item\)\]\)/)
   assert.match(output, /Each\(items, \(item\) => \[Row\(item\)\]\)/)
-  assert.match(output, /import \{ namedArguments \} from "@mun\/core\/compat"/)
+  assert.match(output, /import \{ namedArguments, viewFragment \} from "@mun\/core\/compat"/)
   assert.equal(ts.createSourceFile("Builder.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
@@ -75,7 +75,7 @@ test("@mun/compiler lowers ViewBuilder statements and children in one executable
   assert.match(output, /const __munChildren = \[\]/)
   assert.match(output, /const title = "Hello"/)
   assert.match(output, /__munChildren\.push\(Text\(title\)\)/)
-  assert.match(output, /if \(enabled\)[\s\S]*__munChildren\.push\(Text\("Enabled"\)\)/)
+  assert.match(output, /if \(enabled\)[\s\S]*__munChildrenBranch0\.push\(Text\("Enabled"\)\)/)
   assert.doesNotMatch(output, /\[const title/)
   assert.equal(ts.createSourceFile("StatementBody.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 
@@ -289,7 +289,7 @@ test("@mun/compiler preserves empty, optional, and array builder results", () =>
   [Text("A"), [Text("B")]]
 }`
   const output = transformMunSource(source, "Builder.mun.ts")
-  assert.match(output, /if \(showHeader\)[\s\S]*__munChildren\.push\(Text\("Header"\)\)/)
+  assert.match(output, /if \(showHeader\)[\s\S]*__munChildrenBranch0\.push\(Text\("Header"\)\)/)
   assert.match(output, /if \(showEmpty\)/)
   assert.match(output, /__munChildren\.push\(\[Text\("A"\), \[Text\("B"\)\]\]\)/)
   assert.equal(ts.createSourceFile("Builder.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)

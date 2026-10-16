@@ -3441,7 +3441,12 @@ function createDomRenderer(context: DomRenderContext): MunRenderer<Node> {
         : undefined
       if (key === undefined) return content
       context.hasDomKeys = true
-      for (const node of outputNodes(content)) context.domKeys.set(node, key)
+      const nodes = outputNodes(content)
+      for (let index = 0; index < nodes.length; index += 1) {
+        // A keyed fragment can expose several sibling DOM nodes. Sharing one
+        // key makes reconciliation reuse the same live node for every child.
+        context.domKeys.set(nodes[index], nodes.length === 1 ? key : JSON.stringify([key, index]))
+      }
       return content
     }
     if (modifier.name === "frame") {

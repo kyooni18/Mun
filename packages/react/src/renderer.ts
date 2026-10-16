@@ -285,7 +285,7 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
       const y = typeof value === "number" ? finite(modifier.arguments[1], 0) : finite((value as { y?: unknown } | undefined)?.y, 0)
       result = { style: { position: "absolute", left: `${x}px`, top: `${y}px`, transform: "translate(-50%, -50%)" } }; break
     }
-    case "zIndex": result = { style: { zIndex: finite(value, 0), position: "relative" } }; break
+    case "zIndex": result = { style: { zIndex: finite(value, 0) } }; break
     case "ignoresSafeArea": result = { style: ignoresSafeAreaStyle(modifier.arguments[1]) }; break
     case "safeAreaPadding": result = { style: safeAreaPaddingStyle(value, modifier.arguments[1]) }; break
     case "gridCellColumns": result = { style: { gridColumn: `span ${Math.max(1, Math.floor(finite(value, 1)))}` } }; break

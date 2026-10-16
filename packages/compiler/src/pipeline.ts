@@ -285,9 +285,11 @@ function lowerViewBuilderAstStatements(source: string, registry: InitializerSymb
   if (!fn?.body) return lowered
 
   const factory = ts.factory
+  let activeChildrenName = childrenName
+  let conditionalIndex = 0
   const pushExpression = (expression: ts.Expression): ts.Statement => factory.createExpressionStatement(
     factory.createCallExpression(
-      factory.createPropertyAccessExpression(factory.createIdentifier(childrenName), "push"),
+      factory.createPropertyAccessExpression(factory.createIdentifier(activeChildrenName), "push"),
       undefined,
       [expression],
     ),
@@ -299,12 +301,31 @@ function lowerViewBuilderAstStatements(source: string, registry: InitializerSymb
     }
     if (ts.isBlock(statement)) return factory.updateBlock(statement, statement.statements.map(transformStatement))
     if (ts.isIfStatement(statement)) {
-      return factory.updateIfStatement(
+      // Keep each conditional in a permanent structural slot. Flattening its
+      // children into the parent lets removing one branch renumber its siblings.
+      const index = conditionalIndex++
+      let branchName = `${childrenName}Branch${index}`
+      while (new RegExp(`\\b${branchName}\\b`).test(source)) branchName += "_"
+      const parentChildrenName = activeChildrenName
+      activeChildrenName = branchName
+      const conditional = factory.updateIfStatement(
         statement,
         statement.expression,
         transformStatement(statement.thenStatement),
         statement.elseStatement ? transformStatement(statement.elseStatement) : undefined,
       )
+      activeChildrenName = parentChildrenName
+      const fragment = factory.createCallExpression(factory.createIdentifier("viewFragment"), undefined, [factory.createIdentifier(branchName)])
+      return factory.createBlock([
+        factory.createVariableStatement(undefined, factory.createVariableDeclarationList([
+          factory.createVariableDeclaration(branchName, undefined, undefined, factory.createArrayLiteralExpression()),
+        ], ts.NodeFlags.Const)),
+        conditional,
+        pushExpression(factory.createCallExpression(factory.createPropertyAccessExpression(fragment, "id"), undefined, [
+          factory.createBinaryExpression(factory.createStringLiteral(`mun:conditional:${index}:`), ts.SyntaxKind.PlusToken,
+            factory.createPropertyAccessExpression(factory.createIdentifier(parentChildrenName), "length")),
+        ])),
+      ], true)
     }
     if (ts.isForStatement(statement)) {
       return factory.updateForStatement(statement, statement.initializer, statement.condition, statement.incrementor, transformStatement(statement.statement))
@@ -1587,9 +1608,9 @@ function lowerTopLevelState(source: string): string {
 }
 
 function ensureImports(source: string, includeViewBuiltins = false): string {
-  const callableRequired = ["defineView", "initializer", "resolveBuilderInput", "namedArguments", "overloadClosure", "Binding", "State", "Element", "modifiedContent", "modifiedContentCompiled", "compiledTemplate", "defineCompiledTemplate"]
+  const callableRequired = ["defineView", "initializer", "resolveBuilderInput", "namedArguments", "overloadClosure", "viewFragment", "withAnimation", "withTransaction", "Binding", "State", "Element", "modifiedContent", "modifiedContentCompiled", "compiledTemplate", "defineCompiledTemplate"]
     .filter(name => new RegExp(`\\b${name}(?:<[^()\\n]*>)?\\s*\\(`).test(source) || (name === "defineView" && /const\s+[A-Z]\w*\s*=\s*defineView/.test(source)))
-  const valueRequired = ["ContentTransition", "SymbolEffect"].filter(name => {
+  const valueRequired = ["Transition", "Animation", "ContentTransition", "SymbolEffect"].filter(name => {
     if (!new RegExp(`\\b${name}\\s*\\.`).test(source)) return false
     return !new RegExp(`\\b(?:const|let|var|class|function|enum|namespace)\\s+${name}\\b`).test(source)
   })
@@ -1703,13 +1724,15 @@ function lowerNamedModifierCalls(source: string): string {
       if (character === "/" && regexCanStart(output, cursor)) { cursor = skipRegex(output, cursor) - 1; continue }
       if (character !== ".") continue
       const identifier = identifierAt(output, cursor + 1)
-      if (!identifier || !staticModifierNames.has(identifier.name) || !swiftUIModifierLowering(identifier.name)) continue
+      if (!identifier || !staticModifierNames.has(identifier.name)) continue
       const open = skipTrivia(output, identifier.end)
       if (output[open] !== "(") continue
       const close = matching(output, open, "(", ")")
       const argumentsSource = output.slice(open + 1, close)
       const contentTransitionShorthand = identifier.name === "contentTransition" && /^\s*\./.test(argumentsSource)
-      if (!contentTransitionShorthand && !splitTopLevel(argumentsSource).some(argument => topLevelColon(argument) >= 0)) {
+      const swiftClosure = splitTopLevel(argumentsSource).some(argument => /^\s*\{\s*[A-Za-z_$][A-Za-z0-9_$]*\s+in\b/.test(argument))
+      if ((!swiftUIModifierLowering(identifier.name) && !swiftClosure)
+        || (!swiftClosure && !contentTransitionShorthand && !splitTopLevel(argumentsSource).some(argument => topLevelColon(argument) >= 0))) {
         cursor = close
         continue
       }
@@ -1718,7 +1741,7 @@ function lowerNamedModifierCalls(source: string): string {
     }
     if (!candidate) return output
 
-    const lowering = swiftUIModifierLowering(candidate.name)!
+    const lowering = swiftUIModifierLowering(candidate.name)
     const entries = splitTopLevel(output.slice(candidate.open + 1, candidate.close)).map(source => {
       const colon = topLevelColon(source)
       const label = colon < 0 ? undefined : source.slice(skipTrivia(source, 0), colon).trim()
@@ -1741,6 +1764,7 @@ function lowerNamedModifierCalls(source: string): string {
       return `() => {${lowerRange(body)}}`
     }
     const lowerModifierValue = (value: string, label?: string): string => {
+      if (/^\s*\{\s*[A-Za-z_$][A-Za-z0-9_$]*\s+in\b/.test(value)) return lowerCallback(value, true)
       if (candidate.name === "contentTransition") return lowerContentTransitionArgument(value)
       if (candidate.name === "onTapGesture" && label === "perform") return lowerCallback(value, false)
       if (candidate.name === "onLongPressGesture" && label === "perform") return lowerCallback(value, false)
@@ -1757,7 +1781,9 @@ function lowerNamedModifierCalls(source: string): string {
     }
 
     let lowered: string
-    if (lowering.kind === "object") {
+    if (!lowering || named.size === 0) {
+      lowered = positional.join(", ")
+    } else if (lowering.kind === "object") {
       if (positional.length > 0) throw syntaxError(`.${candidate.name}(...) does not mix positional and labeled arguments in this overload`, candidate.open)
       for (const label of named.keys()) if (!lowering.labels.includes(label)) throw syntaxError(`Unknown labeled argument ${label}: in .${candidate.name}(...)`, candidate.open)
       lowered = `{ ${lowering.labels.flatMap(label => named.has(label) ? [`${label}: ${named.get(label)}`] : []).join(", ")} }`

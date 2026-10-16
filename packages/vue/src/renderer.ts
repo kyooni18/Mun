@@ -329,7 +329,7 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     case "fixedSize": result = { style: { width: value !== false ? "max-content" : undefined, height: modifier.arguments[1] !== false ? "max-content" : undefined } }; break
     case "layoutPriority": result = { style: { flexShrink: finite(value, 0) > 0 ? 0 : 1, "--mun-layout-priority": finite(value, 0) } }; break
     case "position": result = { style: { position: "absolute", left: `${typeof value === "number" ? value : finite((value as { x?: unknown } | undefined)?.x, 0)}px`, top: `${typeof value === "number" ? finite(modifier.arguments[1], 0) : finite((value as { y?: unknown } | undefined)?.y, 0)}px`, transform: "translate(-50%, -50%)" } }; break
-    case "zIndex": result = { style: { zIndex: finite(value, 0), position: "relative" } }; break
+    case "zIndex": result = { style: { zIndex: finite(value, 0) } }; break
     case "ignoresSafeArea": result = { style: ignoresSafeAreaStyle(modifier.arguments[1]) }; break
     case "safeAreaPadding": result = { style: safeAreaPaddingStyle(value, modifier.arguments[1]) }; break
     case "gridCellColumns": result = { style: { gridColumn: `span ${Math.max(1, Math.floor(finite(value, 1)))}` } }; break

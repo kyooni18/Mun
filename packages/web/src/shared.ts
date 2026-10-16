@@ -228,7 +228,7 @@ export function styleOf(modifier: ViewModifierNode, includeAnimationFallback = t
       style = { position: "absolute", left: `${resolved.x}px`, top: `${resolved.y}px`, transform: "translate(-50%, -50%)" }
       break
     }
-    case "zIndex": style = { "z-index": String(finite(value, 0)), position: "relative" }; break
+    case "zIndex": style = { "z-index": String(finite(value, 0)) }; break
     case "ignoresSafeArea": style = Object.fromEntries(Object.entries(ignoresSafeAreaStyle(modifier.arguments[1])).map(([key, item]) => [cssPropertyName(key), item])); break
     case "safeAreaPadding": style = Object.fromEntries(Object.entries(safeAreaPaddingStyle(value, modifier.arguments[1])).map(([key, item]) => [cssPropertyName(key), item])); break
     case "gridCellColumns": style = { "grid-column": `span ${Math.max(1, Math.floor(finite(value, 1)))}` }; break
