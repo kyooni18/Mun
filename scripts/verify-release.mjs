@@ -204,7 +204,7 @@ try {
     if (typeof Animation !== "function") throw new Error("canonical semantic import failed");
   `], { cwd: canonicalOnlyDir, encoding: "utf8" })
   assert.equal(smoke.status, 0, `canonical-only smoke test failed:\n${smoke.stdout}\n${smoke.stderr}`)
-  console.log("Canonical @mun/ui installs the Mün compiler, secondary adapters, and Vite integration")
+  console.log("Canonical @mun/ui installs the Mün compiler, web renderer, optional adapters, and Vite integration")
 } finally {
   rmSync(canonicalOnlyDir, { recursive: true, force: true })
 }
@@ -241,14 +241,14 @@ try {
     import * as canonical from "@mun/ui";
     import { spring } from "@mun/animation";
     import { FrameBudgetSignal } from "@mun/execution";
-    import { Text } from "@mun/core/compat";
+    import { Text } from "@mun/core";
     import { renderToStaticMarkup } from "react-dom/server";
     import { render as renderReact } from "@mun/react";
     import { render as renderVue } from "@mun/vue";
     import { renderToHTML } from "@mun/web";
     import { compileMunFile } from "@mun/compiler";
     import { munPlugin } from "@mun/vite";
-    if (typeof canonical.Animation !== "function" || "Text" in canonical) throw new Error("packed canonical entry boundary failed");
+    if (typeof canonical.Animation !== "function" || canonical.Text !== Text) throw new Error("packed canonical entry boundary failed");
     if (spring().kind !== "spring") throw new Error("packed animation runtime failed");
     if (new FrameBudgetSignal().snapshot().level !== "idle") throw new Error("packed execution runtime failed");
     if (renderToStaticMarkup(renderReact(Text("react"))) !== "<span>react</span>") throw new Error("packed React render failed");
@@ -262,9 +262,9 @@ try {
 
   const generated = resolve(installDir, "generated-app")
   const initializer = resolve(installDir, "node_modules/create-mun/bin/create-mun.mjs")
-  const scaffold = spawnSync(process.execPath, [initializer, generated, "--no-install"], { cwd: installDir, encoding: "utf8" })
+  const scaffold = spawnSync(process.execPath, [initializer, generated, "--target", "native", "--no-install"], { cwd: installDir, encoding: "utf8" })
   assert.equal(scaffold.status, 0, `packed create-mun smoke test failed:\n${scaffold.stdout}\n${scaffold.stderr}`)
-  assert.equal(existsSync(resolve(generated, 'package.json')), false, 'default scaffold is not a Web package')
+  assert.equal(existsSync(resolve(generated, 'package.json')), false, 'experimental native scaffold must not be a Web package')
   assert.equal(existsSync(resolve(generated, 'mun.toml')), true)
   const generatedSource = readFileSync(resolve(generated, 'Sources/App.mun'), 'utf8')
   assert.match(generatedSource, /@main/u)
@@ -276,8 +276,11 @@ try {
   }
   assert.equal(readJSON(resolve(generated, 'app.json')).sourceLanguage, 'mun')
   const webGenerated = resolve(installDir, 'generated-web')
-  const webScaffold = spawnSync(process.execPath, [initializer, webGenerated, '--target', 'web', '--no-install'], { cwd: installDir, encoding: 'utf8' })
+  const webScaffold = spawnSync(process.execPath, [initializer, webGenerated, '--no-install'], { cwd: installDir, encoding: 'utf8' })
   assert.equal(webScaffold.status, 0, webScaffold.stderr)
+  assert.equal(existsSync(resolve(webGenerated, 'mun.toml')), false, 'default scaffold must not require native tooling')
+  assert.match(readFileSync(resolve(webGenerated, 'src/main.ts'), 'utf8'), /import .*mount.* from ['"]@mun\/web['"]/u)
+  assert.match(readFileSync(resolve(webGenerated, 'src/App.mun'), 'utf8'), /VStack/u)
   const generatedManifest = readJSON(resolve(webGenerated, 'package.json'))
   assert.equal(generatedManifest.dependencies['@mun/core'], `^${releaseVersion}`)
   assert.equal(generatedManifest.dependencies['@mun/web'], `^${releaseVersion}`)
