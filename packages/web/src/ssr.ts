@@ -1,3 +1,4 @@
+import { isSafeUrlAttribute } from "./url-policy.js"
 import { isForeignComponent, renderViewNode, zeroGeometry, type CompiledTemplateValue, type MunRenderer, type ViewGraphValue, type ViewHostNode } from "@mun/core/compat"
 import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
 import { assertHtmlName, classNameOf, escape, escapeAttribute, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, nativeElementProps, normalizedRawTextValue, normalizedTextAreaValue, propsOf, rawTextHtmlElements, styleAttribute, styleOf, styleText, validTableChildElements, voidHtmlElements } from "./shared.js"
@@ -27,7 +28,7 @@ function serializedAttribute(key: string, value: unknown): string | undefined {
   if (typeof value === "object" && key !== "style" && key !== "className" && key !== "class") return undefined
   const name = assertHtmlName(htmlAttributeName(key), "attribute")
   const serialized = key === "style" ? styleAttribute(value) : key === "className" || key === "class" ? classNameOf(value) : String(value)
-  if (serialized === undefined) return undefined
+  if (serialized === undefined || !isSafeUrlAttribute(name, serialized)) return undefined
   if (isBooleanHtmlAttribute(name)) return value ? name : undefined
   if (value === false || value === true) {
     if (name.startsWith("aria-") || name.startsWith("data-") || isEnumeratedBooleanAttribute(name)) {

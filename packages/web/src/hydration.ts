@@ -1,3 +1,4 @@
+import { isSafeUrlAttribute } from "./url-policy.js"
 import {
   classNameOf,
   domContentContainer,
@@ -39,7 +40,7 @@ export function hydratedPropsMatch(
       : key === "className" || key === "class"
         ? classNameOf(value)
         : String(value)
-    if (serialized === undefined) continue
+    if (serialized === undefined || !isSafeUrlAttribute(name, serialized)) continue
     if (isBooleanHtmlAttribute(name)) {
       if (value) {
         expectedCount += 1

@@ -1,3 +1,5 @@
+import { isSafeUrlAttribute } from "./url-policy.js"
+
 export type PatchScalar = string | number | boolean | null | undefined
 
 export type PatchLocation =
@@ -26,6 +28,7 @@ const unsafePropertyKeys = new Set([
   "outerHTML",
   "prototype",
   "textContent",
+  "srcdoc",
 ])
 
 const attributeNamePattern = /^[A-Za-z_:][A-Za-z0-9_.:-]*$/u
@@ -39,7 +42,7 @@ function validateLocation(location: PatchLocation): PatchLocation {
   assertNodeIndex(location.node, "patch node index")
   if (location.kind === "attribute") {
     if (!attributeNamePattern.test(location.key) || /^on/iu.test(location.key)
-      || location.key === "style" || location.key === "class") {
+      || location.key === "style" || location.key === "class" || location.key.toLowerCase() === "srcdoc") {
       throw new TypeError(`unsafe patch attribute: ${JSON.stringify(location.key)}`)
     }
   } else if (location.kind === "property") {
@@ -144,11 +147,12 @@ export function applyPatchIR(nodes: readonly Node[], ir: PatchIR, patch: PatchVa
       node.nodeValue = scalarText(value)
     } else if (location.kind === "attribute") {
       const element = elementNode(node, "attribute")
-      if (value == null || value === false) element.removeAttribute(location.key)
+      if (value == null || value === false || !isSafeUrlAttribute(location.key, value)) element.removeAttribute(location.key)
       else element.setAttribute(location.key, scalarText(value))
     } else if (location.kind === "property") {
       const element = elementNode(node, "property") as Element & Record<string, unknown>
-      element[location.key] = value
+      if (!isSafeUrlAttribute(location.key, value)) element.removeAttribute(location.key)
+      else element[location.key] = value
     } else if (location.kind === "style") {
       const element = styleNode(node)
       if (value == null || value === false) element.style.removeProperty(location.key)

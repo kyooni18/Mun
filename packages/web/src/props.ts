@@ -1,3 +1,4 @@
+import { isSafeUrlAttribute } from "./url-policy.js"
 import { classNameOf, type Animation } from "@mun/core/compat"
 import { cssPropertyName, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, normalizedTextAreaValue, type DomRenderContext } from "./shared.js"
 import { animateDomAttribute, animateDomStyles, cancelDomAnimations, cancelDomAttributeAnimation, cancelDomStyleAnimation, type DomStyleMotionChange } from "./motion.js"
@@ -116,6 +117,10 @@ function namespacedAttribute(name: string): { readonly namespace?: string; reado
 }
 
 function setAttribute(element: Element, name: string, value: string): void {
+  if (!isSafeUrlAttribute(name, value)) {
+    removeAttribute(element, name)
+    return
+  }
   const attribute = namespacedAttribute(name)
   if (attribute.namespace) element.setAttributeNS(attribute.namespace, attribute.qualifiedName, value)
   else element.setAttribute(attribute.qualifiedName, value)
@@ -157,6 +162,10 @@ export function synchronizeDomSelectValue(element: Element, props: Record<string
 
 function applyAttributeValue(element: Element, key: string, value: unknown): void {
   const name = htmlAttributeName(key)
+  if (!isSafeUrlAttribute(name, value)) {
+    removeAttribute(element, name)
+    return
+  }
   const customElement = element.localName.includes("-")
   if (customElement && (key in element || typeof value === "object" || typeof value === "function")) {
     try {
