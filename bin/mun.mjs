@@ -317,9 +317,9 @@ Usage:
   mun new <directory> [--target native|web]
   mun create <directory> [--target native|web]
   mun init [--target native|web]
-  mun dev [--verbose]
+  mun dev [--verbose]                         # experimental native project
   mun inspect [--values] [--json]
-  mun run [input.mun]
+  mun run [input.mun]                          # experimental native host
   mun check
   mun fmt [--check]
   mun build
