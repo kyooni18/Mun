@@ -3,6 +3,7 @@ import { arrayCheck, snapshotArrayValues } from "./arrays.js"
 import { decorate, modifiedContent, snapshotRecord } from "./modifiers.js"
 import { snapshotElementProps } from "./element-internal.js"
 import { collectStateReads, isStateRef, type StateRef } from "../state.js"
+import { bindEnvironmentScope, createEnvironmentScope } from "../observation.js"
 import type {
   CompiledTemplateDescriptor,
   CompiledTemplateValue,
@@ -291,7 +292,7 @@ export function keyedCollectionView(
     items: snapshotArrayValues(items),
     source,
     key,
-    content: fallbackContent,
+    content: bindEnvironmentScope(createEnvironmentScope(), fallbackContent),
     indexIndependent: options.indexIndependent === true,
     ...(options.compiled ? { compiled: options.compiled } : {}),
     ...(options.readItems ? { readItems: options.readItems } : {}),
@@ -321,6 +322,7 @@ export function viewHost(
   dependenciesComplete = false,
   compiledBody?: CompiledViewBodyPlan<Record<string, unknown>>,
 ): ModifiableViewNode {
+  const scope = createEnvironmentScope()
   const normalizedState = state
     ? (props: Record<string, unknown>): Record<string, unknown> => {
         const value = state(props)
@@ -339,7 +341,7 @@ export function viewHost(
     name,
     host,
     props: snapshotRecord(props, true) as Record<string, unknown>,
-    render,
+    render: bindEnvironmentScope(scope, render),
     state: normalizedState,
     ...(dependencies ? { dependencies } : {}),
     ...(dependenciesComplete ? { dependenciesComplete: true } : {}),
@@ -349,15 +351,15 @@ export function viewHost(
       ...(compiledBody.patchDependencyIndices ? { patchDependencyIndices: Object.freeze(Object.fromEntries(
         Object.entries(compiledBody.patchDependencyIndices).map(([key, indices]) => [key, Object.freeze([...indices])]),
       )) } : {}),
-      ...(compiledBody.evaluatePatch ? { evaluatePatch: compiledBody.evaluatePatch } : {}),
-      evaluate: compiledBody.evaluate,
+      ...(compiledBody.evaluatePatch ? { evaluatePatch: bindEnvironmentScope(scope, compiledBody.evaluatePatch) } : {}),
+      evaluate: bindEnvironmentScope(scope, compiledBody.evaluate),
     }) } : {}),
   }, true)
 }
 
 /** Create a renderer-neutral geometry observation boundary. */
 export function geometryView(content: (geometry: GeometryProxy) => ViewGraphValue): ModifiableViewNode {
-  return decorate({ kind: "geometry" as const, content }, true)
+  return decorate({ kind: "geometry" as const, content: bindEnvironmentScope(createEnvironmentScope(), content) }, true)
 }
 
 /** Create a lazy graph boundary. Renderers may window its children by range. */

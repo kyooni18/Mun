@@ -74,20 +74,62 @@ function declaresName(node: ts.Node, name: string): boolean {
   return found
 }
 
-function isStorageReference(node: ts.Identifier, stop: ts.Node): boolean {
+interface ReferenceRewrite {
+  /** Leave `name.<member>` alone (the explicit storage spelling). */
+  readonly explicitMember?: string
+  /** Leave `callee(name)` alone, e.g. `Binding(count)` from `$count`. */
+  readonly passthroughCallee?: string
+}
+
+function isMemberReference(node: ts.Identifier, stop: ts.Node, options: ReferenceRewrite): boolean {
   const parent = node.parent
   if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false
-  // `count.value` is the explicit storage spelling and stays valid.
-  if (ts.isPropertyAccessExpression(parent) && parent.expression === node && parent.name.text === "value") return false
-  if ((ts.isPropertyAssignment(parent) || ts.isMethodDeclaration(parent) || ts.isPropertyDeclaration(parent)) && parent.name === node) return false
+  if (options.explicitMember && ts.isPropertyAccessExpression(parent) && parent.expression === node && parent.name.text === options.explicitMember) return false
+  if ((ts.isPropertyAssignment(parent) || ts.isMethodDeclaration(parent) || ts.isPropertyDeclaration(parent) || ts.isGetAccessorDeclaration(parent) || ts.isSetAccessorDeclaration(parent)) && parent.name === node) return false
   if ((ts.isVariableDeclaration(parent) || ts.isParameter(parent) || ts.isBindingElement(parent)) && parent.name === node) return false
-  // `$count` lowers to `Binding(count)`, which needs the storage itself.
-  if (ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === "Binding" && parent.arguments[0] === node) return false
+  if (options.passthroughCallee && ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === options.passthroughCallee && parent.arguments[0] === node) return false
   for (let scope: ts.Node = parent; scope !== stop; scope = scope.parent) {
     if (ts.isTypeNode(scope)) return false
     if (declaresName(scope, node.text)) return false
   }
   return true
+}
+
+/**
+ * Rewrite every unshadowed value reference to one of `names` inside each of
+ * `roots` (nodes of `file`, whose text is `text`). Shorthand properties
+ * (`{ count }`) keep their key.
+ */
+export function rewriteMemberReferences(
+  text: string,
+  file: ts.SourceFile,
+  roots: readonly ts.Node[],
+  names: ReadonlySet<string>,
+  replacement: (name: string) => string,
+  options: ReferenceRewrite = {},
+  /** Outermost node whose declarations can shadow a member (defaults to each root's parent). */
+  boundary?: ts.Node,
+): string {
+  const edits: { start: number; end: number; text: string }[] = []
+  for (const root of roots) {
+    const stop = boundary ?? root.parent ?? file
+    const visit = (node: ts.Node): void => {
+      if (ts.isShorthandPropertyAssignment(node) && names.has(node.name.text) && isMemberReference(node.name, stop, options)) {
+        edits.push({ start: node.name.getStart(file), end: node.name.end, text: `${node.name.text}: ${replacement(node.name.text)}` })
+        return
+      }
+      if (ts.isIdentifier(node) && names.has(node.text) && isMemberReference(node, stop, options)) {
+        edits.push({ start: node.getStart(file), end: node.end, text: replacement(node.text) })
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(root)
+  }
+  let output = text
+  for (const edit of edits.sort((left, right) => right.start - left.start)) {
+    output = output.slice(0, edit.start) + edit.text + output.slice(edit.end)
+  }
+  return output
 }
 
 /**
@@ -99,23 +141,9 @@ function isStorageReference(node: ts.Identifier, stop: ts.Node): boolean {
 export function lowerStructStateAccess(source: string, names: ReadonlySet<string>): string {
   if (names.size === 0) return source
   const prefix = "const __munBody = ("
-  const file = ts.createSourceFile("mun-struct-state.ts", `${prefix}${source})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const text = `${prefix}${source})`
+  const file = ts.createSourceFile("mun-struct-state.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   if (((file as ts.SourceFile & { readonly parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics?.length ?? 0) > 0) return source
-  const edits: { start: number; end: number; text: string }[] = []
-  const visit = (node: ts.Node): void => {
-    if (ts.isShorthandPropertyAssignment(node) && names.has(node.name.text) && isStorageReference(node.name, file)) {
-      edits.push({ start: node.name.getStart(file), end: node.name.end, text: `${node.name.text}: ${node.name.text}.value` })
-      return
-    }
-    if (ts.isIdentifier(node) && names.has(node.text) && isStorageReference(node, file)) {
-      edits.push({ start: node.end, end: node.end, text: ".value" })
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(file)
-  let output = `${prefix}${source})`
-  for (const edit of edits.sort((left, right) => right.start - left.start)) {
-    output = output.slice(0, edit.start) + edit.text + output.slice(edit.end)
-  }
+  const output = rewriteMemberReferences(text, file, [file], names, name => `${name}.value`, { explicitMember: "value", passthroughCallee: "Binding" })
   return output.slice(prefix.length, -1)
 }

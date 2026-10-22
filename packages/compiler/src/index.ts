@@ -29,6 +29,7 @@ export type {
   MunSourceRange,
   MunStructDeclaration,
   MunStructComputedProperty,
+  MunStructEnvironmentValue,
   MunStructField,
   MunStructInitializer,
 } from "./ast.js"

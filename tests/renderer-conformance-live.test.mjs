@@ -389,3 +389,41 @@ export const create = () => VStack { Tally(label: "a"); Tally(label: "b") }`)
     }
   }
 })
+
+test("@Observable models injected with .environment update descendants in every renderer", async () => {
+  const compiled = await importCompiled(`import { Button, Text, VStack } from "@mun/core/compat"
+@Observable
+final class Store {
+  var count = 0
+  let step = 2
+  func add() { count += step }
+}
+struct CountLabel: View {
+  @Environment(Store.self) var store
+  @Environment(\\.isEnabled) var enabled
+  var body: some View { Text("count \\(store.count) \\(enabled)") }
+}
+struct Panel: View {
+  @Environment(Store.self) var store
+  var body: some View {
+    VStack {
+      CountLabel()
+      Button("Add") { store.add() }
+    }
+  }
+}
+export const create = () => Panel().environment(Store())`)
+  for (const renderer of ["react", "vue", "web"]) {
+    const restore = installDOM()
+    try {
+      const mounted = await mountLiveValue(renderer, compiled.create())
+      assert.match(document.body.textContent ?? "", /count 0 true/, renderer)
+      const button = document.querySelector("button")
+      await mounted.dispatch(() => button.dispatchEvent(new window.MouseEvent("click", { bubbles: true })))
+      assert.match(document.body.textContent ?? "", /count 2 true/, renderer)
+      await mounted.unmount()
+    } finally {
+      restore()
+    }
+  }
+})

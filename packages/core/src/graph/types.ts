@@ -397,6 +397,9 @@ export interface Modifiers {
   padding(value?: Length | LayoutEdgeInsets): ModifiableViewNode
   padding(edges: EdgeSet, length?: Length): ModifiableViewNode
   margin(value?: Length): ModifiableViewNode
+  /** SwiftUI `.environment(model)` or `.environment(\\.key, value)` for this View and its descendants. */
+  environment(object: object): ModifiableViewNode
+  environment(key: string | Function, value: unknown): ModifiableViewNode
   gap(value: Length): ModifiableViewNode
   frame(options?: FrameOptions): ModifiableViewNode
   font(value: string): ModifiableViewNode

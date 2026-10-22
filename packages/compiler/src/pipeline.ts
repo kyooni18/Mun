@@ -26,6 +26,7 @@ import { foldStaticResults, hoistStaticViewSubtrees, lowerCompiledViewTemplates,
 import { lowerCompiledCollections } from "./collection-specialization.js"
 import { lowerStateArrayMaps } from "./state-specialization.js"
 import { lowerStructStateAccess, lowerSwiftInterpolation } from "./struct-state.js"
+import { lowerObservableClasses, lowerSwiftKeyPaths } from "./observable.js"
 import { canonicalViewSymbols } from "./semantic.js"
 
 // Nested named calls are uncommon in ordinary argument expressions. Keep the
@@ -1018,7 +1019,8 @@ function lowerStructDefinition(
   const stateNames = new Set(stateFields.map(field => field.name))
   const storageNames = new Set(fields.filter(field => field.kind !== "value").map(field => field.name))
   const loweredBody = lowerStructStateAccess(lowerRange(lowerNamedMunCalls(lowerSwiftInterpolation(bodySource), registry), registry), storageNames)
-  const computed = lowerComputedProperties(declaration.computed ?? [], storageNames, registry)
+  const environment = (declaration.environment ?? []).map(value => ` const ${value.name} = environmentValue(${lowerSwiftKeyPaths(value.key)});`).join("")
+  const computed = environment + lowerComputedProperties(declaration.computed ?? [], storageNames, registry)
   const bodyExpression = stateFields.length > 0 && stateProof ? parsedCompilerExpression(loweredBody) : undefined
   const dependenciesComplete = bodyExpression && stateProof && computed === ""
     ? hasCompleteStaticStateDependencies(bodyExpression, stateNames, stateNames, stateProof.values, stateProof.namespaces)
@@ -1646,7 +1648,7 @@ function lowerTopLevelState(source: string): string {
 }
 
 function ensureImports(source: string, includeViewBuiltins = false): string {
-  const callableRequired = ["defineView", "initializer", "resolveBuilderInput", "namedArguments", "overloadClosure", "viewFragment", "withAnimation", "withTransaction", "Binding", "State", "Element", "modifiedContent", "modifiedContentCompiled", "compiledTemplate", "defineCompiledTemplate"]
+  const callableRequired = ["defineView", "initializer", "resolveBuilderInput", "namedArguments", "overloadClosure", "viewFragment", "withAnimation", "withTransaction", "Binding", "State", "Element", "modifiedContent", "modifiedContentCompiled", "compiledTemplate", "defineCompiledTemplate", "Observable", "environmentValue"]
     .filter(name => new RegExp(`\\b${name}(?:<[^()\\n]*>)?\\s*\\(`).test(source) || (name === "defineView" && /const\s+[A-Z]\w*\s*=\s*defineView/.test(source)))
   const valueRequired = ["Transition", "Animation", "ContentTransition", "SymbolEffect"].filter(name => {
     if (!new RegExp(`\\b${name}\\s*\\.`).test(source)) return false
@@ -1950,7 +1952,7 @@ function lowerReactComponentImports(source: string): string {
 }
 
 export function transformMunSource(source: string, fileName = "mun-source.ts"): string {
-  const withVueImports = lowerVueComponentImports(source)
+  const withVueImports = lowerVueComponentImports(lowerSwiftKeyPaths(lowerObservableClasses(source)))
   const withForeignImports = lowerReactComponentImports(withVueImports)
   const withAnimationArguments = lowerNamedAnimationFactoryCalls(withForeignImports)
   const withModifierArguments = lowerNamedModifierCalls(withAnimationArguments)

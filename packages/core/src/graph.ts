@@ -6,6 +6,7 @@
  * types/environment, nodes, modifiers, traversal, and initializer semantics.
  */
 export { munForeignComponent, munInitializers, munNamedArguments, munView } from "./graph/symbols.js"
+export { Observable, environmentValue } from "./observation.js"
 export type {
   ClassValue,
   CompiledTemplateDescriptor,

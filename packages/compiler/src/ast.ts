@@ -496,7 +496,16 @@ export interface MunStructDeclaration {
   readonly initializers: readonly MunStructInitializer[]
   /** Swift computed properties: `var total: Int { a + b }`, `var header: some View { ... }`. */
   readonly computed?: readonly MunStructComputedProperty[]
+  /** `@Environment(\\.colorScheme) var scheme`, `@Environment(Model.self) var model`. */
+  readonly environment?: readonly MunStructEnvironmentValue[]
   readonly nested?: readonly MunStructDeclaration[]
+}
+
+export interface MunStructEnvironmentValue {
+  readonly name: string
+  /** The wrapper argument as written, e.g. `\\.colorScheme` or `Model.self`. */
+  readonly key: string
+  readonly range: MunSourceRange
 }
 
 export interface MunStructComputedProperty {
@@ -761,6 +770,7 @@ export function shiftMunStruct(declaration: MunStructDeclaration, delta: number)
       parametersRange: shiftedRange(initializer.parametersRange, delta),
       bodyRange: shiftedRange(initializer.bodyRange, delta),
     })),
+    ...(declaration.environment ? { environment: declaration.environment.map(value => ({ ...value, range: shiftedRange(value.range, delta) })) } : {}),
     ...(declaration.computed ? { computed: declaration.computed.map(property => ({ ...property, range: shiftedRange(property.range, delta) })) } : {}),
     ...(declaration.nested ? { nested: declaration.nested.map(item => shiftMunStruct(item, delta)) } : {}),
   }
@@ -807,7 +817,10 @@ function parseStructDeclaration(source: string, header: RegExpExecArray, brace: 
   const bodyExpression = findTopLevelBodyExpression(bodySource)
   if (!bodyExpression) throw syntaxError(`struct ${header[1]} must declare var body`, 0)
   const computed = findComputedProperties(maskInitializerBodies(maskNestedStructs(bodySource)))
-  const members = parseStructMembers(maskRanges(bodySource, computed).slice(0, bodyExpression.declarationStart), brace + 1)
+  const memberSource = maskRanges(maskInitializerBodies(maskNestedStructs(bodySource)), [...computed, { start: bodyExpression.declarationStart, close: bodyExpression.close }])
+  const environment = [...memberSource.matchAll(/(^|[;\n])[ \t]*@Environment\s*\(([^()\n]*)\)\s*(?:(?:private|fileprivate|internal|public)\s+)?var\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*:\s*[^=\n;]+)?/g)]
+    .map(match => ({ name: match[3], key: match[2].trim(), start: (match.index ?? 0) + match[1].length, close: (match.index ?? 0) + match[0].length - 1 }))
+  const members = parseStructMembers(maskRanges(bodySource, [...computed, ...environment]).slice(0, bodyExpression.declarationStart), brace + 1)
   return {
     kind: "struct",
     name: header[1],
@@ -826,6 +839,13 @@ function parseStructDeclaration(source: string, header: RegExpExecArray, brace: 
         type: property.type,
         bodySource: bodySource.slice(property.open + 1, property.close),
         range: { start: brace + 1 + property.start, end: brace + 1 + property.close + 1 },
+      })),
+    } : {}),
+    ...(environment.length > 0 ? {
+      environment: environment.map(value => ({
+        name: value.name,
+        key: value.key,
+        range: { start: brace + 1 + value.start, end: brace + 1 + value.close + 1 },
       })),
     } : {}),
     nested: parseMunStructs(bodySource, brace + 1),

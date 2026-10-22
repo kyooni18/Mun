@@ -1,3 +1,4 @@
+import { applyEnvironment } from "../observation.js"
 import type { Animation } from "../animation.js"
 import type { FrameOptions } from "../layout.js"
 import type { Transition } from "../transition.js"
@@ -174,6 +175,12 @@ const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.proto
     return applyModifier(this, "padding", arguments.length >= 2 ? [valueOrEdges, length] : [valueOrEdges])
   },
   margin(this: ViewNode, value: Length = 0) { return applyModifier(this, "margin", [value]) },
+  /** `.environment(model)` keys an observable object by its class; `.environment(\\.key, value)` sets a key path. */
+  environment(this: ViewNode, keyOrObject: unknown, ...value: unknown[]) {
+    if (value.length > 0) applyEnvironment(this, keyOrObject, value[0])
+    else applyEnvironment(this, (keyOrObject as object | null)?.constructor, keyOrObject)
+    return decorate(this)
+  },
   gap(this: ViewNode, value: Length) { return applyModifier(this, "gap", [value]) },
   frame(this: ViewNode, options: FrameOptions = {}) { return applyModifier(this, "frame", [options]) },
   font(this: ViewNode, value: string) { return applyModifier(this, "font", [value]) },
