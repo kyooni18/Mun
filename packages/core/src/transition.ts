@@ -1,4 +1,5 @@
 import type { Animation } from "./animation.js"
+import type { MunStyleProperties } from "./html.js"
 
 export type TransitionEdge = "top" | "bottom" | "leading" | "trailing" | "left" | "right"
 
@@ -6,6 +7,13 @@ export type TransitionEffect =
   | Readonly<{ kind: "opacity" }>
   | Readonly<{ kind: "scale"; scale: number }>
   | Readonly<{ kind: "move"; edge: TransitionEdge; distance: number }>
+  | Readonly<{ kind: "blur"; radius: number }>
+  /**
+   * Renderer-specific escape hatch, like SwiftUI's `.modifier(active:identity:)`.
+   * Web animates every listed property between the two styles; numeric tokens
+   * inside compound values (`blur(4px)`, `saturate(120%)`) interpolate.
+   */
+  | Readonly<{ kind: "style"; active: Readonly<MunStyleProperties>; identity: Readonly<MunStyleProperties> }>
 
 export interface TransitionDescriptor {
   readonly insertion: readonly TransitionEffect[]
@@ -21,10 +29,13 @@ function normalizedEffects(effects: readonly TransitionEffect[]): readonly Trans
   const result: TransitionEffect[] = []
   const seen = new Set<string>()
   for (const effect of effects) {
-    const key = effect.kind === "opacity" ? "opacity" : effect.kind === "scale" ? "scale" : `move:${effect.edge}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(Object.freeze({ ...effect }))
+    // Style effects are opaque to dedupe: two may target different properties.
+    const key = effect.kind === "move" ? `move:${effect.edge}` : effect.kind === "style" ? undefined : effect.kind
+    if (key !== undefined && seen.has(key)) continue
+    if (key !== undefined) seen.add(key)
+    result.push(Object.freeze(effect.kind === "style"
+      ? { kind: "style", active: Object.freeze({ ...effect.active }), identity: Object.freeze({ ...effect.identity }) }
+      : { ...effect }))
   }
   return Object.freeze(result)
 }
@@ -65,6 +76,24 @@ export class Transition {
       insertion: [{ kind: "move", edge, distance: normalized }],
       removal: [{ kind: "move", edge, distance: normalized }],
     })
+  }
+
+  /** Blurs the view in from / out to `radius`. */
+  static blur(radius = 8): Transition {
+    const normalized = finitePositive(radius, 8)
+    return new Transition({
+      insertion: [{ kind: "blur", radius: normalized }],
+      removal: [{ kind: "blur", radius: normalized }],
+    })
+  }
+
+  /**
+   * Animates between an `active` style (before insertion / after removal) and
+   * the `identity` style (while present). Web-only; other renderers ignore it.
+   */
+  static modifier(active: MunStyleProperties, identity: MunStyleProperties): Transition {
+    const effect: TransitionEffect = { kind: "style", active, identity }
+    return new Transition({ insertion: [effect], removal: [effect] })
   }
 
   static asymmetric(insertion: Transition, removal: Transition): Transition {

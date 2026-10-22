@@ -224,16 +224,58 @@ export interface AnimationCSSStyle {
  * this translation and repeating animations render once until Mun ships its
  * own clock/interpolator backend.
  */
+/**
+ * Step response of the damped spring as a CSS `linear()` curve, so CSS/WAAPI
+ * playback honours dampingFraction: critically damped springs (smooth) never
+ * overshoot, underdamped ones (bouncy) do. Duration is the settle time.
+ */
+function springCSSCurve(descriptor: AnimationDescriptor): { readonly timing: string; readonly duration: number } {
+  const response = finitePositive(descriptor.response ?? descriptor.duration, 0.35)
+  const zeta = Math.max(0.01, finiteNonNegative(descriptor.dampingFraction ?? 1, 1))
+  const omega = (2 * Math.PI) / response
+  const position = (t: number): number => {
+    if (zeta < 1) {
+      const omegaD = omega * Math.sqrt(1 - zeta * zeta)
+      return 1 - Math.exp(-zeta * omega * t) * (Math.cos(omegaD * t) + (zeta * omega / omegaD) * Math.sin(omegaD * t))
+    }
+    if (zeta === 1) return 1 - Math.exp(-omega * t) * (1 + omega * t)
+    const root = Math.sqrt(zeta * zeta - 1)
+    const r1 = -omega * (zeta - root)
+    const r2 = -omega * (zeta + root)
+    return 1 - (r2 * Math.exp(r1 * t) - r1 * Math.exp(r2 * t)) / (r2 - r1)
+  }
+  // Settle within 0.1% of the target, bounded so a nearly undamped spring
+  // still produces a finite CSS animation.
+  const step = response / 60
+  let settle = response
+  for (let t = response; t < response * 12; t += step) {
+    let settled = true
+    for (let probe = t; probe < t + response; probe += step) {
+      if (Math.abs(1 - position(probe)) > 0.001) { settled = false; break }
+    }
+    if (settled) { settle = t; break }
+    settle = t
+  }
+  const samples = 40
+  const points: string[] = []
+  for (let index = 0; index <= samples; index += 1) {
+    const value = index === samples ? 1 : position((settle * index) / samples)
+    points.push(String(Math.round(value * 10000) / 10000))
+  }
+  return { timing: `linear(${points.join(", ")})`, duration: Math.round(settle * 1000) / 1000 }
+}
+
 export function animationCSSStyle(animation: Animation | null | undefined): AnimationCSSStyle | undefined {
   if (!animation) return undefined
   const descriptor = animation.descriptor
   const speed = finitePositive(descriptor.speed, 1)
-  const duration = finiteNonNegative(descriptor.duration, 0.35) / speed
+  const spring = descriptor.kind === "spring" ? springCSSCurve(descriptor) : undefined
+  const duration = (spring?.duration ?? finiteNonNegative(descriptor.duration, 0.35)) / speed
   const delay = finiteNonNegative(descriptor.delay, 0) / speed
   const timing = descriptor.kind === "linear" ? "linear"
     : descriptor.kind === "easeIn" ? "cubic-bezier(0.42, 0, 1, 1)"
       : descriptor.kind === "easeOut" ? "cubic-bezier(0, 0, 0.58, 1)"
-        : descriptor.kind === "spring" ? "cubic-bezier(0.34, 1.56, 0.64, 1)"
+        : spring ? spring.timing
           : "cubic-bezier(0.42, 0, 0.58, 1)"
   return {
     transitionProperty: "opacity, transform, translate, scale, rotate, color, background-color, width, height, min-width, min-height, max-width, max-height",

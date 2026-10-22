@@ -39,6 +39,18 @@ function currentPresentation(element: Element): { opacity: string; transform: st
   }
 }
 
+function keyframeStyle(style: Readonly<Record<string, string | number | undefined>>): Keyframe {
+  const frame: Keyframe = {}
+  for (const [property, value] of Object.entries(style)) {
+    if (value === undefined) continue
+    // WAAPI keyframes take camelCase names (custom properties stay as-is), and
+    // the WebKit prefix arrives as `WebkitX` from MunStyleProperties.
+    const name = property.startsWith("--") ? property : property.replace(/^Webkit/, "webkit")
+    frame[name] = value
+  }
+  return frame
+}
+
 export function transitionFrames(
   transition: Transition,
   entering: boolean,
@@ -52,13 +64,21 @@ export function transitionFrames(
   const extras = effects.map(transformPart).filter((value): value is string => Boolean(value))
   const transformed = [baseTransform, ...extras].filter(Boolean).join(" ") || "none"
   const identityTransform = baseTransform || "none"
+  const blur = effects.find(effect => effect.kind === "blur")
+  const styles = effects.filter(effect => effect.kind === "style")
   const inactive: Keyframe = {
     ...(hasOpacity ? { opacity: 0 } : {}),
     ...(extras.length > 0 ? { transform: transformed } : {}),
+    ...(blur ? { filter: `blur(${blur.radius}px)` } : {}),
   }
   const active: Keyframe = {
     ...(hasOpacity ? { opacity: Number.isFinite(parsedOpacity) ? parsedOpacity : 1 } : {}),
     ...(extras.length > 0 ? { transform: identityTransform } : {}),
+    ...(blur ? { filter: "blur(0px)" } : {}),
+  }
+  for (const effect of styles) {
+    Object.assign(inactive, keyframeStyle(effect.active))
+    Object.assign(active, keyframeStyle(effect.identity))
   }
   return entering ? [inactive, active] : [active, inactive]
 }

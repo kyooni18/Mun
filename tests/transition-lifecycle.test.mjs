@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 const jsdomModule = await import("jsdom").catch(() => null)
-import { Animation, State, Text, Transition, defineView, initializer, viewFragment } from "../packages/core/dist/compat.js"
+import { Animation, State, Text, Transition, animationCSSStyle, defineView, initializer, viewFragment } from "../packages/core/dist/compat.js"
 import { mount } from "../packages/web/dist/index.js"
 import { playWebTransition, transitionDurationMs, transitionFrames } from "../packages/web/dist/transition.js"
 
@@ -139,4 +139,15 @@ test("transition playback cancels partially initialized animations before timer 
   assert.equal(listeners.size, 0)
   playback.cancel()
   assert.equal(cancellations, 1)
+})
+
+test("blur and modifier transitions emit keyframes, and critically damped springs never overshoot", () => {
+  const transition = Transition.blur(6).combined(Transition.modifier({ backdropFilter: "blur(0px)" }, { backdropFilter: "blur(4px)" }))
+  assert.deepEqual(transitionFrames(transition, true), [
+    { filter: "blur(6px)", backdropFilter: "blur(0px)" },
+    { filter: "blur(0px)", backdropFilter: "blur(4px)" },
+  ])
+  const curve = (animation) => animationCSSStyle(animation).transitionTimingFunction.slice(7, -1).split(", ").map(Number)
+  assert.ok(Math.max(...curve(Animation.smooth(0.28))) <= 1)
+  assert.ok(Math.max(...curve(Animation.bouncy())) > 1)
 })
