@@ -233,6 +233,22 @@ function braceContext(source: string, index: number): BraceContext {
   return "block"
 }
 
+const bareClosureDeclarationWords = new Set(["class", "struct", "interface", "enum", "namespace", "extends", "implements", "type", "some", "any", "new", "in", "of", "else", "do", "try", "finally"])
+
+/**
+ * SwiftUI's `VStack { ... }` omits the empty argument list. Accept that form
+ * only for an uppercase name in expression position, so declarations
+ * (`class Model {`), type annotations (`var x: Foo {`) and `some View {`
+ * keep their meaning.
+ */
+function isBareTrailingClosure(source: string, start: number, name: string): boolean {
+  if (!/^[A-Z]/.test(name)) return false
+  const previous = previousSignificantCharacter(source, start)
+  if (previous === ":" || previous === "." || previous === ">" || previous === "|" || previous === "&") return false
+  const word = previousWord(source, start)
+  return word === undefined || !bareClosureDeclarationWords.has(word) || previous !== word.at(-1)
+}
+
 function findBuilder(source: string, from = 0, uppercaseOnly = false): BuilderCall | undefined {
   // Keep scanning all identifiers so lowercase user-defined builder helpers
   // remain supported. lowerBuilder preserves a call-shaped block that the AST
@@ -265,8 +281,10 @@ function findBuilder(source: string, from = 0, uppercaseOnly = false): BuilderCa
     const wordBeforeStar = previous === "*" ? previousWord(source, start - 2) : undefined
     if (previousWordValue === "function" || wordBeforeStar === "function") continue
     const open = skipTrivia(source, identifier.end)
-    if (source[open] !== "(") continue
-    const close = matching(source, open, "(", ")")
+    let close: number
+    if (source[open] === "(") close = matching(source, open, "(", ")")
+    else if (source[open] === "{" && isBareTrailingClosure(source, start, identifier.name)) close = open - 1
+    else continue
     const brace = skipTrivia(source, close + 1)
     if (source[brace] !== "{") continue
 

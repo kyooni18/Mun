@@ -437,3 +437,20 @@ test("struct field assignments continue across operator-terminated lines", () =>
   assert.match(output, /title: prefix \+\s+" World"/)
   parses(output)
 })
+
+test("SwiftUI bare trailing closures lower like empty-argument calls", () => {
+  const output = transformMunSource(`
+import { Text, VStack } from "@mun/core/compat"
+class Model { value = 1 }
+struct Row: View {
+  var body: some View {
+    VStack {
+      Text("a")
+    }
+  }
+}
+`, "Bare.mun")
+  parses(output)
+  assert.match(output, /VStack\(\(\) => \[Text\("a"\)\]\)/)
+  assert.match(output, /class Model \{ value = 1 \}/)
+})
