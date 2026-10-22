@@ -360,17 +360,18 @@ test("same-name concrete View type changes remount State identically in React, V
   }
 })
 
-test("SwiftUI-style @State reads, writes, and interpolation stay per instance", async () => {
+test("SwiftUI-style @State, computed properties, and interpolation stay per instance", async () => {
   const compiled = await importCompiled(`import { Button, HStack, Text, VStack } from "@mun/core/compat"
 struct Tally: View {
   let label: string
   @State var count = 0
   var body: some View {
     HStack {
-      Text("\\(label): \\(count)")
+      Text("\\(label): \\(count) (\\(doubled))")
       Button("Add \\(label)") { count += 1 }
     }
   }
+  private var doubled: number { count * 2 }
 }
 export const create = () => VStack { Tally(label: "a"); Tally(label: "b") }`)
   for (const renderer of ["react", "vue", "web"]) {
@@ -380,7 +381,7 @@ export const create = () => VStack { Tally(label: "a"); Tally(label: "b") }`)
       const [first] = document.querySelectorAll("button")
       await mounted.dispatch(() => first.dispatchEvent(new window.MouseEvent("click", { bubbles: true })))
       await mounted.dispatch(() => first.dispatchEvent(new window.MouseEvent("click", { bubbles: true })))
-      assert.match(document.body.textContent ?? "", /a: 2/, renderer)
+      assert.match(document.body.textContent ?? "", /a: 2 \(4\)/, renderer)
       assert.match(document.body.textContent ?? "", /b: 0/, renderer)
       await mounted.unmount()
     } finally {

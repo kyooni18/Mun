@@ -1018,8 +1018,9 @@ function lowerStructDefinition(
   const stateNames = new Set(stateFields.map(field => field.name))
   const storageNames = new Set(fields.filter(field => field.kind !== "value").map(field => field.name))
   const loweredBody = lowerStructStateAccess(lowerRange(lowerNamedMunCalls(lowerSwiftInterpolation(bodySource), registry), registry), storageNames)
+  const computed = lowerComputedProperties(declaration.computed ?? [], storageNames, registry)
   const bodyExpression = stateFields.length > 0 && stateProof ? parsedCompilerExpression(loweredBody) : undefined
-  const dependenciesComplete = bodyExpression && stateProof
+  const dependenciesComplete = bodyExpression && stateProof && computed === ""
     ? hasCompleteStaticStateDependencies(bodyExpression, stateNames, stateNames, stateProof.values, stateProof.namespaces)
     : false
   const dependencies = stateFields.length === 0
@@ -1031,7 +1032,42 @@ function lowerStructDefinition(
     fieldMetadata,
     `legacyHost: ${legacyHostPlanSource(plans)}`,
   ].filter((item): item is string => item !== undefined).join(", ")
-  return `defineView(${JSON.stringify(declaration.name)}, { ${definitionMetadata}, initializers: [${initializers.join(", ")}]${state}${dependencies}, body: (__munProps: any) => { const { ${fields.map(field => field.name).join(", ")} } = __munProps; return ${loweredBody} } })`
+  return `defineView(${JSON.stringify(declaration.name)}, { ${definitionMetadata}, initializers: [${initializers.join(", ")}]${state}${dependencies}, body: (__munProps: any) => { const { ${fields.map(field => field.name).join(", ")} } = __munProps;${computed} return ${loweredBody} } })`
+}
+
+/**
+ * Computed properties become body-local constants, evaluated after the
+ * members they read. A single expression is the value (Swift's implicit
+ * return); a statement body runs as an immediately invoked block.
+ */
+function lowerComputedProperties(
+  properties: readonly { readonly name: string; readonly bodySource: string }[],
+  storageNames: ReadonlySet<string>,
+  registry: InitializerSymbolRegistry,
+): string {
+  if (properties.length === 0) return ""
+  const lowered = new Map(properties.map(property => {
+    const source = lowerSwiftInterpolation(property.bodySource).trim()
+    const statements = /^(?:return|const|let|var|if|for|while|switch|guard|throw)\b/m.test(source)
+    const value = statements
+      ? `(() => {${lowerRange(source, registry)}})()`
+      : `(${lowerRange(lowerNamedMunCalls(source, registry), registry)})`
+    return [property.name, lowerStructStateAccess(value, storageNames)] as const
+  }))
+  const ordered: string[] = []
+  const visiting = new Set<string>()
+  const visit = (name: string): void => {
+    if (ordered.includes(name)) return
+    if (visiting.has(name)) throw syntaxError(`Computed property '${name}' depends on itself`, 0)
+    visiting.add(name)
+    for (const other of lowered.keys()) {
+      if (other !== name && new RegExp(`(?<![\\w$.])${other.replace(/\$/g, "\\$")}(?![\\w$])`).test(lowered.get(name)!)) visit(other)
+    }
+    visiting.delete(name)
+    ordered.push(name)
+  }
+  for (const name of lowered.keys()) visit(name)
+  return ordered.map(name => ` const ${name} = ${lowered.get(name)};`).join("")
 }
 
 function lowerStructs(

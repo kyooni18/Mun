@@ -494,7 +494,16 @@ export interface MunStructDeclaration {
   readonly bodyExpressionRange: MunSourceRange
   readonly fields: readonly MunStructField[]
   readonly initializers: readonly MunStructInitializer[]
+  /** Swift computed properties: `var total: Int { a + b }`, `var header: some View { ... }`. */
+  readonly computed?: readonly MunStructComputedProperty[]
   readonly nested?: readonly MunStructDeclaration[]
+}
+
+export interface MunStructComputedProperty {
+  readonly name: string
+  readonly type: string
+  readonly bodySource: string
+  readonly range: MunSourceRange
 }
 
 export interface MunStructField {
@@ -534,6 +543,50 @@ interface StructBodyExpression {
   readonly declarationStart: number
   readonly open: number
   readonly close: number
+}
+
+/**
+ * Top-level `var name: Type { ... }` members other than `body`. A non-empty
+ * type before the brace distinguishes a computed property from a stored
+ * property whose type is an object literal (`var x: { a: number }`).
+ */
+function findComputedProperties(source: string): { readonly name: string; readonly type: string; readonly start: number; readonly open: number; readonly close: number }[] {
+  const found: { name: string; type: string; start: number; open: number; close: number }[] = []
+  let braces = 0
+  for (let cursor = 0; cursor < source.length; cursor += 1) {
+    const character = source[cursor]
+    const next = source[cursor + 1]
+    if (character === "\"" || character === "'") { cursor = skipQuoted(source, cursor) - 1; continue }
+    if (character === "`") { cursor = skipTemplate(source, cursor) - 1; continue }
+    if (character === "/" && (next === "/" || next === "*")) { cursor = skipComment(source, cursor) - 1; continue }
+    if (character === "/" && regexCanStart(source, cursor)) { cursor = skipRegex(source, cursor) - 1; continue }
+    if (braces === 0 && source.startsWith("var", cursor) && !identifierPart(source[cursor - 1]) && !identifierPart(source[cursor + 3])) {
+      const match = /^var\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*([^={};\n]*[^={};\s])\s*\{/.exec(source.slice(cursor))
+      if (match && match[1] !== "body") {
+        const open = cursor + match[0].length - 1
+        const close = findMatching(source, open, "{")
+        const lineStart = source.lastIndexOf("\n", cursor) + 1
+        const prefix = /(?:(?:@ViewBuilder|private|fileprivate|internal|public)\s+)*$/.exec(source.slice(lineStart, cursor))?.[0] ?? ""
+        found.push({ name: match[1], type: match[2].trim(), start: cursor - prefix.length, open, close })
+        cursor = close
+        continue
+      }
+    }
+    if (character === "{") braces += 1
+    else if (character === "}") braces -= 1
+  }
+  return found
+}
+
+function maskRanges(source: string, ranges: readonly { readonly start: number; readonly close: number }[]): string {
+  if (ranges.length === 0) return source
+  const characters = [...source]
+  for (const range of ranges) {
+    for (let index = range.start; index <= range.close; index += 1) {
+      if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " "
+    }
+  }
+  return characters.join("")
 }
 
 function findTopLevelBodyExpression(source: string): StructBodyExpression | undefined {
@@ -708,6 +761,7 @@ export function shiftMunStruct(declaration: MunStructDeclaration, delta: number)
       parametersRange: shiftedRange(initializer.parametersRange, delta),
       bodyRange: shiftedRange(initializer.bodyRange, delta),
     })),
+    ...(declaration.computed ? { computed: declaration.computed.map(property => ({ ...property, range: shiftedRange(property.range, delta) })) } : {}),
     ...(declaration.nested ? { nested: declaration.nested.map(item => shiftMunStruct(item, delta)) } : {}),
   }
 }
@@ -752,7 +806,8 @@ function parseStructDeclaration(source: string, header: RegExpExecArray, brace: 
   const bodySource = source.slice(brace + 1, close)
   const bodyExpression = findTopLevelBodyExpression(bodySource)
   if (!bodyExpression) throw syntaxError(`struct ${header[1]} must declare var body`, 0)
-  const members = parseStructMembers(bodySource.slice(0, bodyExpression.declarationStart), brace + 1)
+  const computed = findComputedProperties(maskInitializerBodies(maskNestedStructs(bodySource)))
+  const members = parseStructMembers(maskRanges(bodySource, computed).slice(0, bodyExpression.declarationStart), brace + 1)
   return {
     kind: "struct",
     name: header[1],
@@ -765,6 +820,14 @@ function parseStructDeclaration(source: string, header: RegExpExecArray, brace: 
     bodyExpressionRange: { start: brace + 1 + bodyExpression.open + 1, end: brace + 1 + bodyExpression.close },
     fields: members.fields,
     initializers: members.initializers,
+    ...(computed.length > 0 ? {
+      computed: computed.map(property => ({
+        name: property.name,
+        type: property.type,
+        bodySource: bodySource.slice(property.open + 1, property.close),
+        range: { start: brace + 1 + property.start, end: brace + 1 + property.close + 1 },
+      })),
+    } : {}),
     nested: parseMunStructs(bodySource, brace + 1),
   }
 }
