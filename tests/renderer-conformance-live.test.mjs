@@ -427,3 +427,54 @@ export const create = () => Panel().environment(Store())`)
     }
   }
 })
+
+test("struct methods, toggle(), and lifecycle modifiers behave alike in every renderer", async () => {
+  const compiled = await importCompiled(String.raw`import { Button, Text, VStack } from "@mun/core/compat"
+export const log: string[] = []
+struct Item: View {
+  var body: some View {
+    Text("item")
+      .onAppear { log.push("appear") }
+      .onDisappear { log.push("disappear") }
+  }
+}
+struct Root: View {
+  @State var show = true
+  @State var count = 0
+  @State var seen = -1
+  var body: some View {
+    VStack {
+      if show { Item() }
+      Text("seen \(seen)")
+      Button("Toggle") { show.toggle() }
+      Button("Bump") { bump(by: 1) }
+    }
+    .onChange(of: count) { old, new in log.push("change \(old)->\(new)") }
+    .task(id: count) { seen = count }
+  }
+  private func bump(by amount: number) { count += amount }
+}
+export const create = () => Root()`)
+  const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+  for (const renderer of ["react", "vue", "web"]) {
+    const restore = installDOM()
+    compiled.log.length = 0
+    try {
+      const mounted = await mountLiveValue(renderer, compiled.create())
+      await settle()
+      assert.deepEqual(compiled.log, ["appear"], renderer)
+      assert.match(document.body.textContent ?? "", /seen 0/, renderer)
+      const [toggle, bump] = document.querySelectorAll("button")
+      await mounted.dispatch(() => bump.dispatchEvent(new window.MouseEvent("click", { bubbles: true })))
+      await settle()
+      assert.match(document.body.textContent ?? "", /seen 1/, renderer)
+      await mounted.dispatch(() => toggle.dispatchEvent(new window.MouseEvent("click", { bubbles: true })))
+      await settle()
+      assert.deepEqual(compiled.log, ["appear", "change 0->1", "disappear"], renderer)
+      assert.doesNotMatch(document.body.textContent ?? "", /item/, renderer)
+      await mounted.unmount()
+    } finally {
+      restore()
+    }
+  }
+})

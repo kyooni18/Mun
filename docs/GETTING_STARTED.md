@@ -56,6 +56,33 @@ export default Counter().environment(Store())
 The built-in key paths are `colorScheme`, `locale`, and `isEnabled`. For a
 custom key, use `.environment(\.key, value)`.
 
+Views can also declare `func` methods, which are called with their argument
+labels (`bump(by: 1)`), and can use `Bool.toggle()`. Lifecycle modifiers work
+as in SwiftUI:
+
+```swift
+struct Feed: View {
+  @State private var page = 0
+  @State private var items: string[] = []
+  @State private var visible = false
+  @State private var lastChange = ""
+
+  var body: some View {
+    List(items) { item in Text(item) }
+      .task(id: page) { items = await load(page: page) }
+      .onChange(of: page) { old, new in lastChange = "\(old) -> \(new)" }
+      .onAppear { visible = true }
+      .onDisappear { visible.toggle() }
+  }
+
+  func load(page: number) async -> string[] { /* fetch */ return [] }
+}
+```
+
+`.task` runs when the View appears, restarts when its `id` changes, and is
+cancelled when the View disappears. The closure also receives an
+`AbortSignal`, which you can pass to `fetch`.
+
 ## Developing from a checkout
 
 ```bash

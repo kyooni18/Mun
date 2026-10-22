@@ -1,6 +1,6 @@
 import * as ts from "typescript"
 import { matching, skipComment, skipString, splitTopLevel } from "./scanner.js"
-import { lowerSwiftInterpolation, rewriteMemberReferences } from "./struct-state.js"
+import { lowerBoolToggle, lowerSwiftInterpolation, rewriteMemberReferences } from "./struct-state.js"
 
 const identifier = "[A-Za-z_$][A-Za-z0-9_$]*"
 const statementBody = /^(?:return|const|let|var|if|for|while|switch|guard|throw)\b/m
@@ -37,7 +37,7 @@ export function lowerSwiftKeyPaths(source: string): string {
     .replace(new RegExp(`\\b([A-Z][A-Za-z0-9_$]*)\\.self\\b`, "g"), "$1"))
 }
 
-function lowerParameters(source: string): string {
+export function lowerParameters(source: string): string {
   return splitTopLevel(source).map(parameter => {
     const match = new RegExp(`^\\s*(?:(?:_|${identifier})\\s+)?(${identifier})\\s*(:[\\s\\S]*)?$`).exec(parameter)
     return match ? `${match[1]}${match[2] ?? ""}` : parameter.trim()
@@ -145,10 +145,11 @@ function lowerImplicitSelf(classSource: string): string {
  * plus a same-named instance type so `let model: Model` keeps type-checking.
  */
 /**
- * Swift constructs a class without `new` and with argument labels:
- * `Model(start: 1)` becomes `new Model(1)`.
+ * Swift call sites carry argument labels: `bump(by: 2)` becomes `bump(2)`.
+ * With `construct`, a class is also built without `new`: `Model(start: 1)`
+ * becomes `new Model(1)`. Member calls (`a.bump(...)`) are left alone.
  */
-function lowerObservableConstruction(source: string, names: ReadonlySet<string>): string {
+export function lowerLabeledCalls(source: string, names: ReadonlySet<string>, construct = false): string {
   if (names.size === 0) return source
   const call = new RegExp(`\\b(${[...names].join("|")})\\s*\\(`, "g")
   let output = ""
@@ -163,7 +164,7 @@ function lowerObservableConstruction(source: string, names: ReadonlySet<string>)
     const args = splitTopLevel(source.slice(open + 1, close))
       .map(argument => argument.replace(new RegExp(`^\\s*${identifier}\\s*:(?!:)\\s*`), "").trim())
       .filter(Boolean)
-    output += `${source.slice(cursor, start)}new ${match[1]}(${args.join(", ")})`
+    output += `${source.slice(cursor, start)}${construct ? "new " : ""}${match[1]}(${args.join(", ")})`
     cursor = close + 1
   }
   return output + source.slice(cursor)
@@ -180,10 +181,10 @@ export function lowerObservableClasses(source: string): string {
     const brace = (match.index ?? 0) + text.length - 1
     const close = matching(source, brace, "{", "}")
     const members = lowerClassMembers(lowerSwiftInterpolation(source.slice(brace + 1, close)))
-    const classSource = lowerImplicitSelf(`class ${name} {${members}}`)
+    const classSource = lowerBoolToggle(lowerImplicitSelf(`class ${name} {${members}}`))
     const exportKeyword = exported ? "export " : ""
     const replacement = `${exportKeyword}const ${name} = Observable(${classSource})\n${indent}${exportKeyword}type ${name} = InstanceType<typeof ${name}>`
     output = output.slice(0, start) + indent + replacement + output.slice(close + 1)
   }
-  return lowerObservableConstruction(output, new Set(matches.map(match => match[4])))
+  return lowerLabeledCalls(output, new Set(matches.map(match => match[4])), true)
 }

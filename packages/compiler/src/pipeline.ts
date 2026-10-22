@@ -25,8 +25,9 @@ import { lowerImplicitMemberShorthand, lowerNamedAnimationFactoryCalls, lowerSho
 import { foldStaticResults, hoistStaticViewSubtrees, lowerCompiledViewTemplates, lowerContentTransitionArgument, lowerStaticSemanticSpecializations, staticModifierNames } from "./specialization.js"
 import { lowerCompiledCollections } from "./collection-specialization.js"
 import { lowerStateArrayMaps } from "./state-specialization.js"
-import { lowerStructStateAccess, lowerSwiftInterpolation } from "./struct-state.js"
-import { lowerObservableClasses, lowerSwiftKeyPaths } from "./observable.js"
+import { lowerBoolToggle, lowerStructStateAccess, lowerSwiftInterpolation } from "./struct-state.js"
+import { lowerLabeledCalls, lowerObservableClasses, lowerParameters, lowerSwiftKeyPaths } from "./observable.js"
+import { lowerLifecycleModifiers } from "./lifecycle.js"
 import { canonicalViewSymbols } from "./semantic.js"
 
 // Nested named calls are uncommon in ordinary argument expressions. Keep the
@@ -1018,9 +1019,17 @@ function lowerStructDefinition(
   // builder pass and can reach TypeScript as `Button(action, ..., label, ...)`.
   const stateNames = new Set(stateFields.map(field => field.name))
   const storageNames = new Set(fields.filter(field => field.kind !== "value").map(field => field.name))
-  const loweredBody = lowerStructStateAccess(lowerRange(lowerNamedMunCalls(lowerSwiftInterpolation(bodySource), registry), registry), storageNames)
+  const methodNames = new Set((declaration.methods ?? []).map(method => method.name))
+  // Swift-only member syntax becomes ordinary call syntax before builder lowering.
+  const prepare = (source: string): string => lowerLabeledCalls(lowerLifecycleModifiers(lowerSwiftInterpolation(source)), methodNames)
+  const loweredBody = lowerBoolToggle(lowerStructStateAccess(lowerRange(lowerNamedMunCalls(prepare(bodySource), registry), registry), storageNames))
   const environment = (declaration.environment ?? []).map(value => ` const ${value.name} = environmentValue(${lowerSwiftKeyPaths(value.key)});`).join("")
-  const computed = environment + lowerComputedProperties(declaration.computed ?? [], storageNames, registry)
+  // Methods are function declarations, so computed properties and each other may call them in any order.
+  const methods = (declaration.methods ?? []).map(method => {
+    const lowered = lowerStructStateAccess(`${method.asynchronous ? "async " : ""}function ${method.name}(${lowerParameters(method.parametersSource)}) {${lowerRange(prepare(method.bodySource), registry)}}`, storageNames)
+    return ` ${lowerBoolToggle(lowered)}`
+  }).join("")
+  const computed = environment + methods + lowerComputedProperties(declaration.computed ?? [], storageNames, registry, prepare)
   const bodyExpression = stateFields.length > 0 && stateProof ? parsedCompilerExpression(loweredBody) : undefined
   const dependenciesComplete = bodyExpression && stateProof && computed === ""
     ? hasCompleteStaticStateDependencies(bodyExpression, stateNames, stateNames, stateProof.values, stateProof.namespaces)
@@ -1046,15 +1055,16 @@ function lowerComputedProperties(
   properties: readonly { readonly name: string; readonly bodySource: string }[],
   storageNames: ReadonlySet<string>,
   registry: InitializerSymbolRegistry,
+  prepare: (source: string) => string,
 ): string {
   if (properties.length === 0) return ""
   const lowered = new Map(properties.map(property => {
-    const source = lowerSwiftInterpolation(property.bodySource).trim()
+    const source = prepare(property.bodySource).trim()
     const statements = /^(?:return|const|let|var|if|for|while|switch|guard|throw)\b/m.test(source)
     const value = statements
       ? `(() => {${lowerRange(source, registry)}})()`
       : `(${lowerRange(lowerNamedMunCalls(source, registry), registry)})`
-    return [property.name, lowerStructStateAccess(value, storageNames)] as const
+    return [property.name, lowerBoolToggle(lowerStructStateAccess(value, storageNames))] as const
   }))
   const ordered: string[] = []
   const visiting = new Set<string>()

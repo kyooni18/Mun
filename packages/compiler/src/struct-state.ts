@@ -147,3 +147,9 @@ export function lowerStructStateAccess(source: string, names: ReadonlySet<string
   const output = rewriteMemberReferences(text, file, [file], names, name => `${name}.value`, { explicitMember: "value", passthroughCallee: "Binding" })
   return output.slice(prefix.length, -1)
 }
+
+/** Swift `Bool.toggle()` on an assignable path: `on.value.toggle()` becomes `(on.value = !on.value)`. */
+export function lowerBoolToggle(source: string): string {
+  if (!source.includes(".toggle()")) return source
+  return source.replace(/(?<![\w$.\])])((?:[A-Za-z_$][\w$]*)(?:\.[A-Za-z_$][\w$]*)*)\.toggle\(\)/g, (_, path: string) => `(${path} = !${path})`)
+}

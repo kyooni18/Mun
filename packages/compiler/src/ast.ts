@@ -498,7 +498,17 @@ export interface MunStructDeclaration {
   readonly computed?: readonly MunStructComputedProperty[]
   /** `@Environment(\\.colorScheme) var scheme`, `@Environment(Model.self) var model`. */
   readonly environment?: readonly MunStructEnvironmentValue[]
+  /** `func name(params) [async] [-> T] { ... }` members. */
+  readonly methods?: readonly MunStructMethod[]
   readonly nested?: readonly MunStructDeclaration[]
+}
+
+export interface MunStructMethod {
+  readonly name: string
+  readonly parametersSource: string
+  readonly asynchronous: boolean
+  readonly bodySource: string
+  readonly range: MunSourceRange
 }
 
 export interface MunStructEnvironmentValue {
@@ -577,6 +587,43 @@ function findComputedProperties(source: string): { readonly name: string; readon
         const lineStart = source.lastIndexOf("\n", cursor) + 1
         const prefix = /(?:(?:@ViewBuilder|private|fileprivate|internal|public)\s+)*$/.exec(source.slice(lineStart, cursor))?.[0] ?? ""
         found.push({ name: match[1], type: match[2].trim(), start: cursor - prefix.length, open, close })
+        cursor = close
+        continue
+      }
+    }
+    if (character === "{") braces += 1
+    else if (character === "}") braces -= 1
+  }
+  return found
+}
+
+/** Top-level `func` members of a struct body. */
+function findStructMethods(source: string): { readonly name: string; readonly parameters: string; readonly asynchronous: boolean; readonly start: number; readonly open: number; readonly close: number }[] {
+  const found: { name: string; parameters: string; asynchronous: boolean; start: number; open: number; close: number }[] = []
+  let braces = 0
+  for (let cursor = 0; cursor < source.length; cursor += 1) {
+    const character = source[cursor]
+    const next = source[cursor + 1]
+    if (character === "\"" || character === "'") { cursor = skipQuoted(source, cursor) - 1; continue }
+    if (character === "`") { cursor = skipTemplate(source, cursor) - 1; continue }
+    if (character === "/" && (next === "/" || next === "*")) { cursor = skipComment(source, cursor) - 1; continue }
+    if (braces === 0 && source.startsWith("func", cursor) && !identifierPart(source[cursor - 1]) && !identifierPart(source[cursor + 4])) {
+      const match = /^func\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(source.slice(cursor))
+      if (match) {
+        const parametersOpen = cursor + match[0].length - 1
+        const parametersClose = findMatching(source, parametersOpen, "(")
+        const open = source.indexOf("{", parametersClose)
+        const close = findMatching(source, open, "{")
+        const lineStart = source.lastIndexOf("\n", cursor) + 1
+        const prefix = /(?:(?:@MainActor|private|fileprivate|internal|public|mutating|static)\s+)*$/.exec(source.slice(lineStart, cursor))?.[0] ?? ""
+        found.push({
+          name: match[1],
+          parameters: source.slice(parametersOpen + 1, parametersClose),
+          asynchronous: /\basync\b/.test(source.slice(parametersClose + 1, open)),
+          start: cursor - prefix.length,
+          open,
+          close,
+        })
         cursor = close
         continue
       }
@@ -770,6 +817,7 @@ export function shiftMunStruct(declaration: MunStructDeclaration, delta: number)
       parametersRange: shiftedRange(initializer.parametersRange, delta),
       bodyRange: shiftedRange(initializer.bodyRange, delta),
     })),
+    ...(declaration.methods ? { methods: declaration.methods.map(method => ({ ...method, range: shiftedRange(method.range, delta) })) } : {}),
     ...(declaration.environment ? { environment: declaration.environment.map(value => ({ ...value, range: shiftedRange(value.range, delta) })) } : {}),
     ...(declaration.computed ? { computed: declaration.computed.map(property => ({ ...property, range: shiftedRange(property.range, delta) })) } : {}),
     ...(declaration.nested ? { nested: declaration.nested.map(item => shiftMunStruct(item, delta)) } : {}),
@@ -816,11 +864,12 @@ function parseStructDeclaration(source: string, header: RegExpExecArray, brace: 
   const bodySource = source.slice(brace + 1, close)
   const bodyExpression = findTopLevelBodyExpression(bodySource)
   if (!bodyExpression) throw syntaxError(`struct ${header[1]} must declare var body`, 0)
-  const computed = findComputedProperties(maskInitializerBodies(maskNestedStructs(bodySource)))
-  const memberSource = maskRanges(maskInitializerBodies(maskNestedStructs(bodySource)), [...computed, { start: bodyExpression.declarationStart, close: bodyExpression.close }])
+  const methods = findStructMethods(maskInitializerBodies(maskNestedStructs(bodySource)))
+  const computed = findComputedProperties(maskRanges(maskInitializerBodies(maskNestedStructs(bodySource)), methods))
+  const memberSource = maskRanges(maskInitializerBodies(maskNestedStructs(bodySource)), [...methods, ...computed, { start: bodyExpression.declarationStart, close: bodyExpression.close }])
   const environment = [...memberSource.matchAll(/(^|[;\n])[ \t]*@Environment\s*\(([^()\n]*)\)\s*(?:(?:private|fileprivate|internal|public)\s+)?var\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*:\s*[^=\n;]+)?/g)]
     .map(match => ({ name: match[3], key: match[2].trim(), start: (match.index ?? 0) + match[1].length, close: (match.index ?? 0) + match[0].length - 1 }))
-  const members = parseStructMembers(maskRanges(bodySource, [...computed, ...environment]).slice(0, bodyExpression.declarationStart), brace + 1)
+  const members = parseStructMembers(maskRanges(bodySource, [...methods, ...computed, ...environment]).slice(0, bodyExpression.declarationStart), brace + 1)
   return {
     kind: "struct",
     name: header[1],
@@ -839,6 +888,15 @@ function parseStructDeclaration(source: string, header: RegExpExecArray, brace: 
         type: property.type,
         bodySource: bodySource.slice(property.open + 1, property.close),
         range: { start: brace + 1 + property.start, end: brace + 1 + property.close + 1 },
+      })),
+    } : {}),
+    ...(methods.length > 0 ? {
+      methods: methods.map(method => ({
+        name: method.name,
+        parametersSource: method.parameters,
+        asynchronous: method.asynchronous,
+        bodySource: bodySource.slice(method.open + 1, method.close),
+        range: { start: brace + 1 + method.start, end: brace + 1 + method.close + 1 },
       })),
     } : {}),
     ...(environment.length > 0 ? {

@@ -1,3 +1,4 @@
+import type { TaskSignal } from "../lifecycle.js"
 import type { Animation } from "../animation.js"
 import type { EdgeSet, FrameAlignment, FrameOptions, LayoutEdgeInsets } from "../layout.js"
 import type { MunStyleProperties } from "../html.js"
@@ -400,6 +401,10 @@ export interface Modifiers {
   /** SwiftUI `.environment(model)` or `.environment(\\.key, value)` for this View and its descendants. */
   environment(object: object): ModifiableViewNode
   environment(key: string | Function, value: unknown): ModifiableViewNode
+  onAppear(action: () => unknown): ModifiableViewNode
+  onDisappear(action: () => unknown): ModifiableViewNode
+  task(action: (signal: TaskSignal) => unknown, id?: unknown): ModifiableViewNode
+  onChange<T>(value: T, action: ((oldValue: T, newValue: T) => unknown) | (() => unknown), initial?: boolean): ModifiableViewNode
   gap(value: Length): ModifiableViewNode
   frame(options?: FrameOptions): ModifiableViewNode
   font(value: string): ModifiableViewNode

@@ -1,4 +1,5 @@
 import { applyEnvironment } from "../observation.js"
+import { lifecycleView, type TaskSignal } from "../lifecycle.js"
 import type { Animation } from "../animation.js"
 import type { FrameOptions } from "../layout.js"
 import type { Transition } from "../transition.js"
@@ -175,6 +176,13 @@ const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.proto
     return applyModifier(this, "padding", arguments.length >= 2 ? [valueOrEdges, length] : [valueOrEdges])
   },
   margin(this: ViewNode, value: Length = 0) { return applyModifier(this, "margin", [value]) },
+  onAppear(this: ViewNode, action: () => unknown) { return lifecycleView(this, { kind: "appear", action }) },
+  onDisappear(this: ViewNode, action: () => unknown) { return lifecycleView(this, { kind: "disappear", action }) },
+  /** SwiftUI `.task(id:)`: runs on appear, restarts when `id` changes, and aborts its signal on disappear. */
+  task(this: ViewNode, action: (signal: TaskSignal) => unknown, id?: unknown) { return lifecycleView(this, { kind: "task", action, id }) },
+  onChange(this: ViewNode, value: unknown, action: (oldValue: unknown, newValue: unknown) => unknown, initial = false) {
+    return lifecycleView(this, { kind: "change", value, action, initial })
+  },
   /** `.environment(model)` keys an observable object by its class; `.environment(\\.key, value)` sets a key path. */
   environment(this: ViewNode, keyOrObject: unknown, ...value: unknown[]) {
     if (value.length > 0) applyEnvironment(this, keyOrObject, value[0])
