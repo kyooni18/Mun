@@ -93,6 +93,13 @@ const htmlAttributeAliases: Readonly<Record<string, string>> = Object.freeze({
   xlinkHref: "xlink:href",
   xmlLang: "xml:lang",
   xmlSpace: "xml:space",
+  // SVG presentation attributes are kebab-case in the DOM; the view layer uses camelCase like React.
+  strokeWidth: "stroke-width",
+  strokeLinecap: "stroke-linecap",
+  strokeLinejoin: "stroke-linejoin",
+  fillRule: "fill-rule",
+  clipRule: "clip-rule",
+  vectorEffect: "vector-effect",
 })
 
 const booleanHtmlAttributes = new Set([
