@@ -83,6 +83,10 @@ struct SharedCounter: View {
   }
 }
 export const create = () => SharedCounter()`
+  return importCompiled(source)
+}
+
+async function importCompiled(source) {
   const result = compileMunFile(source, "shared-counter.mun.ts")
   const munUrl = pathToFileURL(new URL("../dist/index.js", import.meta.url).pathname).href
   const coreUrl = pathToFileURL(new URL("../packages/core/dist/compat.js", import.meta.url).pathname).href
@@ -349,6 +353,35 @@ test("same-name concrete View type changes remount State identically in React, V
       assert.equal(document.querySelector("[data-branch=value]")?.textContent, "A")
       await mounted.dispatch(() => { branch.value = "b" })
       assert.equal(document.querySelector("[data-branch=value]")?.textContent, "B")
+      await mounted.unmount()
+    } finally {
+      restore()
+    }
+  }
+})
+
+test("SwiftUI-style @State reads, writes, and interpolation stay per instance", async () => {
+  const compiled = await importCompiled(`import { Button, HStack, Text, VStack } from "@mun/core/compat"
+struct Tally: View {
+  let label: string
+  @State var count = 0
+  var body: some View {
+    HStack {
+      Text("\\(label): \\(count)")
+      Button("Add \\(label)") { count += 1 }
+    }
+  }
+}
+export const create = () => VStack { Tally(label: "a"); Tally(label: "b") }`)
+  for (const renderer of ["react", "vue", "web"]) {
+    const restore = installDOM()
+    try {
+      const mounted = await mountLiveValue(renderer, compiled.create())
+      const [first] = document.querySelectorAll("button")
+      await mounted.dispatch(() => first.dispatchEvent(new window.MouseEvent("click", { bubbles: true })))
+      await mounted.dispatch(() => first.dispatchEvent(new window.MouseEvent("click", { bubbles: true })))
+      assert.match(document.body.textContent ?? "", /a: 2/, renderer)
+      assert.match(document.body.textContent ?? "", /b: 0/, renderer)
       await mounted.unmount()
     } finally {
       restore()

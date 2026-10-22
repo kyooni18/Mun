@@ -244,7 +244,8 @@ const bareClosureDeclarationWords = new Set(["class", "struct", "interface", "en
 function isBareTrailingClosure(source: string, start: number, name: string): boolean {
   if (!/^[A-Z]/.test(name)) return false
   const previous = previousSignificantCharacter(source, start)
-  if (previous === ":" || previous === "." || previous === ">" || previous === "|" || previous === "&") return false
+  if (previous === ">" && source[source.lastIndexOf(">", start) - 1] !== "=") return false
+  if (previous === ":" || previous === "." || previous === "|" || previous === "&") return false
   const word = previousWord(source, start)
   return word === undefined || !bareClosureDeclarationWords.has(word) || previous !== word.at(-1)
 }

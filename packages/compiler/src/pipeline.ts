@@ -25,6 +25,7 @@ import { lowerImplicitMemberShorthand, lowerNamedAnimationFactoryCalls, lowerSho
 import { foldStaticResults, hoistStaticViewSubtrees, lowerCompiledViewTemplates, lowerContentTransitionArgument, lowerStaticSemanticSpecializations, staticModifierNames } from "./specialization.js"
 import { lowerCompiledCollections } from "./collection-specialization.js"
 import { lowerStateArrayMaps } from "./state-specialization.js"
+import { lowerStructStateAccess, lowerSwiftInterpolation } from "./struct-state.js"
 import { canonicalViewSymbols } from "./semantic.js"
 
 // Nested named calls are uncommon in ordinary argument expressions. Keep the
@@ -1014,8 +1015,9 @@ function lowerStructDefinition(
   // SwiftUI-style labels intact by lowering them here as well; otherwise a
   // call such as Button(action: ..., label: { ... }) is consumed by the
   // builder pass and can reach TypeScript as `Button(action, ..., label, ...)`.
-  const loweredBody = lowerRange(lowerNamedMunCalls(bodySource, registry), registry)
   const stateNames = new Set(stateFields.map(field => field.name))
+  const storageNames = new Set(fields.filter(field => field.kind !== "value").map(field => field.name))
+  const loweredBody = lowerStructStateAccess(lowerRange(lowerNamedMunCalls(lowerSwiftInterpolation(bodySource), registry), registry), storageNames)
   const bodyExpression = stateFields.length > 0 && stateProof ? parsedCompilerExpression(loweredBody) : undefined
   const dependenciesComplete = bodyExpression && stateProof
     ? hasCompleteStaticStateDependencies(bodyExpression, stateNames, stateNames, stateProof.values, stateProof.namespaces)
