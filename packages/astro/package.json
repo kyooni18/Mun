@@ -3,7 +3,9 @@
   "version": "0.1.20",
   "description": "First-class Astro renderer and embedded @mun integration for Mün.",
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -31,7 +33,7 @@
     "@mun/core": "workspace:*",
     "@mun/vite": "workspace:*",
     "@mun/web": "workspace:*",
-    "typescript": "^5.8.3"
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "astro": ">=7.0.0 <8"

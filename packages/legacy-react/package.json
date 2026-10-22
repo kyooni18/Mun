@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "@mun/core": "workspace:*",
-    "typescript": "^5.8.3"
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "react": ">=18 <20",

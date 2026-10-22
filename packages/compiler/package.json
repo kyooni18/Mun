@@ -23,7 +23,7 @@
     "@mun/animation": "workspace:*",
     "@mun/core": "workspace:*",
     "@mun/execution": "workspace:*",
-    "typescript": "^5.8.3"
+    "typescript": "^5.9.3"
   },
   "sideEffects": false,
   "publishConfig": {
