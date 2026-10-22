@@ -1576,7 +1576,14 @@ function reconcileDomChildren(parent: Node, nextChildren: ArrayLike<Node>, conte
     const key = nodeKey(child, context)
     if (key !== undefined) keyed.set(key, child)
   }
-  const unkeyed = currentChildren.filter(child => nodeKey(child, context) === undefined)
+  // A reuse candidate already names its live node. Keep that node out of the
+  // positional pool, or an unkeyed sibling claims it first and both are lost.
+  const reserved = new Set<Node>()
+  for (const next of nextArray) {
+    const reusable = runtime?.reuseCandidates.get(next)
+    if (reusable?.parentNode === parent) reserved.add(reusable)
+  }
+  const unkeyed = currentChildren.filter(child => nodeKey(child, context) === undefined && !reserved.has(child))
   let nextUnkeyed = 0
 
   for (let index = 0; index < nextArray.length; index += 1) {
