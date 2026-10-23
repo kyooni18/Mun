@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#121415" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <title>Memes</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif; color-scheme: dark; background: #121415; color: #e8eaec; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 32px clamp(16px,3vw,48px) 48px; }
+    header { max-width: 1700px; margin: 0 auto 30px; }
+    h1 { font-size: 24px; font-weight: 640; letter-spacing: -.03em; margin: 0; }
+    header p { font-size: 13px; line-height: 1.6; margin: 10px 0 0; color: #9fa5aa; }
+    .compare { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 22px; max-width: 1700px; margin: auto; }
+    figure { min-width: 0; margin: 0; }
+    figcaption { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; }
+    .title { font-size: 14px; font-weight: 550; color: #e7e9ed; }
+    a { color: #b2c4d2; font-size: 12px; text-underline-offset: 4px; }
+    a:hover { color: #e7edf2; }
+    .frame { position: relative; width: 100%; aspect-ratio: 1440 / 900; background: #090b0f; overflow: hidden; border: 1px solid #363b40; border-radius: 8px; }
+    .frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .frame iframe { position: absolute; top: 0; left: 0; width: 1440px; height: 900px; border: 0; transform-origin: 0 0; background: #111315; }
+    .caption { font-size: 12px; color: #939da5; line-height: 1.6; margin-top: 13px; }
+    .tag { color: #758b9b; font-size: 11px; letter-spacing: .02em; font-weight: 540; }
+    @media (max-width: 950px) { .compare { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>디자인 비교</h1>
+    <p>왼쪽은 가이드라인 적용 전 실제 화면 캡처이고, 오른쪽은 현재 실행 중인 앱이야.</p>
+  </header>
+  <div class="compare">
+    <figure>
+      <figcaption><span class="title">이전 디자인 <span class="tag">· 기록된 화면</span></span><a href="/old-design.png" target="_blank" rel="noopener">크게 보기 ↗</a></figcaption>
+      <div class="frame"><img src="/old-design.png" alt="가이드라인 적용 전 Net Shits Reels의 데스크톱 디자인 전체 화면" /></div>
+      <div class="caption">처음 개발했을 때 저장해 둔 화면 그대로야. 화면 속 항목 수와 예전 이름도 원본 캡처의 일부라 변경하지 않았어.</div>
+    </figure>
+    <figure>
+      <figcaption><span class="title">현재 디자인 <span class="tag">· 실시간</span></span><a href="/" target="_blank" rel="noopener">앱에서 보기 ↗</a></figcaption>
+      <div class="frame" id="live-frame"><iframe src="/" title="현재 디자인의 실시간 Mün 릴스 앱"></iframe></div>
+      <div class="caption">실제 앱을 동일한 데스크톱 화면 크기로 축소해서 보여줘. 오른쪽 링크를 누르면 전체 크기로 사용할 수 있어.</div>
+    </figure>
+  </div>
+  <script>
+    const frame = document.getElementById('live-frame')
+    const iframe = frame.querySelector('iframe')
+    const resize = () => { iframe.style.transform = `scale(${frame.clientWidth / 1440})` }
+    new ResizeObserver(resize).observe(frame)
+    resize()
+  </script>
+</body>
+</html>
