@@ -25,3 +25,6 @@ local-packages/manifest.json
 native/target/
 
 *.mun.ir.json
+
+# Local-only Mun reel viewer build output
+net-shits-reels-dist/
