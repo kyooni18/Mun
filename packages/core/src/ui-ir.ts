@@ -1,4 +1,5 @@
 /** Backend-neutral Semantic UI IR shared by every Mün backend. */
+import type { MunStyleProperties } from "./html.js"
 
 export type MunUiScalar = string | number | boolean | null
 
@@ -225,6 +226,8 @@ export type MunTransitionEffect =
   | { readonly kind: "opacity" }
   | { readonly kind: "scale"; readonly scale: number }
   | { readonly kind: "move"; readonly edge: MunTransitionEdge; readonly distance: number }
+  | { readonly kind: "blur"; readonly radius: number }
+  | { readonly kind: "style"; readonly active: Readonly<MunStyleProperties>; readonly identity: Readonly<MunStyleProperties> }
 
 export interface MunUiTransition {
   readonly insertion: readonly MunTransitionEffect[]
