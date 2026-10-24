@@ -460,6 +460,10 @@ export interface Modifiers {
   mask(value: MaskValue, alignment?: FrameAlignment): ModifiableViewNode
   clipShape(value: MaskValue, style?: unknown): ModifiableViewNode
   clipped(antialiased?: boolean): ModifiableViewNode
+  /** Rounds the View's own box (background, border, image); descendants are not clipped. */
+  cornerRadius(radius: Length, antialiased?: boolean): ModifiableViewNode
+  /** Lets an Image fill the size it is proposed (e.g. by `frame`) instead of keeping its intrinsic size. */
+  resizable(): ModifiableViewNode
   border(style: string, width?: Length): ModifiableViewNode
   shadow(color: string | undefined, radius: number, x?: number, y?: number): ModifiableViewNode
   blur(radius: number, opaque?: boolean): ModifiableViewNode

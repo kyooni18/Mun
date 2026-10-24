@@ -250,6 +250,8 @@ const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.proto
   mask(this: ViewNode, value: ViewNode | string, alignment = "center") { return applyModifier(this, "mask", [value, alignment]) },
   clipShape(this: ViewNode, value: ViewNode | string, style?: unknown) { return applyModifier(this, "clipShape", [value, style]) },
   clipped(this: ViewNode, antialiased = false) { return applyModifier(this, "clipped", [antialiased]) },
+  cornerRadius(this: ViewNode, radius: Length, antialiased = true) { return applyModifier(this, "cornerRadius", [radius, antialiased]) },
+  resizable(this: ViewNode) { return applyModifier(this, "resizable", []) },
   border(this: ViewNode, style: string, width: Length = 1) { return applyModifier(this, "border", [style, width]) },
   shadow(this: ViewNode, color: string | undefined, radius: number, x = 0, y = 0) { return applyModifier(this, "shadow", [color ?? "rgba(0, 0, 0, 0.33)", radius, x, y]) },
   blur(this: ViewNode, radius: number, opaque = false) { return applyModifier(this, "blur", [radius, opaque]) },

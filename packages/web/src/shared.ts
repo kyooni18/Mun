@@ -265,6 +265,8 @@ export function styleOf(modifier: ViewModifierNode, includeAnimationFallback = t
       break
     }
     case "clipped": style = { overflow: "hidden" }; break
+    case "cornerRadius": style = { borderRadius: layoutLength(value) ?? "" }; break
+    case "resizable": style = { width: "100%", height: "100%" }; break
     case "border": style = { border: `${layoutLength(modifier.arguments[1] ?? 1) ?? "1px"} solid ${String(value)}` }; break
     case "shadow": style = { "box-shadow": `${finite(modifier.arguments[2], 0)}px ${finite(modifier.arguments[3], 0)}px ${Math.max(0, finite(modifier.arguments[1], 0))}px ${String(value)}` }; break
     case "blur": style = { filter: filterTemplate, "--mun-blur": `${Math.max(0, finite(value, 0))}px` }; break

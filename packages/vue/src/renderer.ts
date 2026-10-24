@@ -352,6 +352,8 @@ function modifierProps(modifier: ViewModifierNode): Record<string, unknown> {
     }
     case "clipShape": result = { style: modifier.props && typeof modifier.props === "object" && "style" in modifier.props ? (modifier.props as { style?: unknown }).style : {} }; break
     case "clipped": result = { style: { overflow: "hidden" } }; break
+    case "cornerRadius": result = { style: { borderRadius: layoutLength(value) } }; break
+    case "resizable": result = { style: { width: "100%", height: "100%" } }; break
     case "border": result = { style: { border: `${layoutLength(modifier.arguments[1] ?? 1) ?? "1px"} solid ${String(value)}` } }; break
     case "shadow": result = { style: { boxShadow: `${finite(modifier.arguments[2], 0)}px ${finite(modifier.arguments[3], 0)}px ${Math.max(0, finite(modifier.arguments[1], 0))}px ${String(value)}` } }; break
     case "blur": result = { style: { filter: filterTemplate, "--mun-blur": `${Math.max(0, finite(value, 0))}px` } }; break

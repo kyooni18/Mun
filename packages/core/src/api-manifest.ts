@@ -431,11 +431,12 @@ function compatModifier(
   name: string,
   signatures: readonly string[],
   web: SwiftUIWebSemantics,
-  options: { readonly lowering?: SwiftUIModifierLoweringSpec; readonly animatable?: boolean; readonly exact?: boolean; readonly extensions?: readonly string[]; readonly deprecated?: string } = {},
+  options: { readonly lowering?: SwiftUIModifierLoweringSpec; readonly animatable?: boolean; readonly exact?: boolean; readonly extensions?: readonly string[]; readonly deprecated?: string; readonly owner?: string } = {},
 ): SwiftUIModifierSpec {
   return {
     kind: "modifier",
     name,
+    ...(options.owner ? { owner: options.owner } : {}),
     signatures: signatures.map(signature => ({
       signature,
       contract: options.exact ? "exact" : "subset",
@@ -603,6 +604,7 @@ const modifiers: readonly SwiftUIModifierSpec[] = Object.freeze([
   compatModifier("zIndex", ["zIndex(_:)"], "approximation"),
   compatModifier("clipShape", ["clipShape(_:style:)"], "approximation", { lowering: { kind: "slots", labels: [null, "style"] } }),
   compatModifier("clipped", ["clipped(antialiased:)"], "approximation", { lowering: { kind: "slots", labels: ["antialiased"] } }),
+  compatModifier("resizable", ["resizable(capInsets:resizingMode:)"], "approximation", { owner: "Image" }),
   compatModifier("border", ["border(_:width:)"], "approximation", { lowering: { kind: "slots", labels: [null, "width"] } }),
   compatModifier("shadow", ["shadow(color:radius:x:y:)"], "approximation", { animatable: true, lowering: { kind: "slots", labels: ["color", "radius", "x", "y"] } }),
   compatModifier("blur", ["blur(radius:opaque:)"], "approximation", { animatable: true, lowering: { kind: "slots", labels: ["radius", "opaque"] } }),

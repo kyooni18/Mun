@@ -6,6 +6,7 @@ import {
   Animation,
   Button,
   GeometryReader,
+  Image,
   State,
   Text,
   VStack,
@@ -32,6 +33,11 @@ test("@mun/vue renders the renderer-independent graph as Vue VNodes", async () =
   assert.match(html, /data-mun="VStack"/)
   const styled = await renderToString(createSSRApp({ render: () => render(Text("Styled").className(["card", false, "active"])) }))
   assert.match(styled, /class="card active"/)
+})
+
+test("@mun/vue sizes a resizable Image to its frame and rounds it with cornerRadius", async () => {
+  const html = await renderToString(createSSRApp({ render: () => render(Image("/icon.png", { alt: "" }).resizable().cornerRadius(8).frame({ width: 38, height: 38 })) }))
+  assert.match(html, /<div style="[^"]*width:38px;height:38px;[^"]*"><img src="\/icon.png" alt style="width:100%;height:100%;border-radius:8px;">/)
 })
 
 test("@mun/vue MunView can suppress explicit animation styles at the host boundary", async () => {

@@ -180,7 +180,7 @@ const directCompiledBodyModifierNames = new Set([
   "fontWeight", "fontDesign", "fontWidth", "italic", "underline", "strikethrough", "monospaced", "monospacedDigit",
   "kerning", "tracking", "baselineOffset", "lineSpacing", "lineLimit", "minimumScaleFactor", "multilineTextAlignment", "truncationMode", "textCase", "allowsTightening",
   "scaleEffect", "rotationEffect", "offset", "aspectRatio", "scaledToFit", "scaledToFill", "fixedSize", "layoutPriority", "position", "zIndex",
-  "clipShape", "clipped", "border", "shadow", "blur", "brightness", "contrast", "saturation", "grayscale", "hueRotation", "colorInvert", "colorMultiply", "blendMode", "compositingGroup", "drawingGroup", "luminanceToAlpha", "tint",
+  "clipShape", "clipped", "cornerRadius", "resizable", "border", "shadow", "blur", "brightness", "contrast", "saturation", "grayscale", "hueRotation", "colorInvert", "colorMultiply", "blendMode", "compositingGroup", "drawingGroup", "luminanceToAlpha", "tint",
   "hidden", "allowsHitTesting", "preferredColorScheme", "controlSize", "scrollDisabled", "scrollIndicators", "scrollBounceBehavior", "scrollClipDisabled", "scrollDismissesKeyboard",
   "accessibilityLabel", "accessibilityHint", "accessibilityValue", "accessibilityHidden", "accessibilityIdentifier", "accessibilityHeading", "accessibilitySortPriority",
   "style", "className", "animation", "animationAuto",
