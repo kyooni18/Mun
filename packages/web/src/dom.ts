@@ -1243,6 +1243,21 @@ function mergeReusableCandidateProps(
  * carrier. The live DOM is not mutated until reconciliation succeeds, but we
  * avoid allocating a shallow clone merely to carry the next props snapshot.
  */
+// transform and filter are function lists: an outer modifier must append to
+// what inner modifiers already produced instead of replacing it.
+const composableStyleProperties = ["transform", "filter"] as const
+
+function stackComposableStyles(style: Record<string, unknown>, remembered: unknown, element?: Element): void {
+  for (const property of composableStyleProperties) {
+    const value = style[property]
+    if (typeof value !== "string") continue
+    const current = remembered && typeof remembered === "object"
+      ? (remembered as Record<string, unknown>)[property]
+      : (element as Element & { readonly style?: CSSStyleDeclaration } | undefined)?.style?.[property]
+    if (typeof current === "string" && current && current !== "none") style[property] = `${current} ${value}`
+  }
+}
+
 function stageReusableModifierPatch(
   content: Node,
   modifier: ViewModifierNode,
@@ -1269,13 +1284,7 @@ function stageReusableModifierPatch(
 
   for (const { candidate, live, props: previous } of targets) {
     const style = baseStyle ? { ...baseStyle } : undefined
-    if (style && typeof style.transform === "string") {
-      const remembered = previous?.style
-      const currentTransform = remembered && typeof remembered === "object"
-        ? (remembered as Record<string, unknown>).transform
-        : undefined
-      if (typeof currentTransform === "string" && currentTransform) style.transform = `${currentTransform} ${style.transform}`
-    }
+    if (style) stackComposableStyles(style, previous?.style)
     const props = { ...extraProps, ...(style ? { style } : {}) }
     const appliedProps = live.localName.includes("-") ? props : nativeElementProps(props)
     runtime.reuseCandidateBaseProps.set(candidate, mergeReusableCandidateProps(previous, appliedProps))
@@ -3509,13 +3518,7 @@ function createDomRenderer(context: DomRenderContext): MunRenderer<Node> {
       if (node.nodeType !== 1) return
       const element = node as Element
       const style = baseStyle ? { ...baseStyle } as Record<string, unknown> : undefined
-      if (style && typeof style.transform === "string") {
-        const remembered = context.domProps.get(element)?.style
-        const currentTransform = remembered && typeof remembered === "object"
-          ? (remembered as Record<string, unknown>).transform
-          : (element as Element & { readonly style?: CSSStyleDeclaration }).style?.transform
-        if (typeof currentTransform === "string" && currentTransform) style.transform = `${currentTransform} ${style.transform}`
-      }
+      if (style) stackComposableStyles(style, context.domProps.get(element)?.style, element)
       const props = { ...extraProps, ...(style ? { style } : {}) }
       const appliedProps = element.localName.includes("-") ? props : nativeElementProps(props)
       if (Object.keys(appliedProps).length > 0) applyDomProps(element, appliedProps, context)
@@ -4556,13 +4559,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
                 const element = root as Element
                 const previous = nextRootProps![index]
                 const style = Object.keys(extraStyle).length > 0 ? { ...extraStyle } : undefined
-                if (style && typeof style.transform === "string") {
-                  const remembered = previous?.style
-                  const currentTransform = remembered && typeof remembered === "object"
-                    ? (remembered as Record<string, unknown>).transform
-                    : undefined
-                  if (typeof currentTransform === "string" && currentTransform) style.transform = `${currentTransform} ${style.transform}`
-                }
+                if (style) stackComposableStyles(style, previous?.style)
                 const incoming = { ...extraProps, ...(style ? { style } : {}) }
                 const applied = element.localName.includes("-") ? incoming : nativeElementProps(incoming)
                 nextRootProps![index] = mergeReusableCandidateProps(previous, applied)

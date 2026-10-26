@@ -14,7 +14,7 @@ function mergeSerializedStyles(current: string, extra: string): string {
       const name = declaration.slice(0, colon).trim()
       const value = declaration.slice(colon + 1).trim()
       if (!name || !value) continue
-      if (composeTransform && name === "transform" && declarations.has(name)) declarations.set(name, `${declarations.get(name)} ${value}`)
+      if (composeTransform && (name === "transform" || name === "filter") && declarations.has(name)) declarations.set(name, `${declarations.get(name)} ${value}`)
       else declarations.set(name, value)
     }
   }

@@ -41,7 +41,6 @@ export function alignmentCSSPlace(value: unknown, fallback = "center"): string {
   }
 }
 
-const filterTemplate = "blur(var(--mun-blur,0px)) brightness(var(--mun-brightness,1)) contrast(var(--mun-contrast,1)) saturate(var(--mun-saturation,1)) grayscale(var(--mun-grayscale,0)) hue-rotate(var(--mun-hue-rotation,0deg)) invert(var(--mun-color-invert,0))"
 
 function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback
@@ -277,18 +276,18 @@ export function styleOf(modifier: ViewModifierNode, includeAnimationFallback = t
     case "resizable": style = { width: "100%", height: "100%" }; break
     case "border": style = { border: `${layoutLength(modifier.arguments[1] ?? 1) ?? "1px"} solid ${String(value)}` }; break
     case "shadow": style = { "box-shadow": `${finite(modifier.arguments[2], 0)}px ${finite(modifier.arguments[3], 0)}px ${Math.max(0, finite(modifier.arguments[1], 0))}px ${String(value)}` }; break
-    case "blur": style = { filter: filterTemplate, "--mun-blur": `${Math.max(0, finite(value, 0))}px` }; break
-    case "brightness": style = { filter: filterTemplate, "--mun-brightness": String(Math.max(0, 1 + finite(value, 0))) }; break
-    case "contrast": style = { filter: filterTemplate, "--mun-contrast": String(Math.max(0, finite(value, 1))) }; break
-    case "saturation": style = { filter: filterTemplate, "--mun-saturation": String(Math.max(0, finite(value, 1))) }; break
-    case "grayscale": style = { filter: filterTemplate, "--mun-grayscale": String(Math.max(0, Math.min(1, finite(value, 0)))) }; break
-    case "hueRotation": style = { filter: filterTemplate, "--mun-hue-rotation": `${finite(value, 0)}deg` }; break
-    case "colorInvert": style = { filter: filterTemplate, "--mun-color-invert": "1" }; break
+    case "blur": style = { filter: `blur(${Math.max(0, finite(value, 0))}px)` }; break
+    case "brightness": style = { filter: `brightness(${Math.max(0, 1 + finite(value, 0))})` }; break
+    case "contrast": style = { filter: `contrast(${Math.max(0, finite(value, 1))})` }; break
+    case "saturation": style = { filter: `saturate(${Math.max(0, finite(value, 1))})` }; break
+    case "grayscale": style = { filter: `grayscale(${Math.max(0, Math.min(1, finite(value, 0)))})` }; break
+    case "hueRotation": style = { filter: `hue-rotate(${finite(value, 0)}deg)` }; break
+    case "colorInvert": style = { filter: "invert(1)" }; break
     case "colorMultiply": style = { "--mun-color-multiply": String(value) }; break
     case "blendMode": style = { "mix-blend-mode": blendMode(value) }; break
     case "compositingGroup": style = { isolation: "isolate" }; break
     case "drawingGroup": style = { isolation: "isolate", contain: "paint", ...(value === true ? { background: "Canvas" } : {}) }; break
-    case "luminanceToAlpha": style = { filter: `${filterTemplate} grayscale(1)`, "--mun-luminance-to-alpha": "1" }; break
+    case "luminanceToAlpha": style = { filter: "grayscale(1)", "--mun-luminance-to-alpha": "1" }; break
     case "tint": style = value == null ? { "accent-color": "auto", "--mun-tint": "initial" } : { "accent-color": String(value), "--mun-tint": String(value) }; break
     case "backgroundStyle": style = { "--mun-background-style": String(value), background: String(value) }; break
     case "dynamicTypeSize": style = { "--mun-dynamic-type-size": String(value), "font-size": `var(--mun-dynamic-type-${String(value)}, inherit)` }; break
