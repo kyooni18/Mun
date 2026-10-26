@@ -3,7 +3,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { browser } from "./helpers/rendering-quality.mjs"
-import { getRenderingQuality, observeRenderingQuality, prepareRenderingQuality } from "../packages/animation/dist/src/rendering-quality/index.js"
+import { getRenderingQuality, observeRenderingQuality, prepareRenderingQuality, setRenderingQualityDebug } from "../packages/animation/dist/src/rendering-quality/index.js"
 import { motionValue } from "../packages/animation/dist/src/index.js"
 import { createCanvasRenderer } from "../packages/animation/dist/src/canvas/index.js"
 import { compileParticleFieldGPUIsland } from "../packages/compiler/dist/gpu-island-ir.js"
@@ -192,4 +192,32 @@ test("demand-driven Canvas motion retains the newest state while quality is redu
     renderer.dispose()
     assert.equal(b.timers.size, 0)
   } finally { renderer?.dispose(); b.owner.close() }
+})
+
+test("development logging is opt-in, reversible, and cannot break quality updates", async () => {
+  const b = browser()
+  const logs = []
+  b.owner.console.debug = (...args) => logs.push(args)
+  const stop = observeRenderingQuality(() => {}, b.owner)
+  try {
+    await initial(b)
+    assert.equal(logs.length, 0, "default monitoring is silent")
+    const pendingTimers = b.timers.size
+    setRenderingQualityDebug(true, b.owner)
+    assert.equal(b.timers.size, pendingTimers, "logging adds no timers or sampling")
+    await recheck(b, [33, 33])
+    assert.ok(logs.every(log => log[0] === "[Mun rendering-quality]"))
+    assert.ok(logs.some(log => log[1] === "probe:start" && log[2].cached === false))
+    assert.ok(logs.some(log => log[1] === "probe:result" && log[2].filtered[0] === 33))
+    assert.ok(logs.some(log => log[1] === "quality:change" && log[2].quality === "reduced"))
+    setRenderingQualityDebug(false, b.owner)
+    const count = logs.length
+    await recheck(b, [33, 33])
+    assert.equal(logs.length, count)
+    b.owner.console.debug = () => { throw Error("console unavailable") }
+    setRenderingQualityDebug(true, b.owner)
+    await recheck(b, [50, 50])
+    assert.equal(getRenderingQuality(b.owner).quality, "none")
+    setRenderingQualityDebug(true, null)
+  } finally { stop(); b.owner.close() }
 })

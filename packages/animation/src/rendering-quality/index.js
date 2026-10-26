@@ -21,6 +21,7 @@ class RenderingQualityController {
     this.ready = null;
     this.resolveReady = null;
     this.started = false;
+    this.debug = false;
     this.initialized = false;
     this.healthy = 0;
     this.pressureWindows = new Map();
@@ -58,6 +59,16 @@ class RenderingQualityController {
 
   get quality() { return this.snapshot.quality; }
 
+  setDebug(enabled) {
+    this.debug = enabled === true;
+    if (this.debug) this.log('debug:enabled');
+  }
+
+  log(event, details = this.snapshot) {
+    if (!this.debug) return;
+    try { this.owner.console?.debug?.('[Mun rendering-quality]', event, details); } catch { /* diagnostics must not affect rendering */ }
+  }
+
   subscribe(listener) {
     if (screenKey(this.owner) !== this.key) this.onResize();
     const subscription = snapshot => listener(snapshot);
@@ -87,6 +98,7 @@ class RenderingQualityController {
   start() {
     if (this.started) return;
     this.started = true;
+    this.log('monitor:start');
     this.owner.document.addEventListener('visibilitychange', this.onVisibility);
     this.owner.addEventListener('resize', this.onResize);
     const Observer = this.owner.PerformanceObserver;
@@ -107,6 +119,7 @@ class RenderingQualityController {
   }
 
   pause() {
+    this.log('monitor:pause');
     this.epoch++;
     this.owner.clearTimeout(this.timer);
     this.timer = 0;
@@ -120,6 +133,7 @@ class RenderingQualityController {
   }
 
   stop() {
+    this.log('monitor:stop');
     this.pause();
     this.started = false;
     this.observer?.disconnect();
@@ -139,7 +153,9 @@ class RenderingQualityController {
     if (this.running || !this.started) return;
     const abort = new AbortController();
     this.running = abort;
+    if (this.debug) this.log('probe:start', { initial, cached: initial });
     const result = await probeRenderingQuality(this.owner, { cached: initial, signal: abort.signal });
+    this.log('probe:result', result);
     if (this.running !== abort) return;
     this.running = null;
     const now = this.owner.performance.now();
@@ -165,7 +181,9 @@ class RenderingQualityController {
   }
 
   update(values) {
+    const previous = this.quality;
     this.snapshot = Object.freeze({ ...this.snapshot, ...values });
+    if (previous !== this.quality && this.debug) this.log('quality:change', { from: previous, ...this.snapshot });
     for (const listener of this.listeners) this.emit(listener);
   }
 
@@ -183,6 +201,7 @@ class RenderingQualityController {
     this.healthy = 0;
     const count = now - previous > 2500 ? 1 : (this.pressureWindows.get(source) ?? 0) + 1;
     this.pressureWindows.set(source, count);
+    if (this.debug) this.log('pressure', { signal: source, streak: count, ...this.snapshot });
     if (count < 3 || now - this.lastChange < 10_000) return;
     this.pressureWindows.clear();
     const quality = levels[Math.min(2, levels.indexOf(this.quality) + 1)];
@@ -257,4 +276,9 @@ export function observeRenderingQuality(listener, owner = defaultOwner()) {
   if (controller) return controller.subscribe(listener);
   try { listener(Object.freeze({ quality: 'full', source: 'default', baselineMs: null, frameDelayMs: null, gpuQueueDelayMs: null, longFrameMs: null, measuredAt: null })); } catch { /* isolate renderer callbacks */ }
   return () => {};
+}
+
+/** Opt-in development diagnostics; enabling logging starts no monitoring work. */
+export function setRenderingQualityDebug(enabled, owner = defaultOwner()) {
+  getRenderingQuality(owner)?.setDebug(enabled);
 }

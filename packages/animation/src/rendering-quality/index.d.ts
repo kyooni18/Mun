@@ -18,9 +18,11 @@ export interface RenderingQualityController {
   subscribe(listener: (snapshot: RenderingQualitySnapshot) => void): () => void;
   recordFrame(durationMs: number): void;
   sampleGPUQueue(queue: object): void;
+  setDebug(enabled: boolean): void;
 }
 
 export function getRenderingQuality(owner?: Window | null): RenderingQualityController | null;
 export function prepareRenderingQuality(owner?: Window | null): Promise<RenderingQuality>;
 export function observeRenderingQuality(listener: (snapshot: RenderingQualitySnapshot) => void, owner?: Window | null): () => void;
+export function setRenderingQualityDebug(enabled: boolean, owner?: Window | null): void;
 export function qualityFromFrames(baseline: readonly number[], filtered: readonly number[]): RenderingQuality;

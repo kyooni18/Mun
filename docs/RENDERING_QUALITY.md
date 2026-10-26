@@ -54,6 +54,25 @@ clears the check timer and disconnects observers. SSR returns full quality and s
 no work. An explicit owner Window supports iframe renderers without sharing unrelated
 pages' state.
 
+### Opt-in development logging
+
+```ts
+import { setRenderingQualityDebug } from "@mun/ui/rendering-quality"
+
+setRenderingQualityDebug(true)  // enable before mounting renderers
+setRenderingQualityDebug(false) // disable without changing the rendering policy
+```
+
+Diagnostics use `console.debug` with the prefix `[Mun rendering-quality]`. Enable
+the browser console's Verbose/Debug level to see monitor lifecycle, probe start and
+result (including baseline/filtered intervals or cancellation reason), accepted
+pressure windows, and quality changes. Logging is off by default, adds no sampling
+or timers, and does not log each frame or queue completion. Console failures are
+ignored. The flag belongs to the same owner Window as the quality controller.
+
+The ProgressiveBlur demo supports `VITE_MUN_RENDERING_QUALITY_DEBUG=true` at build
+time; its `pnpm build:debug` script enables it explicitly. Normal builds stay silent.
+
 ## Startup and periodic probe
 
 The initial result can use the previous startup probe's cache. The cache remains

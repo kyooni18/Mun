@@ -72,7 +72,7 @@ plugin registry and no initialization step. An import that is never used adds ze
 | --- | --- | --- |
 | Progressive blur | `@mun/ui/progressive-blur` | `ProgressiveBlur`, `progressiveBlur`, `BlurProfile`, `blurFocus`, `focus`, `planBlur`, `prepareProgressiveBlur` |
 | Progressive blur planner | `@mun/ui/progressive-blur/plan` | `planBlur`, `BlurProfile`, `focus`, `strengthAt`, `layerAlphas`, `layerCount`, `effectiveRadius` (pure, DOM-free) |
-| Rendering quality | `@mun/ui/rendering-quality` | `getRenderingQuality`, `observeRenderingQuality`, `prepareRenderingQuality` |
+| Rendering quality | `@mun/ui/rendering-quality` | `getRenderingQuality`, `observeRenderingQuality`, `prepareRenderingQuality`, `setRenderingQualityDebug` |
 
 ```swift
 import { BlurProfile, ProgressiveBlur, blurFocus, focus, progressiveBlur } from "@mun/ui/progressive-blur"

@@ -26,10 +26,10 @@ export function qualityFromFrames(baseline, filtered) {
 /** A single cancellable, bounded CSS backdrop sample. Repeat calls bypass the cache. */
 export function probeRenderingQuality(owner, { cached = false, signal } = {}) {
   return new Promise(resolve => {
-    if (!owner || signal?.aborted) return resolve({ source: 'unavailable' });
+    if (!owner || signal?.aborted) return resolve({ source: 'unavailable', reason: 'aborted' });
     const document = owner.document;
     if (typeof owner.requestIdleCallback !== 'function' || typeof owner.cancelIdleCallback !== 'function'
-      || typeof owner.requestAnimationFrame !== 'function' || typeof owner.cancelAnimationFrame !== 'function') return resolve({ source: 'unavailable' });
+      || typeof owner.requestAnimationFrame !== 'function' || typeof owner.cancelAnimationFrame !== 'function') return resolve({ source: 'unavailable', reason: 'unsupported-api' });
     const key = screenKey(owner);
     let done = false, frame = 0, idle = 0, quiet = 0, watchdog = 0;
     let sample;
@@ -49,19 +49,20 @@ export function probeRenderingQuality(owner, { cached = false, signal } = {}) {
       sample?.remove();
       resolve(result);
     };
-    const cancel = () => finish();
-    const safe = work => { try { work(); } catch { finish(); } };
+    const cancel = event => finish({ source: 'unavailable', reason: event?.type ?? 'timeout' });
+    const safe = work => { try { work(); } catch { finish({ source: 'unavailable', reason: 'exception' }); } };
     const available = () => !done && document.visibilityState === 'visible' && screenKey(owner) === key;
     const whenIdle = work => {
       idle = owner.requestIdleCallback(deadline => safe(() => {
-        if (!available() || deadline.didTimeout || deadline.timeRemaining() < 8) return finish();
+        if (!available()) return finish({ source: 'unavailable', reason: 'not-visible-or-screen-changed' });
+        if (deadline.didTimeout || deadline.timeRemaining() < 8) return finish({ source: 'unavailable', reason: 'insufficient-idle-budget' });
         work();
       }));
     };
     const measure = next => {
       const times = [];
       const tick = time => safe(() => {
-        if (!available()) return finish();
+        if (!available()) return finish({ source: 'unavailable', reason: 'not-visible-or-screen-changed' });
         times.push(time);
         if (times.length === 3) return next([times[1] - times[0], times[2] - times[1]]);
         sample.style.backgroundPosition = `${times.length % 2}px 0px`;
@@ -76,7 +77,7 @@ export function probeRenderingQuality(owner, { cached = false, signal } = {}) {
           if (isQuality(quality)) return finish({ quality, source: 'cache' });
         } catch { /* storage is optional */ }
       }
-      if (!owner.CSS?.supports('backdrop-filter', 'blur(1px)') && !owner.CSS?.supports('-webkit-backdrop-filter', 'blur(1px)')) return finish();
+      if (!owner.CSS?.supports('backdrop-filter', 'blur(1px)') && !owner.CSS?.supports('-webkit-backdrop-filter', 'blur(1px)')) return finish({ source: 'unavailable', reason: 'unsupported-backdrop-filter' });
       sample = document.createElement('div');
       sample.setAttribute('aria-hidden', 'true');
       sample.dataset.pbProbe = '';
@@ -99,7 +100,7 @@ export function probeRenderingQuality(owner, { cached = false, signal } = {}) {
           element.style.cssText = `position:absolute;inset:0;backdrop-filter:blur(${3.46 / dpr}px);-webkit-backdrop-filter:blur(${3.46 / dpr}px);mask-image:${mask};-webkit-mask-image:${mask}`;
           sample.append(element);
         }
-        measure(filtered => finish({ quality: classifyFrames(baseline, filtered), source: 'probe', baselineMs: (baseline[0] + baseline[1]) / 2 }));
+        measure(filtered => finish({ quality: classifyFrames(baseline, filtered), source: 'probe', baselineMs: (baseline[0] + baseline[1]) / 2, baseline, filtered }));
       }));
     };
     const loaded = () => safe(() => {
