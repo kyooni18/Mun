@@ -1,12 +1,18 @@
-import { MunLoweringCache, parseMunStructs, diagnoseMunSource, compileMunUiProgram, nativeLanguageCatalog } from '@mun/compiler'
+import { MunLoweringCache, parseMunStructs, diagnoseMunSource, compileMunUiProgram, nativeLanguageCatalog, munBuiltinSymbols, munOptInFeatures } from '@mun/compiler'
 import { formatSource } from '../../bin/formatter.mjs'
 import { offsetAt, positionAt, rangeAt, scan } from './source.mjs'
 
 export const tokenTypes = ['class', 'function', 'parameter', 'property', 'keyword', 'decorator', 'type', 'variable']
 const keywords = new Set(['struct', 'var', 'let', 'some', 'private', 'public', 'init', 'if', 'else', 'switch', 'case', 'default', 'in', 'true', 'false', 'self', 'return'])
-const types = new Set(['String', 'Bool', 'Int', 'Double', 'View'])
+// One registry decides what resolves without an import; completion, hover and
+// highlighting read it so the editor never advertises a name the compiler rejects.
+const builtins = munBuiltinSymbols()
+const types = new Set([...builtins.values()].filter(item => item.kind === 'type').map(item => item.name))
 const catalog = nativeLanguageCatalog()
-const views = new Map(catalog.views.map(item => [item.name, item]))
+// Native catalog entries carry SwiftUI documentation; runtime built-ins fill in the rest.
+const views = new Map([...[...builtins.values()].filter(item => item.kind === 'view').map(item => [item.name, item]), ...catalog.views.map(item => [item.name, item])])
+const builtinDetail = { view: 'built-in View', value: 'built-in value type', function: 'built-in function', type: 'built-in type' }
+const optIn = new Map(munOptInFeatures.flatMap(feature => feature.exports.map(name => [name, feature.module])))
 const modifiers = new Map(catalog.modifiers.map(item => [item.name, item]))
 const values = new Map(catalog.values.map(item => [item.name, item]))
 function canonicalType(type) { return ({ string: 'String', boolean: 'Bool', number: 'Double', array: 'Array', function: '() -> Void', binding: 'Binding' })[type] ?? type ?? 'Value' }
@@ -228,14 +234,23 @@ export class LanguageService {
     if (call && !label) return [...new Map(labels.map(l => [l.label, l])).values()]
     if (expected?.type === 'boolean' || expected?.type === 'Bool') return ['true', 'false'].map(label => ({ label, kind: 12 }))
     const custom = [...this.documents.values()].flatMap(s => s.declarations).filter(d => d.kind === 'view' && d.scope === 0).map(d => this.customView(d.name)).filter(Boolean)
-    return [...catalog.views, ...custom].map(v => ({ label: v.name, kind: 7, detail: v.initializers.map(i => signature(v.name, i)).join(' | ') })).concat(snapshot.declarations.filter(d => d.kind !== 'view').map(d => ({ label: d.name, kind: 10, detail: canonicalType(d.type) })))
+    // Custom Views declared in the workspace shadow built-ins of the same name.
+    const entries = new Map([...builtins.values()].filter(b => b.kind !== 'type').map(b => [b.name, b.kind === 'view'
+      ? { label: b.name, kind: 7, detail: (views.get(b.name)?.initializers ?? []).map(i => signature(b.name, i)).join(' | ') || builtinDetail.view }
+      : { label: b.name, kind: b.kind === 'function' ? 3 : 7, detail: builtinDetail[b.kind] }]))
+    for (const v of custom) entries.set(v.name, { label: v.name, kind: 7, detail: v.initializers.map(i => signature(v.name, i)).join(' | ') })
+    return [...entries.values()].concat(snapshot.declarations.filter(d => d.kind !== 'view').map(d => ({ label: d.name, kind: 10, detail: canonicalType(d.type) })))
   }
   hover(uri, position) {
     const snapshot = this.snapshot(uri), token = snapshot && tokenAt(snapshot, offsetAt(snapshot.source, position))
     if (!token) return null
     const symbol = this.resolve(snapshot, token)
-    const item = views.get(token.text) ?? modifiers.get(token.text) ?? this.customView(token.text)
-    const text = symbol && symbol.kind !== 'view' ? `${symbol.kind === 'state' ? '@State ' : symbol.kind === 'binding' ? '@Binding ' : ''}${symbol.name}: ${canonicalType(symbol.type)}` : item ? item.initializers.map(i => signature(token.text, i)).join('\n') : types.has(token.text) ? `type ${token.text}` : undefined
+    const member = snapshot.tokens[snapshot.tokens.indexOf(token) - 1]?.text === '.'
+    // A workspace declaration shadows the built-in, so resolve it first.
+    const item = (member ? modifiers.get(token.text) : undefined) ?? this.customView(token.text) ?? (member ? undefined : views.get(token.text))
+    const builtin = !member && !symbol && !this.customView(token.text) ? builtins.get(token.text) : undefined
+    const text = symbol && symbol.kind !== 'view' ? `${symbol.kind === 'state' ? '@State ' : symbol.kind === 'binding' ? '@Binding ' : ''}${symbol.name}: ${canonicalType(symbol.type)}` : item?.initializers?.length ? item.initializers.map(i => signature(token.text, i)).join('\n') : builtin ? `${builtinDetail[builtin.kind]} ${token.text}` : optIn.has(token.text) ? `import { ${token.text} } from "${optIn.get(token.text)}"` : undefined
+    if (builtin && text) return { contents: { kind: 'markdown', value: `\`\`\`mun\n${text}\n\`\`\`\n\n${builtin.module ? `Resolved without an import from \`${builtin.module}\`.` : 'Language type.'}${item?.documentation ? `\n\n${item.documentation}` : ''}` }, range: rangeAt(snapshot.source, token.start, token.end) }
     return text ? { contents: { kind: 'markdown', value: `\`\`\`mun\n${text}\n\`\`\`${item?.documentation ? `\n\n${item.documentation}` : ''}` }, range: rangeAt(snapshot.source, token.start, token.end) } : null
   }
   signatureHelp(uri, position) {
@@ -259,7 +274,7 @@ export class LanguageService {
     for (const token of s.tokens) {
       if (!/^[A-Za-z_]/u.test(token.text)) continue
       const symbol = this.resolve(s, token), index = s.tokens.indexOf(token)
-      const type = s.tokens[index - 1]?.text === '@' ? 'decorator' : keywords.has(token.text) ? 'keyword' : types.has(token.text) ? 'type' : symbol?.kind === 'view' || views.has(token.text) ? 'class' : ['state', 'binding', 'property'].includes(symbol?.kind) ? 'property' : symbol?.kind === 'parameter' ? 'parameter' : symbol?.kind === 'local' ? 'variable' : modifiers.has(token.text) && s.tokens[index - 1]?.text === '.' ? 'function' : undefined
+      const type = s.tokens[index - 1]?.text === '@' ? 'decorator' : keywords.has(token.text) ? 'keyword' : types.has(token.text) ? 'type' : symbol?.kind === 'view' || views.has(token.text) || builtins.get(token.text)?.kind === 'value' ? 'class' : ['state', 'binding', 'property'].includes(symbol?.kind) ? 'property' : symbol?.kind === 'parameter' ? 'parameter' : symbol?.kind === 'local' ? 'variable' : modifiers.has(token.text) && s.tokens[index - 1]?.text === '.' ? 'function' : undefined
       if (!type) continue
       const p = positionAt(s.source, token.start)
       data.push(p.line - line, p.line === line ? p.character - character : p.character, token.end - token.start, tokenTypes.indexOf(type), 0)

@@ -113,3 +113,5 @@ export function createMunLanguageService(): MunLanguageService {
 }
 
 export { nativeLanguageCatalog } from "./language-catalog.js"
+export { munBuiltinRuntimeModule, munBuiltinSymbols, munNativeOnlyViews, munOptInFeatures } from "./builtins.js"
+export type { MunBuiltinKind, MunBuiltinSymbol, MunOptInFeature } from "./builtins.js"

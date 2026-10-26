@@ -59,6 +59,14 @@
       "types": "./dist/core.d.ts",
       "import": "./dist/core.js"
     },
+    "./progressive-blur": {
+      "types": "./dist/progressive-blur/index.d.ts",
+      "import": "./dist/progressive-blur/index.js"
+    },
+    "./progressive-blur/plan": {
+      "types": "./dist/progressive-blur/plan.d.ts",
+      "import": "./dist/progressive-blur/plan.js"
+    },
     "./cli": "./bin/mun.mjs",
     "./mun": {
       "types": "./dist/mun.d.ts",
@@ -148,6 +156,7 @@
     "@mun/compiler": "workspace:*",
     "@mun/core": "workspace:*",
     "@mun/execution": "workspace:*",
+    "@mun/progressive-blur": "workspace:*",
     "@mun/react": "workspace:*",
     "@mun/vite": "workspace:*",
     "@mun/vue": "workspace:*",

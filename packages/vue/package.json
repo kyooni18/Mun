@@ -25,6 +25,11 @@
   "peerDependencies": {
     "vue": ">=3.4 <4"
   },
+  "peerDependenciesMeta": {
+    "vue": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "vue": "^3.5.44"
   },

@@ -23,6 +23,9 @@ importers:
       '@mun/execution':
         specifier: workspace:*
         version: link:packages/execution
+      '@mun/progressive-blur':
+        specifier: workspace:*
+        version: link:packages/progressive-blur
       '@mun/react':
         specifier: workspace:*
         version: link:packages/react

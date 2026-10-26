@@ -30,6 +30,8 @@ import { lowerLabeledCalls, lowerObservableClasses, lowerParameters, lowerSwiftK
 import { lowerLifecycleModifiers } from "./lifecycle.js"
 import { validateWebBindings, validateWebLowering } from "./web-analysis.js"
 import { canonicalViewSymbols } from "./semantic.js"
+import { addNamedImports, munBuiltinSymbols, resolveMunBuiltins } from "./builtins.js"
+import { createMunSourceMap, mapGeneratedPosition } from "./source-map.js"
 
 // Nested named calls are uncommon in ordinary argument expressions. Keep the
 // recursive lowering path behind a cheap lexical hint so every positional
@@ -62,13 +64,13 @@ function validationSourceFile(source: string): ts.SourceFile {
  * overloads from silently becoming SwiftUI source syntax.
  */
 const canonicalInitializerSymbols = new Map<string, readonly SemanticInitializerSymbol[]>()
-for (const [name, value] of Object.entries(Core)) {
-  if (typeof value !== "function") continue
-  const viewType = (value as { readonly viewType?: { readonly name?: string; readonly semanticSymbol?: { readonly initializers: readonly SemanticInitializerSymbol[] } } }).viewType
-  if (viewType?.name && viewType.semanticSymbol) canonicalInitializerSymbols.set(name, viewType.semanticSymbol.initializers)
+for (const symbol of munBuiltinSymbols().values()) {
+  if (symbol.kind === "view" && symbol.initializers) canonicalInitializerSymbols.set(symbol.name, symbol.initializers)
 }
+// Native-only canonical Views keep their contract for call validation; the
+// built-in registry reports them as unavailable on the web.
 for (const [name, symbol] of canonicalViewSymbols()) {
-  canonicalInitializerSymbols.set(name, symbol.initializers)
+  if (!canonicalInitializerSymbols.has(name)) canonicalInitializerSymbols.set(name, symbol.initializers)
 }
 type InitializerSymbolRegistry = ReadonlyMap<string, readonly SemanticInitializerSymbol[]>
 
@@ -1658,6 +1660,30 @@ function lowerTopLevelState(source: string): string {
   return result
 }
 
+/**
+ * `.mun` modules resolve built-ins statically: every free identifier of the
+ * lowered module is looked up in the shared registry after lexical scoping, so
+ * local declarations and explicit imports shadow built-ins and only the
+ * built-ins actually read become (tree-shakable) named imports.
+ */
+function importMunBuiltins(source: string, lowered: string, fileName: string): string {
+  const file = ts.createSourceFile(fileName + ".ts", lowered, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  // A module TypeScript cannot parse is reported by validateWebLowering with
+  // the parser's own message; scope analysis of a broken tree would only add noise.
+  if (((file as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? []).length > 0) return lowered
+  const resolution = resolveMunBuiltins(file)
+  const unresolved = resolution.unresolved[0]
+  if (unresolved) {
+    const position = file.getLineAndCharacterOfPosition(unresolved.offset)
+    const mapped = mapGeneratedPosition(createMunSourceMap(source, lowered, fileName), { line: position.line + 1, column: position.character + 1 })
+    const offset = source.split("\n").slice(0, mapped.line - 1).reduce((sum, line) => sum + line.length + 1, 0) + mapped.column - 1
+    throw Object.assign(new SyntaxError(unresolved.message), { offset, code: "MUN_SYNTAX" })
+  }
+  let result = lowered
+  for (const [module, names] of [...resolution.imports].reverse()) result = addNamedImports(result, module, names)
+  return result
+}
+
 function ensureImports(source: string, includeViewBuiltins = false): string {
   const callableRequired = ["defineView", "initializer", "resolveBuilderInput", "namedArguments", "overloadClosure", "viewFragment", "withAnimation", "withTransaction", "Binding", "State", "Element", "modifiedContent", "modifiedContentCompiled", "compiledTemplate", "defineCompiledTemplate", "Observable", "environmentValue"]
     .filter(name => new RegExp(`\\b${name}(?:<[^()\\n]*>)?\\s*\\(`).test(source) || (name === "defineView" && /const\s+[A-Z]\w*\s*=\s*defineView/.test(source)))
@@ -2013,7 +2039,7 @@ export function transformMunSource(source: string, fileName = "mun-source.ts"): 
   // compiler helper imports first makes the final static pass parse a larger
   // module and can only add irrelevant bindings to its candidate set.
   const withStaticHoists = hoistStaticViewSubtrees(withCompiledTemplates)
-  const output = ensureImports(withStaticHoists, /\.mun$/i.test(fileName))
+  const output = /\.mun$/i.test(fileName) ? importMunBuiltins(source, withStaticHoists, fileName) : ensureImports(withStaticHoists)
   if (/\.mun$/i.test(fileName)) validateWebLowering(source, output, fileName)
   return output
 }

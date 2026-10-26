@@ -23,6 +23,8 @@
     "src/legacy.ts",
     "src/compiler/index.ts",
     "src/core.ts",
+    "src/progressive-blur/index.ts",
+    "src/progressive-blur/plan.ts",
     "src/experimental.ts",
     "src/mun.ts",
     "src/closures.ts",
