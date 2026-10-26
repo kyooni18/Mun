@@ -67,7 +67,7 @@ export interface SwiftUIModifierSpec {
   readonly kind: "modifier"
   readonly name: string
   /** SDK type that declares the modifier; `View` when absent. */
-  readonly owner?: "View" | "Shape"
+  readonly owner?: "View" | "Shape" | "Image"
   /** SDK-backed overloads. Empty for a Mün-only compatibility modifier. */
   readonly signatures: readonly SwiftUIOverloadSpec[]
   readonly compat?: {
@@ -431,7 +431,7 @@ function compatModifier(
   name: string,
   signatures: readonly string[],
   web: SwiftUIWebSemantics,
-  options: { readonly lowering?: SwiftUIModifierLoweringSpec; readonly animatable?: boolean; readonly exact?: boolean; readonly extensions?: readonly string[]; readonly deprecated?: string; readonly owner?: string } = {},
+  options: { readonly lowering?: SwiftUIModifierLoweringSpec; readonly animatable?: boolean; readonly exact?: boolean; readonly extensions?: readonly string[]; readonly deprecated?: string; readonly owner?: "View" | "Shape" | "Image" } = {},
 ): SwiftUIModifierSpec {
   return {
     kind: "modifier",
