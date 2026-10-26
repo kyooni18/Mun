@@ -843,23 +843,32 @@ function flushLayoutMotion(context: DomRenderContext): void {
   }
   clearLayoutCaptures(runtime)
 
+  if (changed.length === 1) {
+    animateDomLayout(changed[0].element, changed[0].before, changed[0].after, changed[0].animation)
+    return
+  }
   const changedElements = new Map(changed.map(entry => [entry.element, entry] as const))
+  // Siblings share their ancestor chain; remember each ancestor's verdict per
+  // animation instead of walking to the document root for every element.
+  const coveredByAncestor = new Map<Element, Map<Animation, boolean>>()
+  const isCovered = (element: Element, animation: Animation): boolean => {
+    const parent = element.parentElement
+    if (!parent) return false
+    let byAnimation = coveredByAncestor.get(parent)
+    const cached = byAnimation?.get(animation)
+    if (cached !== undefined) return cached
+    const parentChange = changedElements.get(parent)
+    const covered = (parentChange !== undefined && parentChange.animation === animation) || isCovered(parent, animation)
+    if (!byAnimation) coveredByAncestor.set(parent, byAnimation = new Map())
+    byAnimation.set(animation, covered)
+    return covered
+  }
   for (const entry of changed) {
     // When an ancestor and descendant are being driven by the exact same plan,
     // animating both FLIP transforms would double-apply the same geometric
     // movement. Let the nearest changed ancestor carry that visual delta. A
     // descendant with a different Animation remains independent by design.
-    let ancestor = entry.element.parentElement
-    let covered = false
-    while (ancestor) {
-      const parentChange = changedElements.get(ancestor)
-      if (parentChange && parentChange.animation === entry.animation) {
-        covered = true
-        break
-      }
-      ancestor = ancestor.parentElement
-    }
-    if (!covered) animateDomLayout(entry.element, entry.before, entry.after, entry.animation)
+    if (!isCovered(entry.element, entry.animation)) animateDomLayout(entry.element, entry.before, entry.after, entry.animation)
   }
 }
 
@@ -5197,8 +5206,10 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       flushLayoutMotion(context)
       commitViewPass(true)
       for (const [parent, position] of scrollPositions) {
-        parent.scrollTop = position.top
-        parent.scrollLeft = position.left
+        // Writing an unchanged offset still dispatches scroll work in some
+        // engines and schedules another lazy measurement; skip no-ops.
+        if (parent.scrollTop !== position.top) parent.scrollTop = position.top
+        if (parent.scrollLeft !== position.left) parent.scrollLeft = position.left
       }
       pruneLazyState()
       commitRefs()

@@ -19,9 +19,19 @@ function transformPart(effect: TransitionEffect): string | undefined {
   }
 }
 
+// One live MediaQueryList per window; its .matches tracks the preference.
+const reducedMotionQueries = new WeakMap<Window, MediaQueryList | null>()
+
 function reducedMotion(element: Element): boolean {
   try {
-    return element.ownerDocument.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+    const view = element.ownerDocument.defaultView
+    if (!view) return false
+    let query = reducedMotionQueries.get(view)
+    if (query === undefined) {
+      query = view.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null
+      reducedMotionQueries.set(view, query)
+    }
+    return query?.matches === true
   } catch {
     return false
   }
@@ -133,7 +143,10 @@ export function playWebTransition(
   const duration = Math.max(0, Number.parseFloat(css?.transitionDuration ?? "0") * 1000 || 0)
   const delay = Math.max(0, Number.parseFloat(css?.transitionDelay ?? "0") * 1000 || 0)
   const total = duration + delay
-  const frames = transitionFrames(transition, entering, currentPresentation(element))
+  // Only opacity and transform keyframes start from the computed value; skip
+  // the forced style read for blur/style-only transitions.
+  const needsPresentation = effects.some(effect => effect.kind === "opacity" || transformPart(effect) !== undefined)
+  const frames = transitionFrames(transition, entering, needsPresentation ? currentPresentation(element) : {})
   const animate = (element as Element & { animate?: Element["animate"] }).animate
   if (typeof animate === "function") {
     try {

@@ -35,9 +35,20 @@ function normalizedRect(element: Element): ContentRect | undefined {
   }
 }
 
+// One live MediaQueryList per window; its .matches tracks the preference.
+const reducedMotionQueries = new WeakMap<Window, MediaQueryList | null>()
+
 function reducedMotion(element: Element): boolean {
-  try { return element.ownerDocument.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true }
-  catch { return false }
+  try {
+    const view = element.ownerDocument.defaultView
+    if (!view) return false
+    let query = reducedMotionQueries.get(view)
+    if (query === undefined) {
+      query = view.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null
+      reducedMotionQueries.set(view, query)
+    }
+    return query?.matches === true
+  } catch { return false }
 }
 
 function replaceActiveTransition(element: Element, next: { cancel(): void } | undefined): void {
