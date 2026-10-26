@@ -189,8 +189,11 @@ export const Switch = defineBuiltinView<SwitchProps>(
   },
 ) as TypedViewConstructor<SwitchProps, SwitchCall>
 
-export interface TextFieldProps { readonly value: BindingRef<string>; readonly placeholder?: string }
-interface TextFieldCall { (value: BindingRef<string>, placeholder?: string): ModifiableViewNode }
+export interface TextFieldProps { readonly value: BindingRef<string>; readonly placeholder?: string; readonly title?: string }
+interface TextFieldCall {
+  (value: BindingRef<string>, placeholder?: string): ModifiableViewNode
+  (title: string, value: BindingRef<string>): ModifiableViewNode
+}
 
 export const TextField = defineBuiltinView<TextFieldProps>(
   "TextField",
@@ -199,9 +202,15 @@ export const TextField = defineBuiltinView<TextFieldProps>(
     args => args.length >= 1 && args.length <= 2 && isBinding(args[0]) && (args[1] === undefined || typeof args[1] === "string"),
     args => ({ value: args[0] as BindingRef<string>, placeholder: args[1] as string | undefined }),
     [initializerKinds.binding(true, "value", "string"), initializerKinds.value(false, "placeholder", undefined, "string")],
+  ), initializer(
+    "TextField(title, text:)",
+    args => args.length === 2 && typeof args[0] === "string" && isBinding(args[1]),
+    args => ({ title: args[0] as string, placeholder: args[0] as string, value: args[1] as BindingRef<string> }),
+    [initializerKinds.value(true, "title", undefined, "string"), initializerKinds.binding(true, "text", "string")],
   )],
-  ({ value, placeholder }) => viewElement("input", {
+  ({ value, placeholder, title }) => viewElement("input", {
     "data-mun": "TextField",
+    "aria-label": title,
     type: "text",
     value: value.value,
     placeholder,

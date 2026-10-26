@@ -439,7 +439,11 @@ function compilerSemanticArgument(
   declaredTypes: ReadonlyMap<string, string> = new Map(),
 ): SemanticArgument {
   const value = source.trim()
-  if (/^(?:\$[A-Za-z_$][A-Za-z0-9_$]*|Binding\s*\()/.test(value)) return { label, kind: "binding", type: "binding" }
+  if (/^(?:\$[A-Za-z_$][A-Za-z0-9_$]*|Binding\s*\()/.test(value)) {
+    const declared = declaredTypes.get(value.slice(1))
+    const underlyingType = declared ? ({ String: "string", Int: "number", Double: "number", Bool: "boolean" }[declared] ?? declared) : "dynamic"
+    return { label, kind: "binding", type: "binding", underlyingType }
+  }
   const implicitMember = /^\.([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(value)
   if (implicitMember) return { label, type: "string", value: implicitMember[1] }
   if (/^(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)$/.test(value)) {

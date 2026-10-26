@@ -29,3 +29,25 @@ JavaScript is its compilation and integration target.
 
 Pending implementation. See the final checkpoint for commands, capability status,
 source examples and remaining gaps.
+
+### Compiling integration checkpoint
+
+The examples are in `examples/language-web/Counter.mun`, `Profile.mun` and
+`App.mun`. Run `node examples/language-web/server.mjs` and open
+`http://127.0.0.1:4178/`. The server compiles the same modules through Vite for
+SSR and client use; only `client.ts` attachment and the demo HTTP endpoint live
+outside Mun. Enter `fail` to exercise a recoverable HTTP failure.
+
+The compiler retains method return types and body ranges, preserves synthesized
+binding parameters, checks known member binding roles and rejects `await` outside
+async functions. Web diagnostics use that lowering; native diagnostic consumers
+select `{ target: "native" }`. The editor retains native compilation-unit behavior
+for `@main` sources. Core adds `TextField(_:text:)` and Element builder children.
+Hydration adopts dirty text inputs through their normal input handler so State
+matches early user edits.
+
+Checks at this checkpoint: compiler/core/web builds; the three tests in
+`tests/language-web.test.mjs`; six LSP quickfix tests; 206 existing compiler,
+canonical native diagnostic, control and web renderer tests. Real-browser evidence
+is recorded in the following checkpoint. The current scope and gaps are tracked
+in [capabilities](CAPABILITIES.md).

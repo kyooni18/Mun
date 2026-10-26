@@ -108,6 +108,13 @@ function synchronizeAttributes(source: Element, target: Element): void {
 
 function activateHydratedProps(source: Element, target: Element, context: DomRenderContext, attributesAlreadyMatch = false): void {
   const props = context.hydrationProps.get(source)
+  // A user can edit server HTML before the client attaches. Adopt that edit
+  // through the control's ordinary input handler so State and live DOM agree.
+  const control = target as HTMLInputElement | HTMLTextAreaElement
+  const editable = target.namespaceURI === HTML_NS
+    && (target.localName === "textarea" || (target.localName === "input" && !["checkbox", "radio", "file", "button", "submit", "reset"].includes((control as HTMLInputElement).type)))
+  const edited = editable && control.value !== control.defaultValue && typeof props?.onInput === "function"
+  const earlyValue = edited ? control.value : undefined
   if (!attributesAlreadyMatch) synchronizeAttributes(source, target)
   rememberDomProps(target, props, context, false)
   const tag = context.domTags.get(source)
@@ -119,8 +126,14 @@ function activateHydratedProps(source: Element, target: Element, context: DomRen
       continue
     }
     if (key === "value" || key === "checked" || key === "selected" || key === "disabled" || key === "multiple" || key === "muted") {
+      if (key === "value" && edited) continue
       try { (target as unknown as Record<string, unknown>)[key] = value } catch { /* attribute remains authoritative */ }
     }
+  }
+  if (edited) {
+    control.value = earlyValue!
+    const Event = target.ownerDocument.defaultView?.Event
+    if (Event) target.dispatchEvent(new Event("input", { bubbles: true }))
   }
 }
 

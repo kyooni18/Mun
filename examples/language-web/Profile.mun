@@ -1,0 +1,78 @@
+import { Element } from "@mun/core"
+
+struct NameField: View {
+  @Binding var name: String
+
+  var body: some View {
+    TextField("Display name", text: $name)
+  }
+}
+
+struct Profile: View {
+  @State var name = ""
+  @State var status = "Ready"
+  @State var pending = false
+  @State var request = 0
+  @State var submitted = ""
+  @State var count = 0
+
+  func begin() {
+    if (name.trim().length === 0) {
+      request += 1; pending = false
+      status = "Enter a display name."
+      return
+    }
+    submitted = name.trim()
+    pending = true
+    status = "Saving…"
+    request += 1
+  }
+
+  func cancel() {
+    request += 1
+    pending = false
+    status = "Cancelled"
+  }
+
+  func save(signal) async {
+    if (!pending) { return }
+    let ticket = request
+    let displayName = submitted
+    try {
+      let response = await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: displayName }),
+        signal
+      })
+      if (!response.ok) { throw new Error("Save failed. Try again.") }
+      let profile = await response.json()
+      if (signal.aborted || ticket !== request) { return }
+      status = "Saved: \(profile.name)"
+      pending = false
+    } catch (error) {
+      if (signal.aborted || ticket !== request) { return }
+      status = "Save failed. Try again."
+      pending = false
+    }
+  }
+
+  var body: some View {
+    VStack(spacing: 12) {
+      Text("Mun profile")
+      Text("Unrelated count: \(count)")
+      Button("Update unrelated count") { count += 1 }
+      Element("form", { onSubmit: event => { event.preventDefault(); begin() } }) {
+        NameField(name: $name)
+        Element("button", { type: "submit" }) { Text("Save profile") }
+        Button("Cancel") { cancel() }
+        Element("p", { role: "status", "aria-live": "polite" }) { Text(status) }
+        Element("p", { "data-pending": pending }) { Text(pending ? "Request in progress" : "No request") }
+      }
+    }
+    .padding(24)
+    .task(id: request) { signal in await save(signal) }
+  }
+}
+
+export default Profile()

@@ -96,17 +96,17 @@ function topLevelStateScopeDiagnostics(source: string): MunDiagnostic[] {
 }
 
 /**
- * Canonical files use native semantic validity; compatibility snippets retain
- * TS diagnostics. Editors may pass a lowering cache shared across calls so
+ * Web diagnostics use the same lowering as Vite/SSR. Experimental native
+ * clients explicitly select target: "native". Editors may pass a lowering cache shared across calls so
  * unchanged custom View instances are not relowered (identical results).
  */
 export function diagnoseMunSource(
   source: string,
   fileName?: string,
-  options: { readonly loweringCache?: MunLoweringCache } = {},
+  options: { readonly target?: "web" | "native"; readonly loweringCache?: MunLoweringCache } = {},
 ): readonly MunDiagnostic[] {
   try {
-    if (fileName && /\.mun$/iu.test(fileName)) {
+    if (options.target === "native" && fileName && /\.mun$/iu.test(fileName)) {
       compileMunUiProgram(source, fileName, { loweringCache: options.loweringCache })
       return []
     }
@@ -119,7 +119,7 @@ export function diagnoseMunSource(
       else if (source[cursor] === "{") matching(source, cursor, "{", "}")
     }
     const generatedFileName = "mun-source.mun.ts"
-    const generatedSource = transformMunSource(source, generatedFileName)
+    const generatedSource = transformMunSource(source, fileName ?? generatedFileName)
     const model = createSemanticModel(source, generatedFileName, generatedSource)
     const map = createMunSourceMap(source, generatedSource, generatedFileName)
     const typescriptDiagnostics = model.typescriptDiagnostics.map(diagnostic => {
@@ -150,7 +150,7 @@ export function diagnoseMunSource(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const offset = typeof error === "object" && error !== null && "offset" in error && typeof error.offset === "number" ? error.offset : 0
-    const code = fileName && /\.mun$/iu.test(fileName)
+    const code = options.target === "native" && fileName && /\.mun$/iu.test(fileName)
       ? "MUN_NATIVE" as const
       : typeof error === "object" && error !== null && "code" in error && error.code === "MUN_INITIALIZER"
         ? "MUN_INITIALIZER" as const

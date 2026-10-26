@@ -138,10 +138,12 @@ export class LanguageService {
     const snapshot = this.snapshot(uri)
     if (!snapshot) return []
     if (snapshot.diagnostics) return snapshot.diagnostics
-    // Diagnose the native compilation unit, including cross-file custom Views.
-    // Never gate canonical lowering on the compatibility TypeScript transform.
+    // @main selects the retained native compilation unit. Web modules use the
+    // same compiler as Vite and keep their ES module boundary for diagnostics.
     const documents = [snapshot, ...[...this.documents.values()].filter(s => s !== snapshot)]
-    snapshot.diagnostics = diagnoseMunSource(documents.map(s => s.source).join('\n'), uri, { loweringCache: this.loweringCache }).flatMap(d => {
+    const native = documents.some(document => /@main\b/.test(document.source))
+    const source = native ? documents.map(document => document.source).join('\n') : snapshot.source
+    snapshot.diagnostics = diagnoseMunSource(source, uri, { target: native ? 'native' : 'web', loweringCache: this.loweringCache }).flatMap(d => {
       const start = d.index ?? offsetAt(snapshot.source, { line: (d.line ?? 1) - 1, character: (d.column ?? 1) - 1 })
       if ((d.line ?? 1) > snapshot.source.split('\n').length) return []
       return [{ range: rangeAt(snapshot.source, start, Math.min(snapshot.source.length, start + 1)), severity: d.severity === 'warning' ? 2 : 1, code: d.code, source: 'mun', message: d.message }]

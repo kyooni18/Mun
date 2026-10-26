@@ -1,0 +1,17 @@
+import { Element } from "@mun/core"
+import Counter from "./Counter.mun"
+import Profile from "./Profile.mun"
+
+struct App: View {
+  @State var visible = true
+
+  var body: some View {
+    Element("main", { style: { maxWidth: "40rem", margin: "2rem auto", fontFamily: "system-ui" } }) {
+      Counter
+      Button("Toggle profile") { visible.toggle() }
+      if (visible) { Profile }
+    }
+  }
+}
+
+export default App()

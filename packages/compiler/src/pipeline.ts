@@ -28,6 +28,7 @@ import { lowerStateArrayMaps } from "./state-specialization.js"
 import { lowerBoolToggle, lowerStructStateAccess, lowerSwiftInterpolation } from "./struct-state.js"
 import { lowerLabeledCalls, lowerObservableClasses, lowerParameters, lowerSwiftKeyPaths } from "./observable.js"
 import { lowerLifecycleModifiers } from "./lifecycle.js"
+import { validateWebBindings, validateWebLowering } from "./web-analysis.js"
 import { canonicalViewSymbols } from "./semantic.js"
 
 // Nested named calls are uncommon in ordinary argument expressions. Keep the
@@ -627,7 +628,7 @@ function structInitializerPlans(declaration: MunStruct): readonly StructInitiali
   }))
   return declaration.initializers.length > 0
     ? declaration.initializers.map(item => structInitializerPlan(item.parametersSource, item.bodySource))
-    : [structInitializerPlan(fields.filter(field => field.kind !== "state").map(field => `${field.name}: unknown${field.defaultValue === undefined ? "" : ` = ${field.defaultValue}`}`).join(", "), "")]
+    : [structInitializerPlan(fields.filter(field => field.kind !== "state").map(field => `${field.kind === "binding" ? "@Binding " : ""}${field.name}: unknown${field.defaultValue === undefined ? "" : ` = ${field.defaultValue}`}`).join(", "), "")]
 }
 
 function structInitializerPlan(parameterSource: string, bodySource: string): StructInitializerPlan {
@@ -745,7 +746,7 @@ function compilerSemanticArgument(source: string): SemanticArgument {
   if (/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) return { label: argument.label, type: "number" }
   if (/^(?:true|false)$/.test(value)) return { label: argument.label, type: "boolean" }
   if (/^(?:overloadClosure|function)\s*\(/.test(value) || /=>/.test(value)) return { label: argument.label, type: "function" }
-  if (/^Binding\s*\(/.test(value)) return { label: argument.label, kind: "binding", type: "binding" }
+  if (/^Binding\s*\(/.test(value)) return { label: argument.label, kind: "binding", type: "binding", underlyingType: "dynamic" }
   if (/^State\s*\(/.test(value)) return { label: argument.label, type: "state" }
   return { label: argument.label, type: "unknown" }
 }
@@ -1026,7 +1027,7 @@ function lowerStructDefinition(
   const environment = (declaration.environment ?? []).map(value => ` const ${value.name} = environmentValue(${lowerSwiftKeyPaths(value.key)});`).join("")
   // Methods are function declarations, so computed properties and each other may call them in any order.
   const methods = (declaration.methods ?? []).map(method => {
-    const lowered = lowerStructStateAccess(`${method.asynchronous ? "async " : ""}function ${method.name}(${lowerParameters(method.parametersSource)}) {${lowerRange(prepare(method.bodySource), registry)}}`, storageNames)
+    const lowered = lowerStructStateAccess(`${method.asynchronous ? "async " : ""}function ${method.name}(${lowerParameters(method.parametersSource)})${method.returnType ? `: ${method.asynchronous ? `Promise<${method.returnType}>` : method.returnType}` : ""} {${lowerRange(prepare(method.bodySource), registry)}}`, storageNames)
     return ` ${lowerBoolToggle(lowered)}`
   }).join("")
   const computed = environment + methods + lowerComputedProperties(declaration.computed ?? [], storageNames, registry, prepare)
@@ -1962,6 +1963,10 @@ function lowerReactComponentImports(source: string): string {
 }
 
 export function transformMunSource(source: string, fileName = "mun-source.ts"): string {
+  if (/\.mun$/i.test(fileName)) {
+    const originalDeclarations = parseMunStructs(source)
+    validateWebBindings(originalDeclarations, initializerRegistryFor(originalDeclarations))
+  }
   const withVueImports = lowerVueComponentImports(lowerSwiftKeyPaths(lowerObservableClasses(source)))
   const withForeignImports = lowerReactComponentImports(withVueImports)
   const withAnimationArguments = lowerNamedAnimationFactoryCalls(withForeignImports)
@@ -2008,7 +2013,9 @@ export function transformMunSource(source: string, fileName = "mun-source.ts"): 
   // compiler helper imports first makes the final static pass parse a larger
   // module and can only add irrelevant bindings to its candidate set.
   const withStaticHoists = hoistStaticViewSubtrees(withCompiledTemplates)
-  return ensureImports(withStaticHoists, /\.mun$/i.test(fileName))
+  const output = ensureImports(withStaticHoists, /\.mun$/i.test(fileName))
+  if (/\.mun$/i.test(fileName)) validateWebLowering(source, output, fileName)
+  return output
 }
 
 function hasNamedMunArguments(source: string): boolean {

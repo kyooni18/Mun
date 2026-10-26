@@ -507,6 +507,8 @@ export interface MunStructMethod {
   readonly name: string
   readonly parametersSource: string
   readonly asynchronous: boolean
+  readonly returnType?: string
+  readonly bodyRange: MunSourceRange
   readonly bodySource: string
   readonly range: MunSourceRange
 }
@@ -598,8 +600,8 @@ function findComputedProperties(source: string): { readonly name: string; readon
 }
 
 /** Top-level `func` members of a struct body. */
-function findStructMethods(source: string): { readonly name: string; readonly parameters: string; readonly asynchronous: boolean; readonly start: number; readonly open: number; readonly close: number }[] {
-  const found: { name: string; parameters: string; asynchronous: boolean; start: number; open: number; close: number }[] = []
+function findStructMethods(source: string, baseOffset = 0): { readonly name: string; readonly parameters: string; readonly asynchronous: boolean; readonly returnType?: string; readonly start: number; readonly open: number; readonly close: number }[] {
+  const found: { name: string; parameters: string; asynchronous: boolean; returnType?: string; start: number; open: number; close: number }[] = []
   let braces = 0
   for (let cursor = 0; cursor < source.length; cursor += 1) {
     const character = source[cursor]
@@ -613,13 +615,19 @@ function findStructMethods(source: string): { readonly name: string; readonly pa
         const parametersOpen = cursor + match[0].length - 1
         const parametersClose = findMatching(source, parametersOpen, "(")
         const open = source.indexOf("{", parametersClose)
+        if (open < 0) throw syntaxError(`Method ${match[1]} must have a body`, baseOffset + cursor)
+        const effects = source.slice(parametersClose + 1, open).trim()
+        if (!/^(?:async\b\s*)?(?:->\s*[^{}]+)?$/.test(effects)) {
+          throw syntaxError(`Unsupported method effects '${effects}'; use async and an optional -> result type. Handle failures with try/catch in the method body.`, baseOffset + parametersClose + 1)
+        }
         const close = findMatching(source, open, "{")
         const lineStart = source.lastIndexOf("\n", cursor) + 1
         const prefix = /(?:(?:@MainActor|private|fileprivate|internal|public|mutating|static)\s+)*$/.exec(source.slice(lineStart, cursor))?.[0] ?? ""
         found.push({
           name: match[1],
           parameters: source.slice(parametersOpen + 1, parametersClose),
-          asynchronous: /\basync\b/.test(source.slice(parametersClose + 1, open)),
+          asynchronous: /^async\b/.test(effects),
+          returnType: /->\s*([\s\S]+)$/.exec(effects)?.[1].trim(),
           start: cursor - prefix.length,
           open,
           close,
@@ -817,7 +825,7 @@ export function shiftMunStruct(declaration: MunStructDeclaration, delta: number)
       parametersRange: shiftedRange(initializer.parametersRange, delta),
       bodyRange: shiftedRange(initializer.bodyRange, delta),
     })),
-    ...(declaration.methods ? { methods: declaration.methods.map(method => ({ ...method, range: shiftedRange(method.range, delta) })) } : {}),
+    ...(declaration.methods ? { methods: declaration.methods.map(method => ({ ...method, range: shiftedRange(method.range, delta), bodyRange: shiftedRange(method.bodyRange, delta) })) } : {}),
     ...(declaration.environment ? { environment: declaration.environment.map(value => ({ ...value, range: shiftedRange(value.range, delta) })) } : {}),
     ...(declaration.computed ? { computed: declaration.computed.map(property => ({ ...property, range: shiftedRange(property.range, delta) })) } : {}),
     ...(declaration.nested ? { nested: declaration.nested.map(item => shiftMunStruct(item, delta)) } : {}),
@@ -864,7 +872,7 @@ function parseStructDeclaration(source: string, header: RegExpExecArray, brace: 
   const bodySource = source.slice(brace + 1, close)
   const bodyExpression = findTopLevelBodyExpression(bodySource)
   if (!bodyExpression) throw syntaxError(`struct ${header[1]} must declare var body`, 0)
-  const methods = findStructMethods(maskInitializerBodies(maskNestedStructs(bodySource)))
+  const methods = findStructMethods(maskInitializerBodies(maskNestedStructs(bodySource)), brace + 1)
   const computed = findComputedProperties(maskRanges(maskInitializerBodies(maskNestedStructs(bodySource)), methods))
   const memberSource = maskRanges(maskInitializerBodies(maskNestedStructs(bodySource)), [...methods, ...computed, { start: bodyExpression.declarationStart, close: bodyExpression.close }])
   const environment = [...memberSource.matchAll(/(^|[;\n])[ \t]*@Environment\s*\(([^()\n]*)\)\s*(?:(?:private|fileprivate|internal|public)\s+)?var\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*:\s*[^=\n;]+)?/g)]
@@ -895,6 +903,8 @@ function parseStructDeclaration(source: string, header: RegExpExecArray, brace: 
         name: method.name,
         parametersSource: method.parameters,
         asynchronous: method.asynchronous,
+        returnType: method.returnType,
+        bodyRange: { start: brace + 1 + method.open + 1, end: brace + 1 + method.close },
         bodySource: bodySource.slice(method.open + 1, method.close),
         range: { start: brace + 1 + method.start, end: brace + 1 + method.close + 1 },
       })),

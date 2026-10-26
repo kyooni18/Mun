@@ -117,10 +117,10 @@ struct TaskRow: View {
     }
   }
 }`
-    assert.deepEqual(diagnoseMunSource(source, "Sources/Tasks.mun"), [])
+    assert.deepEqual(diagnoseMunSource(source, "Sources/Tasks.mun", { target: "native" }), [])
     assert.deepEqual(compileMunDevProgram(source).program, compileMunUiProgram(source))
     const invalid = source.replace('isOn: $done', 'isOn: done')
     assert.throws(() => compileMunUiProgram(invalid), /Binding/)
-    assert.match(diagnoseMunSource(invalid, "Sources/Tasks.mun")[0].message, /Binding/)
+    assert.match(diagnoseMunSource(invalid, "Sources/Tasks.mun", { target: "native" })[0].message, /Binding/)
   }
 })

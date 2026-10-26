@@ -335,10 +335,10 @@ export const Group = defineBuiltinView<{ content: ViewValue[] }>(
 )
 
 /** Construct typed raw HTML without involving a renderer or a component allow-list. */
-export function Element<Tag extends MunHtmlTagName>(tag: Tag, props?: MunHtmlAttributes<Tag> | null, ...children: ViewValue[]): ReturnType<typeof viewElement>
-export function Element<Tag extends `${string}-${string}`>(tag: Tag, props?: MunCustomElementAttributes<Tag> | null, ...children: ViewValue[]): ReturnType<typeof viewElement>
-export function Element(tag: string, props: object | null = null, ...children: ViewValue[]): ReturnType<typeof viewElement> {
-  return viewElementOwned(tag, props as Record<string, unknown> | null, children)
+export function Element<Tag extends MunHtmlTagName>(tag: Tag, props?: MunHtmlAttributes<Tag> | null, ...children: (ViewValue | ViewBuilderClosure)[]): ReturnType<typeof viewElement>
+export function Element<Tag extends `${string}-${string}`>(tag: Tag, props?: MunCustomElementAttributes<Tag> | null, ...children: (ViewValue | ViewBuilderClosure)[]): ReturnType<typeof viewElement>
+export function Element(tag: string, props: object | null = null, ...children: (ViewValue | ViewBuilderClosure)[]): ReturnType<typeof viewElement> {
+  return viewElementOwned(tag, props as Record<string, unknown> | null, children.flatMap(child => typeof child === "function" ? resolveBuilderInput(child) : [child]))
 }
 
 interface ButtonProps {
