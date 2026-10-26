@@ -218,6 +218,13 @@ test("development logging is opt-in, reversible, and cannot break quality update
     setRenderingQualityDebug(true, b.owner)
     await recheck(b, [50, 50])
     assert.equal(getRenderingQuality(b.owner).quality, "none")
+    b.owner.console.debug = (...args) => logs.push(args)
+    b.owner.requestIdleCallback = b.owner.cancelIdleCallback = undefined
+    b.advance(30_000); b.timer(30_000)
+    await Promise.resolve(); await Promise.resolve()
+    const unsupported = logs.find(log => log[1] === "probe:result" && log[2].reason === "unsupported-api")
+    assert.deepEqual(unsupported[2].missing, ["requestIdleCallback", "cancelIdleCallback"])
+    assert.equal(getRenderingQuality(b.owner).quality, "none", "unsupported runtime samples preserve the current policy")
     setRenderingQualityDebug(true, null)
   } finally { stop(); b.owner.close() }
 })

@@ -73,6 +73,13 @@ ignored. The flag belongs to the same owner Window as the quality controller.
 The ProgressiveBlur demo supports `VITE_MUN_RENDERING_QUALITY_DEBUG=true` at build
 time; its `pnpm build:debug` script enables it explicitly. Normal builds stay silent.
 
+`probe:result` with `reason: "unsupported-api"` includes a `missing` list naming the
+required APIs that are unavailable. WebKit was verified without `requestIdleCallback`
+and `cancelIdleCallback`: that environment skips active sampling, defaults to full
+initially, and retains its current policy on later unavailable checks. Passive
+pressure monitoring still works wherever its APIs exist. No timer substitutes for
+the browser's idle signal.
+
 ## Startup and periodic probe
 
 The initial result can use the previous startup probe's cache. The cache remains

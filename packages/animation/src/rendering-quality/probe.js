@@ -5,6 +5,7 @@ export const inputEvents = ['pointerdown', 'pointermove', 'keydown', 'wheel', 't
 const cachePrefix = 'mun:backdrop-quality:v1:';
 export const screenKey = owner => JSON.stringify([owner.navigator.userAgent, owner.screen.width, owner.screen.height, owner.screen.colorDepth, owner.devicePixelRatio]);
 const isQuality = value => value === 'full' || value === 'reduced' || value === 'none';
+const requiredAPIs = ['requestIdleCallback', 'cancelIdleCallback', 'requestAnimationFrame', 'cancelAnimationFrame'];
 
 function classifyFrames(baseline, filtered) {
   if (baseline.length !== 2 || filtered.length !== 2) return undefined;
@@ -28,8 +29,8 @@ export function probeRenderingQuality(owner, { cached = false, signal } = {}) {
   return new Promise(resolve => {
     if (!owner || signal?.aborted) return resolve({ source: 'unavailable', reason: 'aborted' });
     const document = owner.document;
-    if (typeof owner.requestIdleCallback !== 'function' || typeof owner.cancelIdleCallback !== 'function'
-      || typeof owner.requestAnimationFrame !== 'function' || typeof owner.cancelAnimationFrame !== 'function') return resolve({ source: 'unavailable', reason: 'unsupported-api' });
+    const missing = requiredAPIs.filter(name => typeof owner[name] !== 'function');
+    if (missing.length) return resolve({ source: 'unavailable', reason: 'unsupported-api', missing });
     const key = screenKey(owner);
     let done = false, frame = 0, idle = 0, quiet = 0, watchdog = 0;
     let sample;
