@@ -311,13 +311,26 @@ export function rememberDomProps(element: Element, props: Record<string, unknown
   trackDomRef(element, remembered, context)
 }
 
+function mergeHydrationProps(previous: Record<string, unknown>, next: Record<string, unknown>): Record<string, unknown> {
+  const previousStyle = previous.style && typeof previous.style === "object" ? previous.style : undefined
+  const nextStyle = next.style && typeof next.style === "object" ? next.style : undefined
+  return { ...previous, ...next, ...(previousStyle && nextStyle ? { style: { ...previousStyle, ...nextStyle } } : {}) }
+}
+
 function applyDomPropsNow(
   element: Element,
   props: Record<string, unknown> | null | undefined,
   context: DomRenderContext,
   remember: boolean,
 ): void {
-  if (context.hydrating) context.hydrationProps.set(element, props)
+  if (context.hydrating) {
+    // Modifiers apply their props as further chunks on the same element.
+    // Accumulate them like rememberDomProps does, or the last chunk (say a
+    // clipShape style) would hide the element's own ref and event handlers
+    // from hydration activation.
+    const previous = context.hydrationProps.get(element)
+    context.hydrationProps.set(element, previous && props ? mergeHydrationProps(previous, props) : props ?? previous)
+  }
   if (context.hydrating && context.hydrationLiveNodes?.has(element)) {
     // A speculative hydration pass must not mutate the SSR DOM before the
     // entire graph has been structurally and semantically validated. Keep the

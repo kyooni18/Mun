@@ -90,6 +90,8 @@
     "test:browser:web": "node --test tests/web-browser.test.mjs",
     "test:browser:layout": "node --test tests/layout-browser.test.mjs",
     "test:browser:language-web": "node --test tests/language-web-browser.test.mjs",
+    "test:browser:progressive-blur": "node --test tests/progressive-blur-browser.test.mjs",
+    "demo:progressive-blur": "node examples/progressive-blur/server.mjs",
     "demo:language-web": "node examples/language-web/server.mjs",
     "demo:language-web:build": "vite build --config examples/language-web/vite.config.ts",
     "test:dx": "node --test tests/hot-reload.test.mjs tests/incremental-lowering.test.mjs tests/native-dx.test.mjs tests/formatter.test.mjs tests/lsp-quickfix.test.mjs",

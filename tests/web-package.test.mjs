@@ -2854,3 +2854,26 @@ test('public JavaScript authoring mounts a reactive SwiftUI-like counter without
     dom.window.close()
   }
 })
+
+test("@mun/web hydration keeps refs and events applied before a later modifier chunk", async () => {
+  const { RoundedRectangle, Text, VStack } = await import("../packages/core/dist/index.js")
+  let clicks = 0
+  const refs = []
+  // The overlay forces the candidate hydrator; the clipShape style chunk
+  // arrives after the element's own ref/onClick props.
+  const tree = () => VStack(
+    Element("button", { id: "target", onClick: () => { clicks++ }, ref: element => { if (element) refs.push(element) } }, "Tap").clipShape(RoundedRectangle(8)),
+    Text("x").overlay(Element("div", {}).clipShape(RoundedRectangle(4))),
+  )
+  const dom = new JSDOM(`<div id=app>${renderToHTML(tree())}</div>`)
+  const container = dom.window.document.querySelector("#app")
+  const server = container.querySelector("#target")
+  const unmount = mount(tree(), container, { hydrate: true })
+  const live = container.querySelector("#target")
+  assert.equal(live, server, "hydration adopts the server node")
+  assert.deepEqual(refs, [server])
+  live.click()
+  assert.equal(clicks, 1)
+  unmount()
+  dom.window.close()
+})

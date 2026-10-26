@@ -1,0 +1,33 @@
+// Opt-in feature: progressive blur ships inside @mun/ui and is imported
+// explicitly. Built-in Views (VStack, Text, Button, RoundedRectangle, …)
+// still resolve without any import.
+import { BlurProfile, ProgressiveBlur, blurFocus, focus, progressiveBlur } from "@mun/ui/progressive-blur"
+
+struct Sample: View {
+  var title: String
+  var body: some View {
+    Element("div", { style: { position: "relative", height: "96px", width: "240px", background: "repeating-linear-gradient(90deg, #111 0 6px, #fc0 6px 12px)" } }) {
+      Text("\(title)")
+    }
+  }
+}
+
+struct App: View {
+  @State var amount = 1
+
+  var body: some View {
+    VStack(spacing: 12) {
+      Button("Toggle blur") { amount = amount > 0 ? 0 : 1 }
+      Sample(title: "uniform").modifier(progressiveBlur(BlurProfile.uniform(), { radius: 8, amount: amount, fadeMs: 400 })).id("uniform")
+      Sample(title: "linear").modifier(progressiveBlur(BlurProfile.linear({ from: "leading", to: "trailing" }).easing("smooth"), { radius: 10, amount: amount }))
+      Sample(title: "edge").modifier(progressiveBlur(BlurProfile.edge("bottom", 48).inverted(), { radius: 12, amount: amount }))
+      Sample(title: "radial").modifier(progressiveBlur(BlurProfile.radial({ around: focus("dot"), inner: 10, outer: 80 }), { radius: 10, amount: amount, in: RoundedRectangle(24) }))
+      Text("focus").modifier(blurFocus("dot"))
+      Element("div", { style: { position: "relative", height: "40px", width: "240px" } }) {
+        ProgressiveBlur(BlurProfile.edge("top", 20), { radius: 6, amount: amount })
+      }
+    }
+  }
+}
+
+export default App()

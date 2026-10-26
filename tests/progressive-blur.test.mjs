@@ -38,3 +38,12 @@ test('the modifier overlays backdrop layers on the content and ProgressiveBlur s
   assert.match(renderToHTML(VStack(ProgressiveBlur(BlurProfile.uniform()))), /backdrop-filter/)
   assert.match(renderToHTML(Text('menu').modifier(blurFocus('menu'))), /data-pb-focus="menu"/)
 })
+
+test('@mun/ui exposes the same single progressive-blur implementation', async () => {
+  const canonical = await import('@mun/ui/progressive-blur')
+  const plan = await import('@mun/ui/progressive-blur/plan')
+  const legacy = await import('@mun/progressive-blur')
+  for (const name of ['ProgressiveBlur', 'progressiveBlur', 'BlurProfile', 'blurFocus', 'focus', 'planBlur']) assert.equal(canonical[name], legacy[name], name)
+  assert.equal(plan.planBlur, canonical.planBlur)
+  assert.equal(plan.BlurProfile, canonical.BlurProfile)
+})
