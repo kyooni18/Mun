@@ -85,6 +85,11 @@ test('unknown, native-only and opt-in identifiers report located diagnostics', (
   assert.deepEqual(diagnoseMunSource('struct A: View {\n  func f() { let o = new ResizeObserver(() => {}); console.log(o, Math.max(1, 2), new URL("x:y")) }\n  var body: some View { Text("ok") }\n}\nexport default A()\n', 'A.mun', { target: 'web' }), [])
 })
 
+test('Swift-typed struct fields satisfy TypeScript-typed initializer parameters', () => {
+  const source = 'struct S: View {\n  var title: String\n  var n: Int\n  var body: some View { VStack { Text(title); Text(n); Button(title) { } } }\n}\nexport default S(title: "x", n: 1)\n'
+  assert.deepEqual(diagnoseMunSource(source, 'S.mun', { target: 'web' }), [])
+})
+
 test('the registry lists only implemented runtime bindings', () => {
   for (const symbol of munBuiltinSymbols().values()) {
     if (symbol.module) assert.equal(typeof Core[symbol.name], 'function', `${symbol.name} must exist at runtime`)

@@ -245,7 +245,13 @@ function semanticArrayValues(value: unknown): readonly unknown[] | undefined {
   }
 }
 
+// Arguments may carry Swift scalar spellings (.mun fields); compare them as the TypeScript types parameters use.
+function scalarArgumentType(type: string | undefined): string | undefined {
+  return type === undefined ? undefined : swiftScalarTypes[type.trim()] ?? type
+}
+
 /** Return true for an exact match, false for a contradiction, undefined for an unknown. */
+
 function typeMatch(type: string | undefined, argument: SemanticArgument, genericParameters?: string): boolean | undefined {
   if (!type) return undefined
   const expected = normalizedType(type)
@@ -256,8 +262,8 @@ function typeMatch(type: string | undefined, argument: SemanticArgument, generic
     if (results.some(result => result === true)) return true
     return results.some(result => result === undefined) ? undefined : false
   }
-  const actual = argument.type ?? runtimeType(argument.value)
-  const valueType = argument.underlyingType ?? actual
+  const actual = scalarArgumentType(argument.type) ?? runtimeType(argument.value)
+  const valueType = scalarArgumentType(argument.underlyingType) ?? actual
   const comparableType = argument.kind === "binding" && !/^Binding(?:Ref)?\s*</.test(expected) ? valueType : actual
   const value = argument.value
   // "dynamic": a value typed only at runtime (a collection item field) is

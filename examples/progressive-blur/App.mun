@@ -7,7 +7,7 @@ struct Sample: View {
   var title: String
   var body: some View {
     Element("div", { style: { position: "relative", height: "96px", width: "240px", background: "repeating-linear-gradient(90deg, #111 0 6px, #fc0 6px 12px)" } }) {
-      Text("\(title)")
+      Text(title)
     }
   }
 }
