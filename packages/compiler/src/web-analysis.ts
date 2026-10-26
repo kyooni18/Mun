@@ -29,8 +29,17 @@ export function validateWebBindings(
               const parameter = argument.label ? candidate.parameters.find(item => item.label === argument.label) : candidate.parameters[index]
               return parameter ? [parameter] : []
             })
-            if (field && parameters.length > 0 && parameters.every(parameter => parameter.kind === "binding")) {
-              fail(`${node.callee} requires a Binding; '${name}' is a value. Pass $${name}.`, argument.value.range.start)
+            if (parameters.length > 0 && parameters.every(parameter => parameter.kind === "binding")) {
+              const storedBinding = field?.kind === "stored" && /^Binding(?:Ref)?\s*</.test(field.type ?? "")
+              if (field && !storedBinding) fail(`${node.callee} requires a Binding; '${name}' is a value. Pass $${name}.`, argument.value.range.start)
+              const expressionFile = ts.createSourceFile("mun-binding.ts", `const value = (${name})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+              const statement = expressionFile.statements[0]
+              let expression = statement && ts.isVariableStatement(statement) ? statement.declarationList.declarations[0]?.initializer : undefined
+              while (expression && ts.isParenthesizedExpression(expression)) expression = expression.expression
+              const literal = expression && (ts.isLiteralExpression(expression) || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(expression.kind)
+                || (ts.isIdentifier(expression) && expression.text === "undefined")
+                || (ts.isPrefixUnaryExpression(expression) && ts.isNumericLiteral(expression.operand)))
+              if (literal) fail(`${node.callee} requires a Binding, not a literal value. Pass a $state or $binding projection.`, argument.value.range.start)
             }
           }
           if (node.trailing) visit(node.trailing.body)

@@ -1,6 +1,7 @@
 # Getting started
 
-Mün is a SwiftUI-inspired JavaScript frontend framework. Start with the web
+Mün is a SwiftUI-like frontend language for web applications. `.mun` is the
+primary format for UI and application behavior. Start with the web
 renderer, a normal Vite application, and Node.js 20.19 or newer:
 
 ```bash
@@ -20,6 +21,12 @@ No native host or Rust installation is needed.
 For direct JS/TS authoring, import View builders from `@mun/core` and `mount`
 from `@mun/web`. React and Vue are optional integrations, not dependencies of
 the web renderer. See the [API reference](./API.md).
+
+For the first complete application slice, run `pnpm demo:language-web` in this
+repository and open `http://127.0.0.1:4178/`. It server-renders and hydrates the
+Mun-authored counter and profile form. Enter `fail` to try HTTP failure recovery.
+See [the current language subset](LANGUAGE_REFERENCE.md) and
+[capability status](CAPABILITIES.md) before assuming full Swift semantics.
 
 ## Data flow
 

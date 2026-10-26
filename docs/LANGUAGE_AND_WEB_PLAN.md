@@ -2,7 +2,9 @@
 
 Mun will be a SwiftUI-like frontend language capable of building complete web applications. Developers will author application UI and behavior in `.mun`, using Views, state, bindings, modifiers, models, and structured asynchronous work. The compiler and runtime will realize those concepts through HTML, CSS, and JavaScript.
 
-Status: proposed implementation plan. The product direction is agreed; API spelling, package boundaries, and individual language features below require implementation design. Existing APIs remain supported during migration.
+Status: implementation plan; the [first counter/profile milestone](WEB_MILESTONE.md)
+is implemented with [documented capability limits](CAPABILITIES.md). Subsequent
+phases remain planned. The product direction is agreed; API spelling, package boundaries, and individual language features below require implementation design. Existing APIs remain supported during migration.
 
 ## Product contract
 

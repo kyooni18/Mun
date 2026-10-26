@@ -4,6 +4,7 @@ import test from "node:test"
 import ts from "typescript"
 import { JSDOM } from "jsdom"
 import { compileMunFile, diagnoseMunSource, mapGeneratedPosition, parseMunStructs, createMunSemanticModel } from "../packages/compiler/dist/index.js"
+import { LanguageService } from "../editors/lsp/service.mjs"
 import { mount, renderToHTML } from "../packages/web/dist/index.js"
 
 const lineOf = (source, token) => source.slice(0, source.indexOf(token)).split("\n").length
@@ -41,11 +42,18 @@ test("web language contract: shared compilation, bindings, async diagnostics and
   assert.match(diagnostic.message, /requires a Binding.*Pass \$name/)
   assert.equal(diagnostic.line, 7)
   assert.throws(() => compileMunFile(invalid, "Profile.mun"), /Binding/)
+  assert.throws(() => compileMunFile(example("Profile").replace('text: $name', 'text: 42'), "Profile.mun"), /requires a Binding, not a literal/)
+  assert.doesNotThrow(() => compileMunFile(example("Profile").replace('text: $name', 'text: true ? $name : $name'), "Profile.mun"))
+  assert.match(diagnoseMunSource('struct App: View { var body: some View { <div /> } }', "App.mun")[0].message, /Raw HTML/)
+  const service = new LanguageService()
+  service.update("file:///Profile.mun", example("Profile"))
+  assert.deepEqual(service.diagnostics("file:///Profile.mun"), [])
   const sync = example("Profile").replace('func save(signal) async', 'func save(signal)')
   assert.match(diagnoseMunSource(sync, "Profile.mun")[0].message, /await requires an async/)
   assert.equal(diagnoseMunSource(sync, "Profile.mun")[0].line, lineOf(sync, "await fetch"))
   const unsupported = example("Profile").replace('func save(signal) async', 'func save(signal) async throws')
   assert.match(diagnoseMunSource(unsupported, "Profile.mun")[0].message, /Unsupported method effects/)
+  assert.equal(diagnoseMunSource(unsupported, "Profile.mun")[0].line, lineOf(unsupported, "func save"))
   const typed = example("Profile").replace('func save(signal) async', 'func save(signal) async -> void')
   const parsed = parseMunStructs(typed).find(view => view.name === "Profile").methods.find(method => method.name === "save")
   assert.equal(parsed.returnType, "void")

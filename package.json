@@ -2,7 +2,7 @@
   "name": "@mun/ui",
   "version": "0.1.20",
   "packageManager": "pnpm@11.22.0",
-  "description": "SwiftUI-inspired JavaScript UI framework with declarative View graphs and a DOM frontend.",
+  "description": "SwiftUI-like frontend language, compiler and reactive web runtime.",
   "type": "module",
   "sideEffects": false,
   "bin": {
@@ -80,6 +80,9 @@
     "test:browser": "node --test tests/browser.test.mjs",
     "test:browser:vue": "node --test tests/vue-browser.test.mjs",
     "test:browser:web": "node --test tests/web-browser.test.mjs",
+    "test:browser:language-web": "node --test tests/language-web-browser.test.mjs",
+    "demo:language-web": "node examples/language-web/server.mjs",
+    "demo:language-web:build": "vite build --config examples/language-web/vite.config.ts",
     "test:dx": "node --test tests/hot-reload.test.mjs tests/incremental-lowering.test.mjs tests/native-dx.test.mjs tests/formatter.test.mjs tests/lsp-quickfix.test.mjs",
     "test:packages": "node scripts/test-packages.mjs",
     "benchmark:modifiers": "pnpm run build && node benchmarks/modifiers.mjs",

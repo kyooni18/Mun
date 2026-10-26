@@ -1,6 +1,7 @@
 # Mün agent reference
 
-Mün is a web-first, SwiftUI-inspired JavaScript frontend framework.
+Mün is a SwiftUI-like frontend language; `.mun` is primary for UI and behavior.
+JavaScript is the compilation and integration target.
 
 ## Package boundaries
 
@@ -8,7 +9,7 @@ Mün is a web-first, SwiftUI-inspired JavaScript frontend framework.
   controls, identity, and animation. Keep the SwiftUI-like authoring model central.
 - `@mun/core/compat`: supported alias for existing graph imports.
 - `@mun/web`: primary DOM/HTML renderer, SSR and hydration; no React requirement.
-- `@mun/compiler` / `@mun/vite`: optional `.mun` syntax compiled to JavaScript.
+- `@mun/compiler` / `@mun/vite`: the primary `.mun` compilation path to JavaScript.
 - React, Vue, Astro: optional integrations, not the definition of a Mün View.
 - `native/`: experimental Rust runtime and Semantic UI IR consumer. Native
   scaffolds require `--target native`; don't make Rust a web prerequisite.
@@ -31,3 +32,6 @@ pnpm test:browser:web
 ```
 
 Use native checks only for changes to the experimental native backend.
+
+Start with [the language contract](LANGUAGE_REFERENCE.md), [capabilities](CAPABILITIES.md)
+and [first milestone evidence](WEB_MILESTONE.md) for current implementation limits.

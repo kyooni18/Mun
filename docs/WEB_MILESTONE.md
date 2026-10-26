@@ -27,8 +27,8 @@ JavaScript is its compilation and integration target.
 
 ## Implementation evidence
 
-Pending implementation. See the final checkpoint for commands, capability status,
-source examples and remaining gaps.
+Implemented in the checkpoints below. See [capabilities](CAPABILITIES.md) for
+the implemented subset and remaining gaps.
 
 ### Compiling integration checkpoint
 
@@ -51,3 +51,42 @@ Checks at this checkpoint: compiler/core/web builds; the three tests in
 canonical native diagnostic, control and web renderer tests. Real-browser evidence
 is recorded in the following checkpoint. The current scope and gaps are tracked
 in [capabilities](CAPABILITIES.md).
+
+### Browser and contract checkpoint
+
+`pnpm test:browser:language-web` starts an isolated demo server and runs real
+Chromium. It checks server HTML with JavaScript disabled; delays client attachment
+while editing; preserves the input node/focus/selection through updates; submits
+using Enter; exercises the real HTTP failure endpoint and a network rejection;
+then verifies retry, superseding an older request, cancel and removal/remount.
+No uncaught browser errors remain. Screenshot: local ignored artifact
+`output/language-web-browser.png`.
+
+The demo host connects Vite HMR to its own HTTP server, avoiding a second shared
+WebSocket port. `pnpm demo:language-web:build` creates a production client bundle
+with source maps in `output/language-web`. Production SSR deployment is not part
+of this example; use its development host for the SSR acceptance scenario.
+
+Validation completed:
+
+- `pnpm check` (all workspace builds and root TypeScript check).
+- `pnpm test:types` (existing declaration tests; no new compile-time matrix).
+- `node --test tests/language-web.test.mjs tests/lsp-quickfix.test.mjs`.
+- Existing compiler package/canonical diagnostic/control/web suites: 206 passed.
+- Compiler hardening/parser/import, CLI/editor, hot reload/incremental and new
+  integration suites: 82 passed.
+- `pnpm test:browser:language-web` and `pnpm demo:language-web:build`.
+- `pnpm test:docs` and `git diff --check`.
+
+README, architecture, semantics, styling, getting-started/migration/agent guidance
+and the default web scaffold now describe `.mun` as the primary language. The
+[language reference](LANGUAGE_REFERENCE.md) specifies the current expression,
+function, binding, identity and task subset and explicitly records differences
+from Swift. The native book/design documents remain labeled historical.
+
+Remaining gaps include full module/type/async-result analysis, typed HTTP decoding,
+standard cached data/mutation APIs and automatic stale-result publication guards,
+arbitrary SSR state serialization/loaders, production SSR adapters and broader
+browser/IME/autofill/accessibility coverage. Request revision guards in the profile
+are application code. This checkpoint completes the requested first slice, not
+the complete implementation plan or all exit criteria of Phases 1–3.

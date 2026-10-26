@@ -1,4 +1,5 @@
 import * as ts from "typescript"
+import { assertCanonicalMunSource } from "./analysis.js"
 import { createMunSourceMap, mapGeneratedPosition } from "./source-map.js"
 import { createSemanticModel } from "./semantic.js"
 import { transformMunSource } from "./pipeline.js"
@@ -110,6 +111,7 @@ export function diagnoseMunSource(
       compileMunUiProgram(source, fileName, { loweringCache: options.loweringCache })
       return []
     }
+    assertCanonicalMunSource(source, fileName ?? "mun-source.mun.ts")
     validateRawHtmlSyntax(source)
     for (let cursor = 0; cursor < source.length; cursor += 1) {
       if (source[cursor] === "\"" || source[cursor] === "'" || source[cursor] === "`") cursor = skipString(source, cursor) - 1

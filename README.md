@@ -1,22 +1,20 @@
 # Mün UI
 
-Mün is a **SwiftUI-inspired JavaScript frontend framework**. Compose Views with
-stacks, controls, reactive state, and chainable modifiers; render them to the DOM
-with `@mun/web`. It runs in a regular browser application using JavaScript, HTML,
-and CSS, without a native host, Rust toolchain, React, or Vue requirement.
+Mün is a **SwiftUI-like frontend language for web applications**. Author UI and
+application behavior in `.mun` using Views, state, bindings, identity and ordered
+modifiers. The compiler targets JavaScript and the existing `@mun/web` HTML/DOM
+runtime. React, Vue and native toolchains are optional integrations.
 
 ```text
-JavaScript / TypeScript View builders ───────────────┐
-.mun SwiftUI-like syntax -> @mun/compiler -> JS ─────┤
-                                                   v
-                                          @mun/core View graph
-                                                   v
-                                           @mun/web -> DOM
+.mun -> parser / shared analysis -> JavaScript -> @mun/core -> @mun/web DOM / SSR
+JS / TS integration builders ----------------------^
 ```
 
-The web-first Vune architecture is the reference for this direction (see commits
-`798c5a6`, `ac8447e`, and `965276f`). Mün keeps its SwiftUI-like composition model;
-it is not a React wrapper. React, Vue, and Astro integrations remain optional.
+The first implemented slice is a counter and async profile form with validation,
+cancellation, failure recovery and SSR/hydration. It is a foundation for complete
+applications; routing, typed data APIs and other capabilities remain in progress.
+See the [language contract](docs/LANGUAGE_REFERENCE.md),
+[capability status](docs/CAPABILITIES.md) and [milestone](docs/WEB_MILESTONE.md).
 
 ## Quick start
 
@@ -35,16 +33,14 @@ Vite web project. Dependency installation runs automatically unless you pass
 syntax to JavaScript. `npm run build` creates deployable static web assets.
 
 ```swift
-import { Button, State, Text, VStack } from "@mun/core"
-
-const count = State(0)
-
 struct Counter: View {
+  @State var count = 0
+
   var body: some View {
     VStack(spacing: 12) {
-      Text('Hello, Mün')
-      Text(`Count: ${count.value}`)
-      Button('Increase') { count.value += 1 }
+      Text("Hello, Mün")
+      Text("Count: \(count)")
+      Button("Increase") { count += 1 }
     }
   }
 }
@@ -70,7 +66,8 @@ pnpm dev
 
 For an existing project, use `mun link <path> --renderer web` from the checkout.
 `pnpm dev:watch` rebuilds workspace packages while developing the framework.
-Run `pnpm test` for the full suite and `pnpm demo:web:build` for the web demo.
+Run `pnpm demo:language-web` for the SSR profile example (enter `fail` to exercise
+recovery). Run `pnpm test` for the full suite and `pnpm demo:web:build` for the web demo.
 
 ## Experimental native area
 

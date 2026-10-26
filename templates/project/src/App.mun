@@ -1,13 +1,11 @@
-import { Button, State, Text, VStack } from "@mun/core"
-
-const count = State(0)
-
 struct __MUN_PROJECT_APP_NAME__: View {
+  @State var count = 0
+
   var body: some View {
     VStack(spacing: 12) {
       Text('Hello, Mün')
-      Text(`Count: ${count.value}`)
-      Button('Increase') { count.value += 1 }
+      Text("Count: \(count)")
+      Button('Increase') { count += 1 }
     }
   }
 }

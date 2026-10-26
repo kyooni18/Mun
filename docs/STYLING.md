@@ -1,73 +1,43 @@
-# Mün styling
+# Mun styling for the web
 
-Canonical Mün styling is semantic and backend-neutral. A View describes visual
-and layout intent; it does not describe CSS.
-
-The compiler lowers supported modifiers into Semantic UI IR. Native backends map
-those values to native layout/scene properties. The Web backend may translate
-the same values into CSS internally, but CSS is not part of the Mün language
-contract.
-
-## Layout intent
-
-Use Mün layout containers and modifiers:
+Author layout and visual behavior in `.mun` using Views and ordered modifiers.
+The web renderer translates the existing core graph into HTML/CSS. Native
+Semantic UI IR is an experimental consumer, not a restriction on web styling.
 
 ```mun
 VStack(spacing: 16) {
-  Text("Mün")
-  Text("Native-first UI")
+  Text("Mun")
+  Text("A web application")
 }
 .padding(24)
 .frame(width: 360)
+.background("#f4f4f6")
+.cornerRadius(18)
 ```
 
-`VStack`, `HStack`, layout spacing, padding, alignment, and frame constraints
-express relationships. A backend is responsible for implementing those
-relationships in its own layout system.
+The current web runtime interprets numeric spacing, padding and frame lengths as
+CSS pixels. APIs accepting string lengths pass supported CSS lengths through;
+that support is API-specific. Stack layout uses browser flex layout. Full typed
+responsive styling, grid, interaction/pseudo-element themes and a consistent unit
+system are later work, not implied by this example.
 
-Numbers in canonical Mün layout are semantic dimensions. They are not defined
-as CSS pixels.
+Modifiers apply in source order. A modifier may update props, add a style or
+introduce a wrapper when layout, painting or clipping needs another box. Do not
+assume chains with the same modifier names in different orders are equivalent.
+`withAnimation`/`withTransaction` preserve the existing transaction model.
 
-## Visual intent
-
-Use semantic visual modifiers:
+For web-specific layout, `Element` accepts typed HTML attributes and style props:
 
 ```mun
-Rectangle()
-  .frame(width: 240, height: 96)
-  .background("#6750A4")
-  .cornerRadius(18)
+Element("main", { style: { maxWidth: "40rem", margin: "2rem auto" } }) {
+  Text("Profile")
+}
 ```
 
-The current Semantic UI IR carries background, foreground, corner radius,
-dimensions, padding, and stack spacing directly. More visual properties should
-be added to the IR as semantic concepts rather than by adding browser-specific
-style keys to core.
+Existing `.className(...)`, `.style(...)`, object styles and external stylesheets
+remain integration surfaces. A stylesheet/host file is not needed for ordinary
+behavior in the first milestone. The planned typed style library will grow from
+these existing capabilities; it is not implemented by this milestone.
 
-## Motion
-
-Motion is also semantic:
-
-```mun
-Rectangle()
-  .frame(width: expanded.value ? 320 : 160, height: 96)
-  .background("#6750A4")
-  .cornerRadius(18)
-  .animation(Animation.spring(0.48, 0.82), expanded.value)
-```
-
-The compiler records the affected semantic property, trigger, and animation
-plan. Native execution and Web lowering consume the same motion intent.
-
-`withAnimation` and `withTransaction` use the same renderer-neutral
-transaction model.
-
-## Backend-specific styling
-
-Browser-only styling belongs to the Web compatibility/backend surface. Existing
-React/Vue/Web integrations may continue to support classes, inline browser
-styles, stylesheets, and framework-specific escape hatches, but those APIs are
-not canonical Mün styling and must not be added to Semantic UI IR as CSS.
-
-When a capability is useful on every platform, model the capability in Mün
-semantics first and let each backend lower it appropriately.
+See [language reference](LANGUAGE_REFERENCE.md), [capabilities](CAPABILITIES.md)
+and [native architecture](NATIVE_ARCHITECTURE.md) for the relevant boundaries.

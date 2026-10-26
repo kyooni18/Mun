@@ -8,8 +8,8 @@ the existing implementation baseline during that migration.
 ## Primary: SwiftUI-inspired web frontend
 
 - Keep View composition, stacks, controls, state, bindings, identity, modifiers,
-  and animation as the central JavaScript API.
-- Support direct JS/TS authoring and optional `.mun` syntax through Vite.
+  and animation as the central Mun composition model.
+- Make `.mun` primary through Vite; retain JS/TS integration builders.
 - Prioritize DOM rendering correctness, accessibility, SSR/hydration, reactive
   updates, browser testing, bundle size, and frontend developer experience.
 - Keep React, Vue, and Astro integrations optional.
@@ -22,3 +22,7 @@ Native runtime, Semantic UI IR compilation, native packaging and hot reload,
 and Resident Compute Islands remain research areas. They must not displace web
 workflows or introduce native toolchain requirements for ordinary frontend apps.
 See [native architecture](./NATIVE_ARCHITECTURE.md) for the retained design.
+
+The [first milestone](WEB_MILESTONE.md) implements the counter/profile slice.
+[Capability status](CAPABILITIES.md) records the remaining language/application gaps.
+This does not complete the full plan or all of Phases 1–3.

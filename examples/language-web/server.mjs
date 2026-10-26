@@ -6,7 +6,7 @@ import { munPlugin } from "@mun/vite"
 
 // Demo deployment/transport boundary. No View or application state semantics here.
 const root = fileURLToPath(new URL(".", import.meta.url))
-const vite = await createViteServer({ root, configFile: false, plugins: [munPlugin()], server: { middlewareMode: true }, appType: "custom" })
+let vite
 const server = createServer(async (req, res) => {
   if (req.url === "/api/profile" && req.method === "POST") {
     let body = ""
@@ -38,5 +38,6 @@ const server = createServer(async (req, res) => {
   }
   vite.middlewares(req, res, () => res.writeHead(404).end())
 })
+vite = await createViteServer({ root, configFile: false, plugins: [munPlugin()], server: { middlewareMode: true, hmr: { server } }, appType: "custom" })
 server.listen(Number(process.env.PORT ?? 4178), "127.0.0.1", () => console.log("Mun milestone: http://127.0.0.1:" + server.address().port))
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, async () => { server.close(); await vite.close(); process.exit(0) })
