@@ -156,6 +156,21 @@ export interface MunStyleProperties {
   readonly scale?: MunStylePropertyValue
   readonly rotate?: MunStylePropertyValue
   readonly userSelect?: MunStylePropertyValue
+  readonly backdropFilter?: MunStylePropertyValue
+  readonly filter?: MunStylePropertyValue
+  readonly maskPosition?: MunStylePropertyValue
+  readonly maskRepeat?: MunStylePropertyValue
+  readonly mixBlendMode?: MunStylePropertyValue
+  readonly touchAction?: MunStylePropertyValue
+  readonly transition?: MunStylePropertyValue
+  readonly transitionDelay?: MunStylePropertyValue
+  readonly transitionDuration?: MunStylePropertyValue
+  readonly transitionProperty?: MunStylePropertyValue
+  readonly transitionTimingFunction?: MunStylePropertyValue
+  readonly willChange?: MunStylePropertyValue
+  readonly WebkitBackdropFilter?: MunStylePropertyValue
+  readonly WebkitTouchCallout?: MunStylePropertyValue
+  readonly WebkitUserSelect?: MunStylePropertyValue
   readonly verticalAlign?: MunStylePropertyValue
   readonly visibility?: MunStylePropertyValue
   readonly WebkitMask?: MunStylePropertyValue
