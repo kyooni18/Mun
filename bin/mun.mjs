@@ -268,7 +268,10 @@ function configureLocalDependencies(projectRoot, localRoot, renderer = 'react', 
   manifest.dependencies ??= {}
   manifest.devDependencies ??= {}
 
-  if (includeRootPackage) manifest.dependencies['@mun/ui'] = linkSpecifier(localRoot)
+  // Templates depend on @mun/ui for its opt-in features; never let a local
+  // project resolve it from the registry.
+  const linkRootPackage = includeRootPackage || manifest.dependencies['@mun/ui'] !== undefined
+  if (linkRootPackage) manifest.dependencies['@mun/ui'] = linkSpecifier(localRoot)
   manifest.dependencies[`@mun/${renderer}`] = linkSpecifier(resolve(localRoot, `packages/${renderer}`))
   manifest.devDependencies['@mun/vite'] = linkSpecifier(resolve(localRoot, 'packages/vite'))
 
@@ -281,7 +284,7 @@ function configureLocalDependencies(projectRoot, localRoot, renderer = 'react', 
   }
   // Opt-in @mun/ui features re-export internal modules; a linked @mun/ui
   // does not install them itself.
-  if (includeRootPackage) manifest.devDependencies['@mun/progressive-blur'] = linkSpecifier(resolve(localRoot, localPackagePaths['@mun/progressive-blur']))
+  if (linkRootPackage) manifest.devDependencies['@mun/progressive-blur'] = linkSpecifier(resolve(localRoot, localPackagePaths['@mun/progressive-blur']))
   // pnpm 11 moved overrides out of package.json and into pnpm-workspace.yaml.
   // Keep every internal package pinned to this checkout so unpublished
   // transitive @mun/* dependencies never fall through to the registry.
@@ -298,6 +301,7 @@ function configureLocalDependencies(projectRoot, localRoot, renderer = 'react', 
     '@mun/vite',
     `@mun/${renderer}`,
   ]
+  if (linkRootPackage) selectedOverrideNames.push('@mun/progressive-blur')
   const overridePaths = includeRootPackage
     ? localPackagePaths
     : Object.fromEntries([...new Set(selectedOverrideNames)].map(name => [name, localPackagePaths[name]]))

@@ -237,6 +237,7 @@ try {
       "@mun/compiler": dependency("@mun/compiler"),
       "@mun/execution": dependency("@mun/execution"),
       "@mun/legacy-react": dependency("@mun/legacy-react"),
+      "@mun/progressive-blur": dependency("@mun/progressive-blur"),
       "@mun/react": dependency("@mun/react"),
       "@mun/vue": dependency("@mun/vue"),
       "@mun/web": dependency("@mun/web"),
