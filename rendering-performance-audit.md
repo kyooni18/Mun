@@ -1,5 +1,56 @@
 # Mun rendering engine — performance audit
 
+## Status after the 2026-10-26 fix pass
+
+Every finding below was reviewed against the code. The table shows what changed (commit), what was measured in a real Chromium browser, and what was deliberately left alone. Unit suites: 413 pass / 1 fail before and after (the failing `render Transactions feed the initial Web animation wrapper` test predates this work). New browser regression tests: `pnpm test:browser:layout` (`tests/layout-browser.test.mjs`).
+
+| # | Finding | Outcome | Evidence |
+|---|---------|---------|----------|
+| 1.1 | Lazy scroll / geometry force whole-mount re-render | **Fixed** (61b1c6c, 24cfd62): only the View boundaries enclosing the changed lazy stack / GeometryReader re-render; GeometryReaders are keyed by view identity instead of render order | 40 scroll steps: sibling View bodies re-run 0× (was every pass) |
+| 1.2 | Full candidate DOM per root pass | **Reduced, not removed**: 1.1 removed the hot sources of forced passes. Root-level State changes still force all boundaries because environment values are not part of boundary reuse checks | — |
+| 1.3 | Post-commit re-observe / re-query every pass | **Fixed** (f2ffb3d, 24cfd62): ResizeObserver registrations persist; only new rows or rows reused for another slot are (re)observed | — |
+| 1.4 | Measurement ↔ render feedback loops | **Fixed** (24cfd62): geometry-driven passes are capped at 4 per frame, then deferred to rAF | — |
+| 1.5 | Hydration mismatch renders up to 3× | **Not changed**: each render serves a different fallback (fast reuse, identity-preserving hydrator, clean client tree); only hit on SSR mismatch | — |
+| 1.6 | `innerHTML` fallback mount | **Not changed**: only used when the container lacks `createElement`/`replaceChildren` (non-browser shims); real browsers never take it | — |
+| 2.1 | Layout reads interleaved with writes | **Fixed** (f2431a5): animated passes read the live range in one batch (≤3000 elements) before writing | 400 nested rows, text change in `withAnimation`: 400 forced layouts / 55.8 ms → 1 layout / 20.1 ms |
+| 2.2 | Keyed ranges read every child box | **Fixed** by 2.1 (reads resolve from the batch) | — |
+| 2.3 | Text content transitions read mid-reconcile | **Fixed** by 2.1 for the "before" box; the post-write box needed to size the overlay is still read per transition | — |
+| 2.4 | Continuous corners force layout per patch | **Fixed** (8ca0def): measurement happens only in the ResizeObserver callback | — |
+| 2.5 | Lazy measurement read/write interleave | **Fixed** (f2ffb3d): read phase, then sizes, then one scroll correction per target | — |
+| 2.6 | `lazyScrollParent` ancestor `getComputedStyle` walk | **Fixed** (f2ffb3d, 61b1c6c): cached per root pass for attached elements | — |
+| 2.7 | Safe-area probe per reader | **Fixed** (f2ffb3d): one probe read per measurement pass | — |
+| 3.1 | Scroll handled per event on microtasks | **Fixed** (f2ffb3d): one measurement per animation frame | — |
+| 3.2 | Scroll save/restore per pass | **Fixed** (5c89fe0): unchanged offsets are not rewritten | — |
+| 4.1 | Generic keyed path moves without LIS | **Fixed** (e5a8566) | 1000 keyed rows, insert-at-front + swap: 1602 DOM add/remove records → 6 |
+| 4.2 | One-by-one removal | **Fixed** (e5a8566): `removeNodeBatch` | — |
+| 4.3 | NodeList snapshots | **Not changed**: required for correctness against live NodeLists | — |
+| 4.4 | `flushLayoutMotion` ancestor walk | **Fixed** (5c89fe0): per-ancestor verdicts memoized; single-change fast path | — |
+| 4.5 | Subtree release on removal | **Not changed**: required cleanup | — |
+| 5.1 | Style objects never equal | **Fixed** (8ca0def): shallow style equality | — |
+| 5.2 | Event-name regex per key | **Fixed** (8ca0def): char-code helper | — |
+| 5.3 | String/object style switch restarts motion | **Not changed**: rare, and restarting is the correct semantics for a full style replacement | — |
+| 6.1 | Main-thread JS animation | **Not changed**: moving the spring engine to WAAPI/compositor needs a retargeting design (interruptible springs, velocity hand-off); out of scope for a fix pass | — |
+| 6.2 | FLIP layer promotion | **Not changed**: inherent to FLIP | — |
+| 6.3 | Full 7-function filter chain | **Fixed** (fdc8234): each modifier emits its own function and stacks onto inner filters (DOM + SSR) | — |
+| 6.4 | Text content transitions | **Partly fixed** (5c89fe0): `matchMedia` cached. *Correction:* the original audit said each glyph runs its own animation; it does not — one driver updates all glyphs | — |
+| 6.5 | Transition helper reads | **Fixed** (5c89fe0): computed style is read only when an opacity/transform keyframe needs it | — |
+| 7.1 | Endless canvas rAF loops | **Fixed** (0db5bb1): paused while offscreen (IntersectionObserver) or the document is hidden; resume step clamped | — |
+| 7.2 | Per-particle fill strings/paths | **Fixed** (0db5bb1): colours built once, one path per colour | — |
+| 8.1 | Per-mutation dispatch allocations | **Not changed**: snapshots are part of the public mutation-batch contract | — |
+| 8.2 | `attachGraph` / full reconcile walks | **Not changed**: deferring the prune was tried and rejected — tests require removed rows to stop notifying synchronously | — |
+| 8.3 | splice/fill snapshot whole array | **Fixed** (4477629): compares only removed vs inserted items / the fill range | — |
+| 8.4 | `sort` comparator wrapping | **Not changed**: comparators must receive State proxies | — |
+| 8.5 | Listener set copy | **Not changed**: protects against listeners unsubscribing during dispatch | — |
+
+### Bugs found and fixed along the way
+- **Lazy rows lost their slot when reused** (bff4b78). After the first scroll, row sizes were recorded against stale indexes: scroll anchoring jumped, total height doubled and the window stopped advancing.
+- **Lazy stacks inside a View never advanced** (61b1c6c). Root passes dropped lazy state that belonged to reused boundaries.
+- **GeometryReader ignored resizes** (24cfd62). It only re-measured after an unrelated render; it now observes its own box.
+
+---
+
+## Original audit
+
 Scope: the web DOM renderer (`packages/web/src`), its prop/motion/transition helpers, and the reactive state layer it subscribes to (`packages/core/src/state.ts`). This is a static code review: each finding names the code path, the conditions that trigger it, and how much it costs. Nothing here has been profiled. Severity is my estimate of the impact on a realistic app.
 
 Legend: **High** = visible jank or O(n²)/O(document) work on common paths · **Medium** = real cost under specific usage · **Low** = micro-cost or edge case.
