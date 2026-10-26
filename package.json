@@ -67,6 +67,10 @@
       "types": "./dist/progressive-blur/plan.d.ts",
       "import": "./dist/progressive-blur/plan.js"
     },
+    "./rendering-quality": {
+      "types": "./dist/rendering-quality.d.ts",
+      "import": "./dist/rendering-quality.js"
+    },
     "./cli": "./bin/mun.mjs",
     "./mun": {
       "types": "./dist/mun.d.ts",

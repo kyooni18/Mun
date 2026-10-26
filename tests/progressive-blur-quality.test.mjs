@@ -2,41 +2,13 @@
 
 import assert from "node:assert/strict"
 import test from "node:test"
-import { JSDOM } from "jsdom"
+import { browser } from "./helpers/rendering-quality.mjs"
 import { VStack } from "../packages/core/dist/index.js"
 import { compileParticleFieldGPUIsland } from "../packages/compiler/dist/gpu-island-ir.js"
 import { mount } from "../packages/web/dist/index.js"
 import { BlurProfile, ProgressiveBlur } from "../packages/progressive-blur/dist/index.js"
 import { prepareProgressiveBlur, qualityFromFrames } from "../packages/progressive-blur/dist/quality.js"
 
-function browser(storage = new Map()) {
-  const dom = new JSDOM("<!doctype html><main></main>", { url: "https://mun.test", pretendToBeVisual: true })
-  const owner = dom.window
-  let id = 0
-  const frames = new Map(), idle = new Map(), timers = new Map()
-  Object.defineProperty(owner.document, "readyState", { value: "loading" })
-  Object.defineProperty(owner, "localStorage", { configurable: true, value: {
-    getItem: key => storage.get(key) ?? null,
-    setItem: (key, value) => storage.set(key, value),
-  } })
-  owner.CSS = { supports: () => true }
-  owner.requestAnimationFrame = callback => { frames.set(++id, callback); return id }
-  owner.cancelAnimationFrame = id => frames.delete(id)
-  owner.requestIdleCallback = callback => { idle.set(++id, callback); return id }
-  owner.cancelIdleCallback = id => idle.delete(id)
-  owner.setTimeout = (callback, delay) => { timers.set(++id, { callback, delay }); return id }
-  owner.clearTimeout = id => timers.delete(id)
-  const flush = (queue, value) => { const callbacks = [...queue.values()]; queue.clear(); callbacks.forEach(fn => fn(value)) }
-  const frame = time => flush(frames, time)
-  const timer = delay => {
-    for (const [id, timer] of timers) if (timer.delay === delay) { timers.delete(id); timer.callback() }
-  }
-  const start = () => { owner.dispatchEvent(new owner.Event("load")); frame(0); frame(16); timer(1000) }
-  return { dom, owner, storage, frames, idle, start, frame, timer,
-    flushIdle: (budget = 50) => flush(idle, { didTimeout: false, timeRemaining: () => budget }),
-    sample: () => owner.document.querySelector("[data-pb-probe]"),
-  }
-}
 
 test("quality thresholds require stable baseline and consistent absolute and relative slowdown", async () => {
   assert.equal(await prepareProgressiveBlur(), "full", "SSR never starts work")

@@ -7,6 +7,10 @@
   "main": "./dist/src/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
+    "./rendering-quality": {
+      "types": "./dist/src/rendering-quality/index.d.ts",
+      "import": "./dist/src/rendering-quality/index.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/src/index.js"

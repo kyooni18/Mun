@@ -25,6 +25,7 @@
     "src/core.ts",
     "src/progressive-blur/index.ts",
     "src/progressive-blur/plan.ts",
+    "src/rendering-quality.ts",
     "src/experimental.ts",
     "src/mun.ts",
     "src/closures.ts",

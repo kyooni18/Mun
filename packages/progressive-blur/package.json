@@ -28,6 +28,7 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
+    "@mun/animation": "workspace:*",
     "@mun/core": "workspace:*"
   },
   "sideEffects": false,

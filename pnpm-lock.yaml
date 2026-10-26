@@ -169,6 +169,9 @@ importers:
 
   packages/progressive-blur:
     dependencies:
+      '@mun/animation':
+        specifier: workspace:*
+        version: link:../animation
       '@mun/core':
         specifier: workspace:*
         version: link:../core
