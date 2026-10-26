@@ -279,7 +279,8 @@ function frontmatterSymbols(frontmatter: FrontmatterInfo | undefined, fileName: 
 
 
 function collectUsedIdentifiers(source: string, fileName: string): Set<string> {
-  const generated = transformMunSource(source, fileName + ".embedded.mun")
+  // Frontmatter bindings are free names here; capture analysis below checks them.
+  const generated = transformMunSource(source, fileName + ".embedded.mun", { externalScope: true })
   const file = ts.createSourceFile(fileName + ".embedded.ts", generated, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const used = new Set<string>()
   const declared = new Set<string>()
@@ -414,7 +415,7 @@ function makeEmbeddedBlock(
     }
   }
 
-  const analysis = analyzeMunSource(body, fileName + ".embedded.mun")
+  const analysis = analyzeMunSource(body, fileName + ".embedded.mun", { externalScope: true })
   const used = collectUsedIdentifiers(body, fileName)
   const props = [...symbols.bindings.keys()].filter(item => used.has(item))
   const imports = [...symbols.imports.values()].filter(item => used.has(item.local))

@@ -296,6 +296,7 @@ export struct ToolbarButton: View {
 
 test("parameterized Swift action closures lower inside struct View bodies", () => {
   const source = `import { Text } from "@mun/core/compat"
+import { save } from "./store.js"
 struct Field: View {
   let onChange: (value: string) => void
   init(@Action onChange: (value: string) => void) { self.onChange = onChange }

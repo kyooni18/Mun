@@ -1666,13 +1666,13 @@ function lowerTopLevelState(source: string): string {
  * local declarations and explicit imports shadow built-ins and only the
  * built-ins actually read become (tree-shakable) named imports.
  */
-function importMunBuiltins(source: string, lowered: string, fileName: string): string {
+function importMunBuiltins(source: string, lowered: string, fileName: string, externalScope: boolean): string {
   const file = ts.createSourceFile(fileName + ".ts", lowered, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   // A module TypeScript cannot parse is reported by validateWebLowering with
   // the parser's own message; scope analysis of a broken tree would only add noise.
   if (((file as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? []).length > 0) return lowered
   const resolution = resolveMunBuiltins(file)
-  const unresolved = resolution.unresolved[0]
+  const unresolved = externalScope ? undefined : resolution.unresolved[0]
   if (unresolved) {
     const position = file.getLineAndCharacterOfPosition(unresolved.offset)
     const mapped = mapGeneratedPosition(createMunSourceMap(source, lowered, fileName), { line: position.line + 1, column: position.character + 1 })
@@ -1988,7 +1988,16 @@ function lowerReactComponentImports(source: string): string {
   return `import { reactComponent as __munReactComponent } from "@mun/react"\n${result}`
 }
 
-export function transformMunSource(source: string, fileName = "mun-source.ts"): string {
+export interface MunTransformOptions {
+  /**
+   * The module is a fragment whose free names are bound by its host (an Astro
+   * `@mun` block reads frontmatter). Built-ins still resolve; names that do not
+   * resolve are left to the host's own scope analysis instead of rejected.
+   */
+  readonly externalScope?: boolean
+}
+
+export function transformMunSource(source: string, fileName = "mun-source.ts", options: MunTransformOptions = {}): string {
   if (/\.mun$/i.test(fileName)) {
     const originalDeclarations = parseMunStructs(source)
     validateWebBindings(originalDeclarations, initializerRegistryFor(originalDeclarations))
@@ -2039,7 +2048,7 @@ export function transformMunSource(source: string, fileName = "mun-source.ts"): 
   // compiler helper imports first makes the final static pass parse a larger
   // module and can only add irrelevant bindings to its candidate set.
   const withStaticHoists = hoistStaticViewSubtrees(withCompiledTemplates)
-  const output = /\.mun$/i.test(fileName) ? importMunBuiltins(source, withStaticHoists, fileName) : ensureImports(withStaticHoists)
+  const output = /\.mun$/i.test(fileName) ? importMunBuiltins(source, withStaticHoists, fileName, options.externalScope === true) : ensureImports(withStaticHoists)
   if (/\.mun$/i.test(fileName)) validateWebLowering(source, output, fileName)
   return output
 }

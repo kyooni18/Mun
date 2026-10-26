@@ -1,6 +1,6 @@
 import * as ts from "typescript"
 import { createSemanticModel } from "./semantic.js"
-import { transformMunSource } from "./pipeline.js"
+import { transformMunSource, type MunTransformOptions } from "./pipeline.js"
 import { findRawHtml, validateRawHtmlSyntax } from "./scanner.js"
 
 export interface MunSourceAnalysis {
@@ -55,9 +55,9 @@ export function assertCanonicalMunSource(source: string, fileName = "mun-source.
 }
 
 
-export function analyzeMunSource(source: string, fileName = "mun-source.mun"): MunSourceAnalysis {
+export function analyzeMunSource(source: string, fileName = "mun-source.mun", options: MunTransformOptions = {}): MunSourceAnalysis {
   assertCanonicalMunSource(source, fileName)
-  const generated = transformMunSource(source, fileName)
+  const generated = transformMunSource(source, fileName, options)
   const semantic = createSemanticModel(source, fileName, generated)
   const file = ts.createSourceFile(fileName, generated, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
 

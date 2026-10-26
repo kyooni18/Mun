@@ -52,10 +52,12 @@ completion and hover, and the diagnostics all read it:
 3. Only built-ins that are actually read are imported (`import { Text, VStack } from
    "@mun/core/compat"`). Each module imports just what it uses, so bundlers tree-shake
    unused Views exactly as with hand-written imports.
-4. An unknown type-like name is an error at its source position:
-   `Cannot find 'Frobnicate' in scope.` Naming an opt-in feature without importing it
+4. A name that resolves nowhere is an error at its source position:
+   `Cannot find 'Frobnicate' in scope.` (lowercase typos such as `greting` too). Naming an opt-in feature without importing it
    says which module to import. A SwiftUI name that only the native target implements
-   (`SecureField`) says so too. Host globals (`ResizeObserver`, `URL`, `Math`) are not affected.
+   (`SecureField`) says so too. JavaScript and browser globals (`console`, `fetch`,
+   `window`, `ResizeObserver`, `URL`) are not affected. Astro `@mun` blocks read their
+   frontmatter through `transformMunSource(…, { externalScope: true })`.
 5. Explicit imports from `@mun/core`, `@mun/core/compat` or `@mun/ui` keep working.
 
 Implicit resolution applies only to `.mun` files. JavaScript and TypeScript modules

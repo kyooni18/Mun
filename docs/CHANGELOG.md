@@ -5,13 +5,17 @@
 - `.mun` built-ins resolve from one compiler registry shared with the language server.
   Lexical scoping lets declarations and imports shadow built-ins, only referenced
   built-ins are imported, and unknown, native-only or un-imported opt-in names are
-  reported at their source position. `Color.red` and similar value types used to lower
+  reported at their source position (any name, including lowercase typos). `Color.red` and similar value types used to lower
   to an unimported identifier.
 - Progressive blur is the first opt-in feature of `@mun/ui`: `@mun/ui/progressive-blur`
   and `@mun/ui/progressive-blur/plan`. `@mun/progressive-blur` keeps working and is the
   same module instance.
 - `@mun/web` hydration keeps a `ref` and event handlers when a later modifier (for example
   `clipShape`) adds props to the same element during candidate hydration.
+- `@mun/web` keeps listeners, refs and animations of a live View that is carried into a
+  replacement ancestor element (regressed with the unchanged-style no-op path).
+- Struct fields typed `String`/`Int`/`Bool` satisfy TypeScript-typed initializer
+  parameters (`Text(title)` no longer reports "No matching initializer").
 - `react`, `react-dom` and `vue` are optional peers of their adapters; new projects
   depend on `@mun/ui`.
 

@@ -210,7 +210,7 @@ function hostGlobals(): ReadonlySet<string> {
 export interface MunBuiltinResolution {
   /** Runtime bindings to import, grouped by module, in first-use order. */
   readonly imports: ReadonlyMap<string, readonly string[]>
-  /** Free names that are neither declared, imported, built in nor host globals. */
+  /** Free names that are neither declared, imported, built in nor JavaScript/host globals. */
   readonly unresolved: readonly { readonly name: string; readonly offset: number; readonly message: string }[]
 }
 
@@ -232,9 +232,9 @@ export function resolveMunBuiltins(file: ts.SourceFile): MunBuiltinResolution {
       else imports.set(module, [name])
       continue
     }
-    // Lower-case free names are ordinary JavaScript globals or host APIs
-    // (`console`, `fetch`, `window`); only type-like names are View vocabulary.
-    if (!/^[A-Z]/u.test(name) || name in globalThis || name in runtime || hostGlobals().has(name)) continue
+    // JavaScript globals and browser host APIs (`console`, `fetch`, `window`,
+    // `ResizeObserver`) stay ordinary ES scope; everything else must resolve.
+    if (name in globalThis || name in runtime || hostGlobals().has(name)) continue
     const optIn = optInModuleFor(name)
     const message = optIn
       ? `'${name}' is an opt-in Mün feature. Import it explicitly: import { ${name} } from "${optIn}"`

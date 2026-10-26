@@ -81,6 +81,9 @@ test('unknown, native-only and opt-in identifiers report located diagnostics', (
   assert.match(optIn[0].message, /import \{ ProgressiveBlur \} from "@mun\/ui\/progressive-blur"/u)
   const native = diagnoseMunSource('struct A: View {\n  @State var p = ""\n  var body: some View { SecureField("pw", text: $p) }\n}\nexport default A()\n', 'A.mun', { target: 'web' })
   assert.match(native[0].message, /only to the native target/u)
+  const typo = diagnoseMunSource('struct A: View {\n  var greeting = "hi"\n  var body: some View { Text(greting) }\n}\nexport default A()\n', 'A.mun', { target: 'web' })
+  assert.match(typo[0].message, /Cannot find 'greting' in scope/u)
+  assert.deepEqual([typo[0].line, typo[0].column], [3, 30])
   // Host globals are not mistaken for missing Views.
   assert.deepEqual(diagnoseMunSource('struct A: View {\n  func f() { let o = new ResizeObserver(() => {}); console.log(o, Math.max(1, 2), new URL("x:y")) }\n  var body: some View { Text("ok") }\n}\nexport default A()\n', 'A.mun', { target: 'web' }), [])
 })

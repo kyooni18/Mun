@@ -6,6 +6,7 @@ import { analyzeMunSource, assertCanonicalMunSource } from "./analysis.js"
 import type { MunLanguageService, MunSourceMap, MunTransformResult } from "./types.js"
 
 export { transformMunSource } from "./pipeline.js"
+export type { MunTransformOptions } from "./pipeline.js"
 export { diagnoseMunSource } from "./diagnostics.js"
 export { createMunVitePlugin } from "./vite.js"
 export { generateVueHostModule } from "./vue-host.js"
