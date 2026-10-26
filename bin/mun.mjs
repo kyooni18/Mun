@@ -113,6 +113,7 @@ const localPackagePaths = {
   '@mun/compiler': 'packages/compiler',
   '@mun/execution': 'packages/execution',
   '@mun/legacy-react': 'packages/legacy-react',
+  '@mun/progressive-blur': 'packages/progressive-blur',
   '@mun/react': 'packages/react',
   '@mun/vue': 'packages/vue',
   '@mun/web': 'packages/web',
@@ -278,6 +279,9 @@ function configureLocalDependencies(projectRoot, localRoot, renderer = 'react', 
   for (const name of ['@mun/animation', '@mun/core', '@mun/compiler', '@mun/execution', '@mun/web']) {
     manifest.devDependencies[name] = linkSpecifier(resolve(localRoot, localPackagePaths[name]))
   }
+  // Opt-in @mun/ui features re-export internal modules; a linked @mun/ui
+  // does not install them itself.
+  if (includeRootPackage) manifest.devDependencies['@mun/progressive-blur'] = linkSpecifier(resolve(localRoot, localPackagePaths['@mun/progressive-blur']))
   // pnpm 11 moved overrides out of package.json and into pnpm-workspace.yaml.
   // Keep every internal package pinned to this checkout so unpublished
   // transitive @mun/* dependencies never fall through to the registry.

@@ -32,14 +32,14 @@ if (!existsSync(manifestPath)) {
 const packages = new Map()
 for (const file of readdirSync(packDir)) {
   if (!file.endsWith('.tgz')) continue
-  const match = file.match(/^(mun(?:-(?:ui|animation|astro|core|compiler|execution|legacy-react|react|vue|web|vite))?)-(.+)\.tgz$/u)
+  const match = file.match(/^(mun(?:-(?:ui|animation|astro|core|compiler|execution|legacy-react|progressive-blur|react|vue|web|vite))?)-(.+)\.tgz$/u)
   if (!match) continue
   const short = match[1]
   const name = short === 'mun-ui' ? '@mun/ui' : `@mun/${short.slice('mun-'.length)}`
   packages.set(name, resolve(packDir, file))
 }
 
-for (const required of ['@mun/ui', '@mun/animation', '@mun/core', '@mun/compiler', '@mun/execution', '@mun/web', '@mun/vite', `@mun/${rendererArg}`]) {
+for (const required of ['@mun/ui', '@mun/animation', '@mun/core', '@mun/compiler', '@mun/execution', '@mun/progressive-blur', '@mun/web', '@mun/vite', `@mun/${rendererArg}`]) {
   if (!packages.has(required)) {
     console.error(`Missing local tarball for ${required}. Run \`pnpm pack:local\` first.`)
     process.exit(1)

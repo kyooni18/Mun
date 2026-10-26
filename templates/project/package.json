@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@mun/core": "^__MUN_VERSION__",
+    "@mun/ui": "^__MUN_VERSION__",
     "@mun/web": "^__MUN_VERSION__"
   },
   "devDependencies": {

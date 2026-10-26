@@ -2,6 +2,19 @@
 
 ## Next alpha
 
+- `.mun` built-ins resolve from one compiler registry shared with the language server.
+  Lexical scoping lets declarations and imports shadow built-ins, only referenced
+  built-ins are imported, and unknown, native-only or un-imported opt-in names are
+  reported at their source position. `Color.red` and similar value types used to lower
+  to an unimported identifier.
+- Progressive blur is the first opt-in feature of `@mun/ui`: `@mun/ui/progressive-blur`
+  and `@mun/ui/progressive-blur/plan`. `@mun/progressive-blur` keeps working and is the
+  same module instance.
+- `@mun/web` hydration keeps a `ref` and event handlers when a later modifier (for example
+  `clipShape`) adds props to the same element during candidate hydration.
+- `react`, `react-dom` and `vue` are optional peers of their adapters; new projects
+  depend on `@mun/ui`.
+
 - Added the first renderer-neutral compiled template/slot IR. Proven intrinsic
   host structure is frozen once at module evaluation, dynamic children retain
   their original graph identity paths as slots, and React/Vue/Web DOM plus Web

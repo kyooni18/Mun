@@ -48,6 +48,12 @@ struct Counter: View {
 export default Counter()
 ```
 
+Standard Views, layouts, modifiers, `State`/`Binding` and animation APIs resolve in
+`.mun` files without imports; only what a module uses is bundled. Advanced features
+ship in the same install and are opt-in through explicit imports, for example
+`import { BlurProfile, progressiveBlur } from "@mun/ui/progressive-blur"`. See
+[Built-ins and opt-in features](docs/BUILTINS_AND_OPT_IN.md).
+
 You can also author Views directly in JavaScript or TypeScript, without the
 `.mun` compiler. Import the authoring API from `@mun/core` (or `@mun/ui`) and
 `mount` / `renderToHTML` from `@mun/web`. Rendering is explicitly separate from
@@ -93,6 +99,7 @@ also optional research infrastructure, not the core authoring model.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Rendering reliability, URL safety and release gates](docs/rendering-reliability.md)
 - [API](docs/API.md)
+- [Built-ins and opt-in features](docs/BUILTINS_AND_OPT_IN.md)
 - [SwiftUI parity](docs/SWIFTUI_PARITY.md)
 - [Local development](docs/LOCAL_DEVELOPMENT.md)
 - [Migration](docs/MIGRATION.md)

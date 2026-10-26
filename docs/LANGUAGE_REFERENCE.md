@@ -8,8 +8,10 @@ specifies the **implemented web subset**, not Swift source or ABI compatibility.
 ## Modules, declarations and values
 
 A web module uses ES-style `import` and `export`. `export default App()` exports
-a View description. Built-in Views and compiler helpers can be imported implicitly;
-explicit imports remain supported. Relative `.mun` imports are compiled by Vite
+a View description. Built-in Views, value types and language functions resolve
+without imports through the compiler's built-in registry, with lexical shadowing and
+a located error for unknown names ([details](BUILTINS_AND_OPT_IN.md)); explicit
+imports remain supported. Relative `.mun` imports are compiled by Vite
 for both SSR and the browser. A module may define `struct Name: View` with stored
 fields, initializers, `var body: some View`, computed properties and `func` members.
 `@main` remains the entry convention for the experimental native compiler.

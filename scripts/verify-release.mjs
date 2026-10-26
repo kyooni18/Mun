@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const canonicalPackages = ["execution", "animation", "core", "compiler", "astro", "react", "vue", "web", "vite"]
+const canonicalPackages = ["execution", "animation", "core", "compiler", "astro", "react", "vue", "web", "vite", "progressive-blur"]
 const compatibilityPackages = ["legacy-react"]
 const releaseTargets = [
   { dir: root, canonical: false, publishPrefix: "dist/", requireExports: true },
@@ -137,6 +137,7 @@ for (const target of releaseTargets) {
       '@mun/compiler',
       '@mun/core',
       '@mun/execution',
+      '@mun/progressive-blur',
       '@mun/react',
       '@mun/vite',
       '@mun/vue',
@@ -196,14 +197,26 @@ try {
     ...canonicalDependencyTarballs,
   ], { cwd: canonicalOnlyDir, encoding: "utf8" })
   assert.equal(install.status, 0, `canonical-only packed install failed:\n${install.stdout}\n${install.stderr}`)
-  for (const packageName of ["animation", "astro", "compiler", "core", "react", "vite", "vue", "web"]) {
+  for (const packageName of ["animation", "astro", "compiler", "core", "progressive-blur", "react", "vite", "vue", "web"]) {
     assert.equal(existsSync(resolve(canonicalOnlyDir, `node_modules/@mun/${packageName}`)), true, `canonical @mun/ui did not install @mun/${packageName}`)
   }
   const smoke = spawnSync(process.execPath, ["--input-type=module", "-e", `
     import { Animation } from "@mun/ui";
+    import { BlurProfile, ProgressiveBlur, progressiveBlur } from "@mun/ui/progressive-blur";
+    import { planBlur } from "@mun/ui/progressive-blur/plan";
     if (typeof Animation !== "function") throw new Error("canonical semantic import failed");
+    if (typeof ProgressiveBlur !== "function" || typeof progressiveBlur !== "function") throw new Error("opt-in @mun/ui/progressive-blur import failed");
+    if (planBlur(BlurProfile.edge("bottom", 40), { radius: 8 }).length === 0) throw new Error("opt-in @mun/ui/progressive-blur/plan import failed");
   `], { cwd: canonicalOnlyDir, encoding: "utf8" })
   assert.equal(smoke.status, 0, `canonical-only smoke test failed:\n${smoke.stdout}\n${smoke.stderr}`)
+  // Opt-in subpaths publish their declarations next to the ESM entry points.
+  for (const path of ["dist/progressive-blur/index.d.ts", "dist/progressive-blur/plan.d.ts"]) {
+    assert.equal(existsSync(resolve(canonicalOnlyDir, "node_modules/@mun/ui", path)), true, `@mun/ui must publish ${path}`)
+  }
+  for (const peer of ["react", "react-dom", "vue"]) {
+    const manifest = readJSON(resolve(canonicalOnlyDir, `node_modules/@mun/${peer === "vue" ? "vue" : "react"}/package.json`))
+    assert.equal(manifest.peerDependenciesMeta?.[peer]?.optional, true, `${peer} must stay an optional peer of its Mün adapter`)
+  }
   console.log("Canonical @mun/ui installs the Mün compiler, web renderer, optional adapters, and Vite integration")
 } finally {
   rmSync(canonicalOnlyDir, { recursive: true, force: true })
@@ -285,6 +298,7 @@ try {
   assert.equal(generatedManifest.dependencies['@mun/core'], `^${releaseVersion}`)
   assert.equal(generatedManifest.dependencies['@mun/web'], `^${releaseVersion}`)
   assert.equal(generatedManifest.devDependencies['@mun/vite'], `^${releaseVersion}`)
+  assert.equal(generatedManifest.dependencies['@mun/ui'], `^${releaseVersion}`, 'opt-in @mun/ui features need no extra install')
   assert.equal(generatedManifest.dependencies.react, undefined)
   assert.equal(generatedManifest.dependencies.vue, undefined)
   console.log("Clean offline install and create-mun smoke tests passed")

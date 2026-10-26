@@ -1,7 +1,7 @@
 {
   "name": "@mun/progressive-blur",
   "version": "0.1.20",
-  "description": "Progressive (variable-radius) blur for Mün as a SwiftUI-style modifier: linear, edge and radial profiles, scoped to any View.",
+  "description": "Internal implementation of Mün's opt-in progressive blur. Import it from @mun/ui/progressive-blur; this package name remains for compatibility.",
   "type": "module",
   "files": [
     "dist"

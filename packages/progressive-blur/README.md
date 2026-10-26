@@ -2,8 +2,13 @@
 
 Progressive (variable-radius) blur as a SwiftUI-style modifier for Mün.
 
+> **Use `@mun/ui/progressive-blur`.** Progressive blur is an opt-in feature bundled with
+> `@mun/ui`, so no extra install is needed. This package is the internal implementation
+> module that `@mun/ui` re-exports. Importing `@mun/progressive-blur` directly still works
+> and yields the same module instance, but new code should use the `@mun/ui` path.
+
 ```ts
-import { BlurProfile, blurFocus, focus, progressiveBlur } from "@mun/progressive-blur"
+import { BlurProfile, blurFocus, focus, progressiveBlur } from "@mun/ui/progressive-blur"
 
 // Under a bar: strongest at the bottom edge, fading out over 120pt.
 content.modifier(progressiveBlur(BlurProfile.edge("bottom", 120), { radius: 14 }))
@@ -20,7 +25,7 @@ screen.modifier(progressiveBlur(BlurProfile.radial({ around: focus("menu"), inne
 - **Scope** is the view the modifier is attached to, optionally clipped with `in:`.
 - **`amount`** (0...1) fades the effect; changing it animates.
 - `ProgressiveBlur(profile, options)` is the underlying View (backdrop blur); use it in `.overlay`/`.background`/ZStack directly.
-- `@mun/progressive-blur/plan` is the pure, DOM-free planner (profile to masked layers), shared by any renderer.
+- `@mun/ui/progressive-blur/plan` is the pure, DOM-free planner (profile to masked layers), shared by any renderer.
 
 The web renderer stacks masked `backdrop-filter` layers. Avoid `opacity` or `filter` on an ancestor of the blurred
 view, since that makes a backdrop root and the blur then sees only the ancestor's contents.

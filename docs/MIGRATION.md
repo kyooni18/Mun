@@ -25,3 +25,14 @@ compilation units. This keeps existing native experiments available while allowi
 web-only forms and async behavior. Existing `.mun.ts`, JS/TS builders and imports
 remain supported. See [language differences and migration policy](LANGUAGE_REFERENCE.md)
 and [current capability status](CAPABILITIES.md).
+
+## Built-ins and `@mun/ui` opt-in features
+
+- `.mun` files no longer need `import { Text, VStack } from "@mun/core"`. Existing
+  explicit imports keep working; removing them is optional.
+- A `.mun` file that used an undeclared capitalized name (a typo, or a View that only
+  existed at runtime by accident) now fails to compile with `Cannot find '<Name>' in scope`.
+- Replace `@mun/progressive-blur` with `@mun/ui/progressive-blur` (and
+  `@mun/progressive-blur/plan` with `@mun/ui/progressive-blur/plan`). The old package is
+  kept as the internal implementation module and resolves to the same module instance,
+  so mixing both paths during migration does not duplicate state or behaviour.
