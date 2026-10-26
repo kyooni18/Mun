@@ -12,3 +12,11 @@ test('.modifier(_:) applies a reusable modifier given as a function or a body(co
   assert.equal(typeof viaFunction.padding, 'function', 'result stays modifiable')
   assert.throws(() => Text('a').modifier(null), TypeError)
 })
+
+test('.modifier(_:) survives the compiled modifier path used by .mun structs', async () => {
+  const { modifiedContentCompiled } = await import('../packages/core/dist/graph.js')
+  const framed = content => VStack(content, Text('footer'))
+  const html = renderToHTML(modifiedContentCompiled(Text('a'), [['modifier', [framed]], ['padding', [4]]]))
+  assert.match(html, /footer/)
+  assert.match(html, /padding/)
+})

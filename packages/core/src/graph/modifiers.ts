@@ -164,6 +164,13 @@ function snapshotModifierNode(value: unknown): ViewModifierNode | undefined {
   })
 }
 
+function applyContentModifier(node: ViewNode, value: ContentModifier): ModifiableViewNode {
+  const content = decorate(node)
+  const result = typeof value === "function" ? value(content) : value && typeof value.body === "function" ? value.body(content) : undefined
+  if (result === undefined || result === null) throw new TypeError("modifier(_:) expects a function or an object with body(content) that returns a View")
+  return decorate(result)
+}
+
 function applyModifier(content: ViewNode, name: string, arguments_: readonly unknown[]): ModifiableViewNode {
   return modifiedContent(content, { name, arguments: arguments_ })
 }
@@ -326,12 +333,7 @@ const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.proto
   withProps(this: ViewNode, value: Record<string, unknown>) { return applyModifier(this, "withProps", [value]) },
   keyed(this: ViewNode, value: string | number) { return applyModifier(this, "keyed", [value]) },
   elementRef(this: ViewNode, value: unknown) { return applyModifier(this, "elementRef", [value]) },
-  modifier(this: ViewNode, value: ContentModifier) {
-    const content = decorate(this)
-    const result = typeof value === "function" ? value(content) : value && typeof value.body === "function" ? value.body(content) : undefined
-    if (result === undefined || result === null) throw new TypeError("modifier(_:) expects a function or an object with body(content) that returns a View")
-    return decorate(result)
-  },
+  modifier(this: ViewNode, value: ContentModifier) { return applyContentModifier(this, value) },
   continuousCorners(this: ViewNode, smoothing = APPLE_CONTINUOUS_CORNER_SMOOTHING) { return applyModifier(this, "continuousCorners", [smoothing]) },
 }) as Modifiers)
 
@@ -400,6 +402,23 @@ export function modifiedContentCompiled(
   content: ViewNode,
   modifiers: readonly (readonly [name: string, arguments: readonly unknown[]])[],
 ): ModifiableViewNode {
+  // `.modifier(_:)` runs a user function over everything applied before it, so
+  // it splits the compiled list instead of becoming a renderer-visible node.
+  if (modifiers.some(([name]) => name === "modifier")) {
+    let current: ViewNode = content
+    let run: (readonly [name: string, arguments: readonly unknown[]])[] = []
+    const flush = () => {
+      if (run.length > 0) current = modifiedContentCompiled(current, run)
+      run = []
+    }
+    for (const entry of modifiers) {
+      if (entry[0] !== "modifier") { run.push(entry); continue }
+      flush()
+      current = applyContentModifier(current, entry[1][0] as ContentModifier)
+    }
+    flush()
+    return decorate(current)
+  }
   const normalizedIncoming = modifiers.map(([name, arguments_]) => {
     const normalizedArguments = Object.freeze(arguments_.map(item => snapshotModifierArgument(name, item)))
     const mask = name === "mask" ? maskStyle(normalizedArguments[0]) : name === "clipShape" ? clipShapeStyle(normalizedArguments[0]) : {}

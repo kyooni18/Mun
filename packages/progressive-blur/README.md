@@ -24,3 +24,6 @@ screen.modifier(progressiveBlur(BlurProfile.radial({ around: focus("menu"), inne
 
 The web renderer stacks masked `backdrop-filter` layers. Avoid `opacity` or `filter` on an ancestor of the blurred
 view, since that makes a backdrop root and the blur then sees only the ancestor's contents.
+
+Notes: the blur covers the modified view's layout box (a `position: fixed` root has none, so give it a real box), and it
+paints above the view's content; keep menus or toasts that must stay sharp above it with their own `z-index`.
