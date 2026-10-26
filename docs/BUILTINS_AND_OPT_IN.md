@@ -70,7 +70,7 @@ plugin registry and no initialization step. An import that is never used adds ze
 
 | Feature | Import path | Contents |
 | --- | --- | --- |
-| Progressive blur | `@mun/ui/progressive-blur` | `ProgressiveBlur`, `progressiveBlur`, `BlurProfile`, `blurFocus`, `focus`, `planBlur` |
+| Progressive blur | `@mun/ui/progressive-blur` | `ProgressiveBlur`, `progressiveBlur`, `BlurProfile`, `blurFocus`, `focus`, `planBlur`, `prepareProgressiveBlur` |
 | Progressive blur planner | `@mun/ui/progressive-blur/plan` | `planBlur`, `BlurProfile`, `focus`, `strengthAt`, `layerAlphas`, `layerCount`, `effectiveRadius` (pure, DOM-free) |
 
 ```swift
@@ -91,6 +91,8 @@ struct Feed: View {
 
 Changing `amount` animates the effect. `pnpm demo:progressive-blur` serves an
 SSR + hydration example of every profile ([`examples/progressive-blur`](../examples/progressive-blur/App.mun)).
+GPU renderer startup prepares an idle, cached CSS backdrop quality hint; the planner
+accepts `quality: "full" | "reduced" | "none"`. See the [probe contract and measurements](../packages/progressive-blur/README.md).
 
 ### Adding an opt-in feature
 

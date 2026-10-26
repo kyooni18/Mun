@@ -32,21 +32,23 @@ export function progressiveBlurQuality(owner: Window): Promise<BlurQuality> {
  */
 export function prepareProgressiveBlur(owner: Window | null = typeof window === "undefined" ? null : window): Promise<BlurQuality> {
   if (!owner) return Promise.resolve("full")
-  const key = screenKey(owner)
+  let key: string
+  try { key = screenKey(owner) } catch { return Promise.resolve("full") }
   let screens = runs.get(owner)
   if (!screens) runs.set(owner, screens = new Map())
   const previous = screens.get(key)
   if (previous) return previous
   const pending = new Promise<BlurQuality>(resolve => {
     const document = owner.document
-    if (typeof owner.requestIdleCallback !== "function" || typeof owner.requestAnimationFrame !== "function") return resolve("full")
+    if (typeof owner.requestIdleCallback !== "function" || typeof owner.cancelIdleCallback !== "function"
+      || typeof owner.requestAnimationFrame !== "function" || typeof owner.cancelAnimationFrame !== "function") return resolve("full")
     let done = false
     let frame = 0
     let idle = 0
     let quiet = 0
     let watchdog = 0
     let sample: HTMLDivElement | undefined
-    const finish = (quality: BlurQuality = "full", cache = false) => {
+    const finish = (quality: BlurQuality = "full", cache = !!sample) => {
       if (done) return
       done = true
       owner.cancelAnimationFrame(frame)
@@ -59,14 +61,14 @@ export function prepareProgressiveBlur(owner: Window | null = typeof window === 
       owner.removeEventListener("resize", cancel)
       for (const event of inputEvents) owner.removeEventListener(event, cancel, true)
       sample?.remove()
+      resolve(quality)
       // Storage is synchronous; keep both reads and writes out of input/startup work.
       if (cache) owner.requestIdleCallback(deadline => {
         if (deadline.timeRemaining() < 2) return
         try { owner.localStorage.setItem(cachePrefix + key, quality) } catch { /* blocked or full storage */ }
       })
-      resolve(quality)
     }
-    const cancel = () => finish("full", !!sample)
+    const cancel = () => finish()
     const safe = (work: () => void) => {
       try { work() } catch { finish() }
     }
