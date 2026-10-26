@@ -539,8 +539,13 @@ export interface Modifiers {
   withProps(value: Record<string, unknown>): ModifiableViewNode
   keyed(value: string | number): ModifiableViewNode
   elementRef(value: unknown): ModifiableViewNode
+  /** SwiftUI `.modifier(_:)`: apply a reusable modifier, a function of the content or an object with `body(content)`. */
+  modifier(value: ContentModifier): ModifiableViewNode
   continuousCorners(smoothing?: number): ModifiableViewNode
 }
+
+/** A reusable modifier: maps the modified content to a new View, like SwiftUI's `ViewModifier.body(content:)`. */
+export type ContentModifier = ((content: ModifiableViewNode) => ViewNode) | { body(content: ModifiableViewNode): ViewNode }
 
 export type ModifiableViewNode = ViewNode & Modifiers
 

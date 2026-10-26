@@ -695,6 +695,7 @@ const modifiers: readonly SwiftUIModifierSpec[] = Object.freeze([
   munCompatModifier("withProps", "withProps(_:)"),
   munCompatModifier("keyed", "keyed(_:)"),
   munCompatModifier("elementRef", "elementRef(_:)"),
+  munCompatModifier("modifier", "modifier(_:)"),
   munCompatModifier("continuousCorners", "continuousCorners(_:)"),
 ])
 

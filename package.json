@@ -75,7 +75,7 @@
     "build:workspace": "pnpm -r --filter \"./packages/*\" run build",
     "check": "pnpm run build:workspace && tsc -p tsconfig.build.json --noEmit",
     "test:types": "tsc -p tsconfig.tests.json",
-    "test:runtime": "node --test tests/react-runtime.test.mjs tests/react-widgets.test.mjs tests/react-client.test.mjs tests/macro-react.test.mjs tests/new-features.test.mjs tests/view-system.test.mjs",
+    "test:runtime": "node --test tests/react-runtime.test.mjs tests/react-widgets.test.mjs tests/react-client.test.mjs tests/macro-react.test.mjs tests/new-features.test.mjs tests/view-system.test.mjs tests/content-modifier.test.mjs",
     "test:animation": "pnpm --filter @mun/animation run test:full && pnpm --filter @mun/animation run typecheck",
     "test:browser": "node --test tests/browser.test.mjs",
     "test:browser:vue": "node --test tests/vue-browser.test.mjs",

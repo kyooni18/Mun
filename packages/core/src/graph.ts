@@ -28,6 +28,7 @@ export type {
   LazyViewNode,
   LazyViewRange,
   Length,
+  ContentModifier,
   ModifiableViewNode,
   ModifiedContent,
   Modifiers,

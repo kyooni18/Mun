@@ -8,7 +8,7 @@ import type { MunStyleProperties } from "../html.js"
 import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "../corners.js"
 import { Color, LinearGradient, shapeStyleCss, type ShapeStyle } from "../style.js"
 import { arrayCheck, snapshotArrayValues } from "./arrays.js"
-import type { ClassValue, Length, ModifiableViewNode, Modifiers, OffsetValue, ScaleEffectValue, ViewModifierNode, ViewNode } from "./types.js"
+import type { ClassValue, ContentModifier, Length, ModifiableViewNode, Modifiers, OffsetValue, ScaleEffectValue, ViewModifierNode, ViewNode } from "./types.js"
 
 const decoratedNodes = new WeakMap<object, ModifiableViewNode>()
 
@@ -326,6 +326,12 @@ const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.proto
   withProps(this: ViewNode, value: Record<string, unknown>) { return applyModifier(this, "withProps", [value]) },
   keyed(this: ViewNode, value: string | number) { return applyModifier(this, "keyed", [value]) },
   elementRef(this: ViewNode, value: unknown) { return applyModifier(this, "elementRef", [value]) },
+  modifier(this: ViewNode, value: ContentModifier) {
+    const content = decorate(this)
+    const result = typeof value === "function" ? value(content) : value && typeof value.body === "function" ? value.body(content) : undefined
+    if (result === undefined || result === null) throw new TypeError("modifier(_:) expects a function or an object with body(content) that returns a View")
+    return decorate(result)
+  },
   continuousCorners(this: ViewNode, smoothing = APPLE_CONTINUOUS_CORNER_SMOOTHING) { return applyModifier(this, "continuousCorners", [smoothing]) },
 }) as Modifiers)
 
