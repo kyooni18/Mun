@@ -39,6 +39,22 @@ test('the modifier overlays backdrop layers on the content and ProgressiveBlur s
   assert.match(renderToHTML(Text('menu').modifier(blurFocus('menu'))), /data-pb-focus="menu"/)
 })
 
+test('quality budgets reduce the stack while retaining its radius and profile', () => {
+  const profile = BlurProfile.edge('bottom', 100)
+  for (const radius of [4, 12, 24]) {
+    assert.equal(layerCount(radius), Math.min(8, Math.max(3, Math.round(radius / 2))))
+    const layers = planBlur(profile, { radius, quality: 'reduced' })
+    assert.equal(layers.length, 2)
+    assert.ok(Math.abs(Math.hypot(...layers.map(layer => layer.blur)) - radius) < 0.01)
+    assert.match(layers[0].mask, /^linear-gradient\(to bottom,/)
+    assert.deepEqual(planBlur(profile, { radius, quality: 'none' }), [])
+    assert.deepEqual(planBlur(BlurProfile.uniform(), { radius, quality: 'none' }), [])
+    assert.deepEqual(planBlur(BlurProfile.uniform(), { radius, quality: 'reduced' }), [{ blur: radius }])
+  }
+  assert.equal(layerCount(0, 'reduced'), 0)
+  assert.equal(layerCount(12, 'none'), 0)
+})
+
 test('@mun/ui exposes the same single progressive-blur implementation', async () => {
   const canonical = await import('@mun/ui/progressive-blur')
   const plan = await import('@mun/ui/progressive-blur/plan')

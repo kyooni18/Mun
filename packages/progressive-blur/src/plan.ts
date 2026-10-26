@@ -76,9 +76,13 @@ export interface BlurLayer {
 export interface PlanOptions {
   /** Strongest effective blur radius in points. */
   readonly radius: number
+  /** Rendering budget; reduced uses at most two layers, none disables blur. */
+  readonly quality?: BlurQuality
   /** Where a `focus` center currently is, in px inside the blurred box; CSS variables are used when absent. */
   readonly focusCenter?: { readonly x: number; readonly y: number }
 }
+
+export type BlurQuality = "full" | "reduced" | "none"
 
 const SAMPLES = 16
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
@@ -96,9 +100,9 @@ export function strengthAt(profile: BlurProfile, t: number): number {
   return clamp01(curves[profile.curve](position))
 }
 
-export function layerCount(radius: number): number {
-  if (!(radius > 0)) return 0
-  return Math.min(8, Math.max(3, Math.round(radius / 2)))
+export function layerCount(radius: number, quality: BlurQuality = "full"): number {
+  if (!(radius > 0) || quality === "none") return 0
+  return quality === "reduced" ? 2 : Math.min(8, Math.max(3, Math.round(radius / 2)))
 }
 
 /** Per-layer opacity for a strength fraction; exported so backends and tests agree on the model. */
@@ -179,8 +183,9 @@ function maskFor(profile: BlurProfile, index: number, count: number, options: Pl
 
 /** Turn a profile into the layer stack a backend renders. */
 export function planBlur(profile: BlurProfile, options: PlanOptions): BlurLayer[] {
+  if (options.quality === "none") return []
   if (profile.kind === "uniform") return options.radius > 0 ? [{ blur: options.radius }] : []
-  const count = layerCount(options.radius)
+  const count = layerCount(options.radius, options.quality)
   const blur = count === 0 ? 0 : Math.round((options.radius / Math.sqrt(count)) * 100) / 100
   return Array.from({ length: count }, (_, index) => ({ blur, mask: maskFor(profile, index, count, options) }))
 }
