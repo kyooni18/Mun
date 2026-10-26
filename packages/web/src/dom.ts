@@ -267,7 +267,11 @@ function dependencyPatchCandidates(
   let masks = boundary.compiledPatchMasks!
   // State-bearing props can be replaced without changing the compiled plan.
   // Refresh once on a cache miss before conservatively falling back.
-  if ([...boundary.pendingDependencies].some(dependency => !masks.has(dependency))) {
+  let missingMask = false
+  for (const dependency of boundary.pendingDependencies) {
+    if (!masks.has(dependency)) { missingMask = true; break }
+  }
+  if (missingMask) {
     rebuildCompiledPatchMasks(boundary, plan, program)
     masks = boundary.compiledPatchMasks!
   }
@@ -918,9 +922,9 @@ function bindCandidateNode(candidate: Node, live: Node, context: DomRenderContex
     if (instance && nodes) {
       const position = nodes.indexOf(candidate)
       if (position >= 0 && candidate !== live) {
-        const nextNodes = [...nodes]
-        nextNodes[position] = live
-        instance.viewSlots[viewSlotBinding.index] = nextNodes
+        // The slot array is owned by the instance (outputNodes returns a fresh
+        // copy), so replace in place instead of copying the whole slot per node.
+        nodes[position] = live
       }
     }
     runtime.compiledTemplateViewSlots.set(live, viewSlotBinding)

@@ -393,7 +393,10 @@ function candidateScore(
     const parameter = parameters.find(parameter => parameter.label === labeled[index].label || parameter.name === labeled[index].label || parameter.properties?.includes(labeled[index].label ?? ""))
     if (!parameter) return undefined
     score += parameter.label === labeled[index].label ? 1_000_000 : 900_000
-    if (parameter.label === labeled[index].label && (parameters.indexOf(parameter) === index || parameters.indexOf(parameter) === 0)) score += 10_000
+    if (parameter.label === labeled[index].label) {
+      const position = parameters.indexOf(parameter)
+      if (position === index || position === 0) score += 10_000
+    }
   }
   // Exact arity outranks a candidate reached through omitted defaults.
   score += original.length === parameters.length ? 10_000 : 1_000 + (parameters.length - original.length)

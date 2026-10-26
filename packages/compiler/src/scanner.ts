@@ -142,8 +142,17 @@ function matching(source: string, open: number, left: string, right: string): nu
   throw syntaxError(`Unclosed ${left} block in Mün source`, open)
 }
 
+const identifierPattern = /[A-Za-z_$][A-Za-z0-9_$]*/y
+const tagNamePattern = /[A-Za-z][A-Za-z0-9:._-]*/y
+
+function tagNameAt(source: string, start: number): string | undefined {
+  tagNamePattern.lastIndex = start
+  return tagNamePattern.exec(source)?.[0]
+}
+
 function identifierAt(source: string, start: number): { name: string; end: number } | undefined {
-  const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(source.slice(start))
+  identifierPattern.lastIndex = start
+  const match = identifierPattern.exec(source)
   return match ? { name: match[0], end: start + match[0].length } : undefined
 }
 
@@ -163,8 +172,8 @@ function isRawHtmlCandidate(source: string, start: number): boolean {
     let afterClose = possibleGenericClose + 1
     while (afterClose < source.length && /\s/.test(source[afterClose])) afterClose += 1
     if (source[afterClose] === "(") return false
-    const tagName = /^[A-Za-z][A-Za-z0-9:._-]*/.exec(source.slice(start + 1))?.[0]
-    const hasMatchingClosingTag = tagName ? source.slice(possibleGenericClose + 1).includes(`</${tagName}`) : false
+    const tagName = tagNameAt(source, start + 1)
+    const hasMatchingClosingTag = tagName ? source.indexOf(`</${tagName}`, possibleGenericClose + 1) !== -1 : false
     // TypeScript's angle-bracket assertion `<Foo>value` is still valid in
     // `.ts` files. Prefer that interpretation for an uppercase type name
     // when no matching closing tag exists. Actual `<Foo>...</Foo>` raw HTML
@@ -177,10 +186,10 @@ function isRawHtmlCandidate(source: string, start: number): boolean {
   while (cursor >= 0 && /\s/.test(source[cursor])) cursor -= 1
   if (cursor < 0) return true
   const startsNewLine = source.lastIndexOf("\n", start - 1) > cursor
-  const openingName = /^[A-Za-z][A-Za-z0-9:._-]*/.exec(source.slice(start + 1))?.[0]
+  const openingName = tagNameAt(source, start + 1)
   const openingClose = source.indexOf(">", start + 1)
   if (startsNewLine && openingName && openingClose >= 0
-    && source.slice(openingClose + 1).includes(`</${openingName}`)) return true
+    && source.indexOf(`</${openingName}`, openingClose + 1) !== -1) return true
   // A tag at the beginning of a new statement may follow a completed call,
   // array, or object expression on the previous line.
   if (startsNewLine && rawHtmlAfterExpressionCharacters.includes(source[cursor])) return true
