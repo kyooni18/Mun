@@ -1652,27 +1652,85 @@ function reconcileDomChildren(parent: Node, nextChildren: ArrayLike<Node>, conte
   const unkeyed = currentChildren.filter(child => nodeKey(child, context) === undefined && !reserved.has(child))
   let nextUnkeyed = 0
 
+  // Match every candidate to a live node first, so the order can be fixed
+  // with the minimum number of moves: nodes on the longest increasing run of
+  // old positions stay put and only the rest are moved. Moving each misplaced
+  // node against parent.childNodes[index] relocated O(n) nodes for a single
+  // insertion near the front of a keyed range.
+  const matched = new Array<Node | undefined>(nextArray.length)
   for (let index = 0; index < nextArray.length; index += 1) {
     const next = nextArray[index]
     const key = nodeKey(next, context)
     const reusable = runtime?.reuseCandidates.get(next)
-    let current = reusable && reusable.parentNode ? reusable : key === undefined ? unkeyed[nextUnkeyed++] : keyed.get(key)
-    if (current) used.add(current)
-    if (!current) {
-      commitStagedSubtree(next, context)
-      parent.insertBefore(next, parent.childNodes[index] ?? null)
-      current = next
-      bindInsertedSubtree(next, context)
-    } else {
-      const anchor = parent.childNodes[index]
-      if (anchor !== current) parent.insertBefore(current, anchor ?? null)
-      reconcileDomNode(parent, current, next, context)
+    const current = reusable && reusable.parentNode ? reusable : key === undefined ? unkeyed[nextUnkeyed++] : keyed.get(key)
+    // A duplicate key must not claim the same live node twice.
+    if (current && !used.has(current)) {
+      used.add(current)
+      matched[index] = current
     }
   }
+  placeMatchedChildren(parent, currentChildren, nextArray, matched, null, context)
 
+  const unused: Node[] = []
   for (const child of currentChildren) {
-    if (!used.has(child) && child.parentNode === parent) removeDomNode(parent, child, context)
+    if (!used.has(child) && child.parentNode === parent) unused.push(child)
   }
+  removeNodeBatch(parent, unused, context)
+}
+
+/**
+ * Orders `matched` live nodes (or newly inserted candidates where nothing
+ * matched) before `end`, moving only nodes outside the longest increasing
+ * subsequence of their previous positions. Insertion, binding and
+ * reconciliation still run in candidate order. Returns the live nodes.
+ */
+function placeMatchedChildren(
+  parent: Node,
+  previousOrder: readonly Node[],
+  nextArray: readonly Node[],
+  matched: Array<Node | undefined>,
+  end: Node | null,
+  context: DomRenderContext,
+): Node[] {
+  const oldIndex = new Map<Node, number>()
+  for (let index = 0; index < previousOrder.length; index += 1) oldIndex.set(previousOrder[index], index)
+  const sequence: number[] = []
+  const sequenceSlots: number[] = []
+  for (let index = 0; index < matched.length; index += 1) {
+    const live = matched[index]
+    const previous = live && live.parentNode === parent ? oldIndex.get(live) : undefined
+    if (previous === undefined) continue
+    sequence.push(previous)
+    sequenceSlots.push(index)
+  }
+  const stable = new Set<number>()
+  for (const position of longestIncreasingSubsequenceIndices(sequence)) stable.add(sequenceSlots[position])
+
+  let anchor: Node | null = end
+  for (let index = matched.length - 1; index >= 0; index -= 1) {
+    const live = matched[index]
+    if (!live) {
+      const next = nextArray[index]
+      commitStagedSubtree(next, context)
+      parent.insertBefore(next, anchor)
+      anchor = next
+      continue
+    }
+    if (!stable.has(index) && (live.parentNode !== parent || live.nextSibling !== anchor)) parent.insertBefore(live, anchor)
+    anchor = live
+  }
+
+  const liveNodes = new Array<Node>(matched.length)
+  for (let index = 0; index < matched.length; index += 1) {
+    const live = matched[index]
+    if (!live) {
+      bindInsertedSubtree(nextArray[index], context)
+      liveNodes[index] = nextArray[index]
+    } else {
+      liveNodes[index] = reconcileDomNode(parent, live, nextArray[index], context)
+    }
+  }
+  return liveNodes
 }
 
 function reconcileDomNode(parent: Node, current: Node, next: Node, context: DomRenderContext): Node {
@@ -1805,35 +1863,30 @@ function reconcileDomRange(parent: Node, currentNodes: readonly Node[], nextNode
   const after = current[current.length - 1].nextSibling
   const keyed = new Map<string | number, Node>()
   const used = new Set<Node>()
-  const liveNodes: Node[] = []
   const unkeyed = current.filter(node => nodeKey(node, context) === undefined)
   for (const node of current) {
     const key = nodeKey(node, context)
     if (key !== undefined) keyed.set(key, node)
   }
   let unkeyedIndex = 0
-  let cursor: Node | null = current[0] ?? after
-  for (const next of nextNodes) {
-    const reusable = runtimeFor(context)?.reuseCandidates.get(next)
+  const runtime = runtimeFor(context)
+  const matched = new Array<Node | undefined>(nextNodes.length)
+  for (let index = 0; index < nextNodes.length; index += 1) {
+    const next = nextNodes[index]
+    const reusable = runtime?.reuseCandidates.get(next)
     const key = nodeKey(next, context)
-    let live = reusable && reusable.parentNode ? reusable : key === undefined ? unkeyed[unkeyedIndex++] : keyed.get(key)
-    if (live) used.add(live)
-    if (!live) {
-      commitStagedSubtree(next, context)
-      parent.insertBefore(next, cursor ?? after)
-      live = next
-      bindInsertedSubtree(next, context)
-    } else {
-      if (live !== cursor) parent.insertBefore(live, cursor ?? after)
-      live = reconcileDomNode(parent, live, next, context)
+    const live = reusable && reusable.parentNode ? reusable : key === undefined ? unkeyed[unkeyedIndex++] : keyed.get(key)
+    if (live && !used.has(live)) {
+      used.add(live)
+      matched[index] = live
     }
-    liveNodes.push(live)
-    cursor = live.nextSibling
   }
+  const liveNodes = placeMatchedChildren(parent, current, nextNodes, matched, after, context)
+  const unused: Node[] = []
   for (const node of current) {
-    if (used.has(node) || node.parentNode !== parent) continue
-    removeDomNode(parent, node, context)
+    if (!used.has(node) && node.parentNode === parent) unused.push(node)
   }
+  removeNodeBatch(parent, unused, context)
   return liveNodes
 }
 
