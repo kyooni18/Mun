@@ -521,6 +521,8 @@ export interface DomRenderContext {
   readonly lazySizeIndexes: Map<string, LazyMeasurementIndex>
   readonly lazyItemMetadata: WeakMap<Element, { readonly key: string; readonly index: number }>
   readonly lazyNodes: Map<string, LazyViewNode>
+  /** View boundary stack (outermost first) that rendered each lazy container. */
+  readonly lazyOwners: Map<string, readonly string[]>
   readonly preservedLazyStatePrefixes: Map<string, Set<string>>
   readonly visitedLazyIdentities: Set<string>
   readonly lazyKeys: WeakMap<Node, string>

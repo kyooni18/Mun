@@ -1817,7 +1817,9 @@ function lazyScrollParent(element: HTMLElement, axis: LazyViewNode["axis"]): HTM
   if (cached && cached.generation === lazyScrollParentGeneration && cached.axis === axis
     && (!cached.parent || cached.parent.contains(element))) return cached.parent
   const parent = resolveLazyScrollParent(element, axis)
-  lazyScrollParentCache.set(element, { generation: lazyScrollParentGeneration, axis, parent })
+  // A detached candidate (measured while rendering) has no ancestors yet;
+  // caching that null would hide the real scroll parent once it is attached.
+  if (element.isConnected) lazyScrollParentCache.set(element, { generation: lazyScrollParentGeneration, axis, parent })
   return parent
 }
 
@@ -3882,6 +3884,7 @@ function createDomRenderer(context: DomRenderContext): MunRenderer<Node> {
       const key = viewIdentityKey(identity)
       context.visitedLazyIdentities.add(key)
       context.lazyNodes.set(key, node)
+      context.lazyOwners.set(key, runtime ? [...runtime.stack] : [])
       const element = context.document.createElement("div")
       applyDomProps(element, node.props, context)
       context.lazyKeys.set(element, key)
@@ -4051,6 +4054,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       lazySizeIndexes: new Map(),
       lazyItemMetadata: new WeakMap(),
       lazyNodes: new Map(),
+      lazyOwners: new Map(),
       preservedLazyStatePrefixes: new Map(),
       visitedLazyIdentities: new Set(),
       lazyKeys: new WeakMap(),
@@ -4339,7 +4343,34 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
         })
       }
     }
-    const refreshLazyRanges = (): boolean => {
+    const lazyStateRetained = (key: string): boolean => {
+      if (context.visitedLazyIdentities.has(key)) return true
+      // Not visited: keep it only when an enclosing boundary was reused
+      // (rendered this pass without re-running its body).
+      const owners = context.lazyOwners.get(key)
+      if (!owners || owners.length === 0) return false
+      if (owners.some(ownerKey => !viewRuntime.boundaries.has(ownerKey))) return false
+      return owners.some(ownerKey => viewRuntime.renderedKeys.has(ownerKey) && viewRuntime.boundaries.get(ownerKey)?.renderedBody === false)
+    }
+    const pruneLazyState = () => {
+      const keys = new Set<string>([
+        ...context.lazyNodes.keys(),
+        ...context.lazyRanges.keys(),
+        ...context.lazyMeasurements.keys(),
+        ...context.lazySizeIndexes.keys(),
+        ...context.preservedLazyStatePrefixes.keys(),
+      ])
+      for (const key of keys) {
+        if (lazyStateRetained(key)) continue
+        context.lazyNodes.delete(key)
+        context.lazyOwners.delete(key)
+        context.lazyRanges.delete(key)
+        context.lazyMeasurements.delete(key)
+        context.lazySizeIndexes.delete(key)
+        context.preservedLazyStatePrefixes.delete(key)
+      }
+    }
+    const refreshLazyRanges = (changedKeys?: Set<string>): boolean => {
       if (context.lazyNodes.size === 0) return false
       let changed = false
       const elements = [...container.querySelectorAll<HTMLElement>("[data-mun-lazy]")]
@@ -4352,18 +4383,33 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
         const next = lazyRangeForElement(element, node, measurement)
         if (!sameLazyRange(context.lazyRanges.get(key), next)) {
           context.lazyRanges.set(key, next)
+          changedKeys?.add(key)
           changed = true
         }
       }
       return changed
+    }
+    // A changed lazy range only needs the View boundaries that enclose that
+    // lazy container to re-render. Marking just that path dirty lets the root
+    // pass reuse every unrelated boundary instead of forcing the whole mount
+    // to re-render on each scroll-driven range shift.
+    const requestLazyRangeUpdate = (changedKeys: ReadonlySet<string>): void => {
+      for (const key of changedKeys) {
+        for (const ownerKey of context.lazyOwners.get(key) ?? []) {
+          const owner = viewRuntime.boundaries.get(ownerKey)
+          if (owner) owner.scheduled = true
+        }
+      }
+      requestRootUpdate(undefined, false)
     }
     const scheduleLazyMeasure = () => {
       if (stopped || lazyMeasureScheduled) return
       lazyMeasureScheduled = true
       queueMicrotask(() => {
         lazyMeasureScheduled = false
-        if (stopped || !refreshLazyRanges() || scheduled) return
-        requestRootUpdate(undefined, true)
+        if (stopped) return
+        const changedKeys = new Set<string>()
+        if (refreshLazyRanges(changedKeys)) requestLazyRangeUpdate(changedKeys)
       })
     }
     // Lazy row measurement runs in two phases. Every rect is read first, then
@@ -4837,9 +4883,10 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       context.geometryIndex = 0
       context.hasRefs = false
       context.visitedStateIdentities.clear()
+      // Lazy containers inside View boundaries that this pass reuses are not
+      // visited again. Their nodes, ranges and preserved offscreen state stay
+      // until pruneLazyState() knows whether the owner was reused or dropped.
       context.visitedLazyIdentities.clear()
-      context.lazyNodes.clear()
-      context.preservedLazyStatePrefixes.clear()
       beginViewPass()
       const dependencies = new Set<StateRef<unknown>>()
       context.hydrating = Boolean(options.hydrate && !hasMounted)
@@ -4973,15 +5020,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
         parent.scrollTop = position.top
         parent.scrollLeft = position.left
       }
-      for (const key of context.lazyRanges.keys()) {
-        if (!context.visitedLazyIdentities.has(key)) context.lazyRanges.delete(key)
-      }
-      for (const key of context.lazyMeasurements.keys()) {
-        if (!context.visitedLazyIdentities.has(key)) context.lazyMeasurements.delete(key)
-      }
-      for (const key of context.lazySizeIndexes.keys()) {
-        if (!context.visitedLazyIdentities.has(key)) context.lazySizeIndexes.delete(key)
-      }
+      pruneLazyState()
       commitRefs()
       syncSubscriptions(dependencies, transaction => {
         requestRootUpdate(transaction, true)
@@ -4989,9 +5028,8 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       updateGeometry()
       observeLazyItems()
       observeLazyViewport()
-      if (refreshLazyRanges() && !scheduled) {
-        requestRootUpdate(undefined, true)
-      }
+      const changedLazyKeys = new Set<string>()
+      if (refreshLazyRanges(changedLazyKeys)) requestLazyRangeUpdate(changedLazyKeys)
       hasMounted = true
       // A geometry/lazy measurement may have queued the next root pass while
       // this one was committing. Keep the force flag for that queued pass;
