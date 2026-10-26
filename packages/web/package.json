@@ -41,7 +41,8 @@
   },
   "dependencies": {
     "@mun/animation": "workspace:*",
-    "@mun/core": "workspace:*"
+    "@mun/core": "workspace:*",
+    "@mun/progressive-blur": "workspace:*"
   },
   "sideEffects": false,
   "publishConfig": {

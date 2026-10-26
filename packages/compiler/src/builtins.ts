@@ -48,7 +48,7 @@ const internalHelpers = ["compiledCollectionContent", "mapStateArrayData"] as co
  * Naming one without an import yields a diagnostic that names its module.
  */
 export const munOptInFeatures: readonly MunOptInFeature[] = Object.freeze([
-  Object.freeze({ module: "@mun/ui/progressive-blur", exports: Object.freeze(["ProgressiveBlur", "progressiveBlur", "BlurProfile", "blurFocus", "focus", "planBlur"]) }),
+  Object.freeze({ module: "@mun/ui/progressive-blur", exports: Object.freeze(["ProgressiveBlur", "progressiveBlur", "BlurProfile", "blurFocus", "focus", "planBlur", "prepareProgressiveBlur"]) }),
 ])
 
 function buildRegistry(): ReadonlyMap<string, MunBuiltinSymbol> {

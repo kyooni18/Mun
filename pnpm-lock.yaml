@@ -219,6 +219,9 @@ importers:
       '@mun/core':
         specifier: workspace:*
         version: link:../core
+      '@mun/progressive-blur':
+        specifier: workspace:*
+        version: link:../progressive-blur
 
 packages:
 

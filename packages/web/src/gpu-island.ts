@@ -1,3 +1,5 @@
+import { prepareProgressiveBlur } from "@mun/progressive-blur/quality"
+
 const WORKGROUP_SIZE = 64
 const FLOATS_PER_PARTICLE = 8
 const PARTICLE_STRIDE = FLOATS_PER_PARTICLE * Float32Array.BYTES_PER_ELEMENT
@@ -1066,6 +1068,8 @@ export function mountParticleFieldGPUIslandCanvas(
     mountedParticleFields.set(canvas, dispose)
     return dispose
   }
+  // Optional CSS-compositing probe: schedule after startup without delaying GPU activation.
+  if (owner) void prepareProgressiveBlur(owner)
   let stopped = false
   let stopLoop: (() => void) | undefined
   let island: ParticleFieldGPUIsland | LineChartGPUIsland | undefined

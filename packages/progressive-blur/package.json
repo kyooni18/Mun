@@ -16,6 +16,10 @@
     "./plan": {
       "types": "./dist/plan.d.ts",
       "import": "./dist/plan.js"
+    },
+    "./quality": {
+      "types": "./dist/quality.d.ts",
+      "import": "./dist/quality.js"
     }
   },
   "scripts": {

@@ -1,8 +1,10 @@
 import { Element, type ContentModifier, type ModifiableViewNode, type ViewNode } from "@mun/core"
 import { BlurProfile, focus, planBlur, type BlurCenter, type Easing, type Edge, type UnitPoint } from "./plan.js"
+import { progressiveBlurQuality } from "./quality.js"
 
 export { BlurProfile, focus, planBlur }
-export type { BlurCenter, Easing, Edge, UnitPoint }
+export { prepareProgressiveBlur } from "./quality.js"
+export type { BlurCenter, BlurQuality, Easing, Edge, UnitPoint } from "./plan.js"
 
 export interface ProgressiveBlurOptions {
   /** Strongest effective blur radius in points. Defaults to 12. */
@@ -46,10 +48,29 @@ export function ProgressiveBlur(profile: BlurProfile, options: ProgressiveBlurOp
   const layers = planBlur(profile, { radius })
   const center: BlurCenter | undefined = profile.kind === "radial" ? profile.around : undefined
   const focusId = center && typeof center === "object" && "focus" in center ? center.focus : undefined
+  let mounted: HTMLElement | null = null
   const box = Element("div", {
     "aria-hidden": "true",
     "data-pb-amount": String(amount),
-    ...(focusId === undefined ? {} : { ref: (element: HTMLElement | null) => { if (element) followFocus(element, focusId) } }),
+    ref: (element: HTMLElement | null) => {
+      mounted = element
+      if (!element) return
+      if (focusId !== undefined) followFocus(element, focusId)
+      const owner = element.ownerDocument.defaultView
+      if (!owner) return
+      void progressiveBlurQuality(owner).then(quality => {
+        if (mounted !== element || !element.isConnected) return
+        const planned = planBlur(profile, { radius, quality })
+        Array.from(element.children).forEach((child, index) => {
+          const style = (child as HTMLElement).style
+          const layer = planned[index]
+          style.display = layer ? "" : "none"
+          style.backdropFilter = layer ? `blur(${layer.blur}px)` : "none"
+          style.setProperty("-webkit-backdrop-filter", style.backdropFilter)
+          style.maskImage = style.webkitMaskImage = layer?.mask ?? "none"
+        })
+      })
+    },
     style: { position: "absolute", inset: "0px", pointerEvents: "none" },
   }, ...layers.map((layer, index) => Element("div", {
     style: {
