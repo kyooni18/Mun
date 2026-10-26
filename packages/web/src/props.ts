@@ -1,6 +1,6 @@
 import { isSafeUrlAttribute } from "./url-policy.js"
 import { classNameOf, type Animation } from "@mun/core/compat"
-import { cssPropertyName, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, normalizedTextAreaValue, type DomRenderContext } from "./shared.js"
+import { cssPropertyName, isEventPropName, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, normalizedTextAreaValue, type DomRenderContext } from "./shared.js"
 import { animateDomAttribute, animateDomStyles, cancelDomAnimations, cancelDomAttributeAnimation, cancelDomStyleAnimation, type DomStyleMotionChange } from "./motion.js"
 import { syncFocusScope } from "./focus.js"
 import { syncContinuousCorners } from "./continuous-corners.js"
@@ -343,7 +343,7 @@ function applyDomPropsNow(
   trackDomRef(element, renderable, context)
   for (const [key, value] of entries) {
     if (key === "children" || key === "key") continue
-    if (/^on[A-Za-z]/.test(key)) {
+    if (isEventPropName(key)) {
       setDomEvent(element, key, value, context, !context.hydrating && !context.stagingEvents && typeof value === "function")
       continue
     }
@@ -405,21 +405,42 @@ function removeDomProp(element: Element, key: string): void {
   }
   if (isBooleanHtmlAttribute(name)) setDomProperty(element, name, false)
   else if (name === "value") setDomProperty(element, name, "")
-  if (key !== "children" && key !== "key" && key !== "ref" && !/^on[A-Za-z]/.test(key)) removeAttribute(element, name)
+  if (key !== "children" && key !== "key" && key !== "ref" && !isEventPropName(key)) removeAttribute(element, name)
 }
 
 function sameDomProps(previous: Record<string, unknown>, next: Record<string, unknown>, nextKeys: readonly string[]): boolean {
   const previousKeys = Object.keys(previous)
   if (previousKeys.length !== nextKeys.length) return false
   for (const key of nextKeys) {
-    if (!Object.prototype.hasOwnProperty.call(previous, key) || !Object.is(previous[key], next[key])) return false
+    if (!Object.prototype.hasOwnProperty.call(previous, key)) return false
+    if (Object.is(previous[key], next[key])) continue
+    // View bodies rebuild their style object on every render. Comparing it by
+    // identity sends every styled element through the full per-key style diff
+    // even when nothing changed, so compare plain style records shallowly.
+    if (key === "style" && shallowStyleEqual(previous[key], next[key])) continue
+    return false
   }
   return true
 }
 
+function shallowStyleEqual(left: unknown, right: unknown): boolean {
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) return false
+  const leftRecord = left as Record<string, unknown>
+  const rightRecord = right as Record<string, unknown>
+  let leftCount = 0
+  for (const key in leftRecord) {
+    if (!Object.prototype.hasOwnProperty.call(leftRecord, key)) continue
+    leftCount += 1
+    if (!Object.prototype.hasOwnProperty.call(rightRecord, key) || !Object.is(leftRecord[key], rightRecord[key])) return false
+  }
+  let rightCount = 0
+  for (const key in rightRecord) if (Object.prototype.hasOwnProperty.call(rightRecord, key)) rightCount += 1
+  return leftCount === rightCount
+}
+
 function canFastPatchPrimitive(key: string, value: unknown): boolean {
   if (key === "children" || key === "key" || key === "ref" || key === "style" || key === "class" || key === "className") return false
-  if (/^on[A-Za-z]/.test(key)) return false
+  if (isEventPropName(key)) return false
   return value === undefined || value === null || (typeof value !== "object" && typeof value !== "function")
 }
 
@@ -461,7 +482,7 @@ export function patchDomProps(
   for (const key of Object.keys(previous)) {
     if (key === "ref" || key === "key" || key === "children") continue
     if (renderable && Object.prototype.hasOwnProperty.call(renderable, key)) continue
-    if (/^on[A-Za-z]/.test(key)) setDomEvent(element, key, undefined, context, false)
+    if (isEventPropName(key)) setDomEvent(element, key, undefined, context, false)
     else {
       if (key === "style") cancelDomAnimations(element)
       else cancelDomAttributeAnimation(element, htmlAttributeName(key))
@@ -470,7 +491,7 @@ export function patchDomProps(
   }
   for (const [key, value] of Object.entries(renderable ?? {})) {
     if (key === "children" || key === "key") continue
-    if (/^on[A-Za-z]/.test(key)) {
+    if (isEventPropName(key)) {
       setDomEvent(element, key, value, context, typeof value === "function")
       continue
     }

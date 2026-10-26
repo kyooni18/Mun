@@ -17,6 +17,14 @@ function alignmentCSSPosition(value: unknown, fallback = "center"): string {
     default: return fallback
   }
 }
+
+/** Event-handler prop names (`onClick`, `onpointerdown`). Hot in prop diffs, so avoid a regex. */
+export function isEventPropName(key: string): boolean {
+  if (key.length < 3 || key.charCodeAt(0) !== 111 || key.charCodeAt(1) !== 110) return false
+  const code = key.charCodeAt(2)
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
 export { classNameOf }
 
 export function alignmentCSSPlace(value: unknown, fallback = "center"): string {
@@ -452,7 +460,7 @@ export function nativeElementProps(props: Record<string, unknown>): Record<strin
       if (primitive
         || (key === "style" && typeof value === "object" && value !== null)
         || (key === "ref" && (typeof value === "object" || typeof value === "function"))
-        || (/^on[A-Za-z]/.test(key) && typeof value === "function")) {
+        || (isEventPropName(key) && typeof value === "function")) {
         Object.defineProperty(normalized, key, { ...descriptor, configurable: true })
       }
     }

@@ -43,10 +43,24 @@ export function syncContinuousCorners(element: Element, style: unknown): void {
     disposeContinuousCorners(element)
     return
   }
-  update(element)
   const ResizeObserverConstructor = element.ownerDocument?.defaultView?.ResizeObserver
     ?? (typeof ResizeObserver === "undefined" ? undefined : ResizeObserver)
-  if (!ResizeObserverConstructor || observers.has(element)) return
+  // Reading offsetWidth/getComputedStyle here would force a synchronous
+  // layout in the middle of reconciliation for every patched element. The
+  // observer delivers an initial entry after layout, and its callback is the
+  // batched read phase, so only measure synchronously without one.
+  if (!ResizeObserverConstructor) {
+    update(element)
+    return
+  }
+  if (observers.has(element)) {
+    // A style change (radius, smoothing) that does not resize the element
+    // would not produce a resize entry; re-observing queues a fresh one.
+    const observer = observers.get(element)!
+    observer.unobserve(element)
+    observer.observe(element)
+    return
+  }
   const observer = new ResizeObserverConstructor(() => update(element))
   observer.observe(element)
   observers.set(element, observer)

@@ -43,7 +43,7 @@ import { applyDomProps, clearDomEvents, commitStagedDomProps, patchDomProps, set
 import { disposeContinuousCorners } from "./continuous-corners.js"
 import { animateDomLayout, cancelDomAnimations, type DomLayoutBox } from "./motion.js"
 import { recordMunBoundaryDisposed, recordMunBoundaryRender, recordMunRuntimeEvent, munDevtoolsEnabled } from "./devtools.js"
-import { classNameOf, cssPropertyName, domContentContainer, nativeElementProps, normalizedRawTextValue, propsOf, rawTextHtmlElements, styleOf, validTableChildElements, voidHtmlElements, type DomRenderContext } from "./shared.js"
+import { classNameOf, isEventPropName, cssPropertyName, domContentContainer, nativeElementProps, normalizedRawTextValue, propsOf, rawTextHtmlElements, styleOf, validTableChildElements, voidHtmlElements, type DomRenderContext } from "./shared.js"
 import { disposeFocusScope } from "./focus.js"
 import { LazyMeasurementIndex, lazyViewportOffset } from "./lazy-index.js"
 import { playWebTransition, type WebTransitionPlayback } from "./transition.js"
@@ -1977,7 +1977,7 @@ function directKeyedPatchPropsSafe(props: Record<string, unknown> | null, allowE
         }
         continue
       }
-      if (/^on[A-Za-z]/.test(key)) {
+      if (isEventPropName(key)) {
         if (allowEvents && (value === undefined || value === null || typeof value === "function")) continue
         return false
       }

@@ -1,7 +1,7 @@
 import { isSafeUrlAttribute } from "./url-policy.js"
 import { isForeignComponent, renderViewNode, zeroGeometry, type CompiledTemplateValue, type MunRenderer, type ViewGraphValue, type ViewHostNode } from "@mun/core/compat"
 import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
-import { assertHtmlName, classNameOf, escape, escapeAttribute, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, nativeElementProps, normalizedRawTextValue, normalizedTextAreaValue, propsOf, rawTextHtmlElements, styleAttribute, styleOf, styleText, validTableChildElements, voidHtmlElements } from "./shared.js"
+import { assertHtmlName, isEventPropName, classNameOf, escape, escapeAttribute, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, nativeElementProps, normalizedRawTextValue, normalizedTextAreaValue, propsOf, rawTextHtmlElements, styleAttribute, styleOf, styleText, validTableChildElements, voidHtmlElements } from "./shared.js"
 
 
 
@@ -24,7 +24,7 @@ function mergeSerializedStyles(current: string, extra: string): string {
 }
 
 function serializedAttribute(key: string, value: unknown): string | undefined {
-  if (key === "children" || key === "key" || key === "ref" || /^on[A-Za-z]/.test(key) || value === undefined || value === null || typeof value === "function") return undefined
+  if (key === "children" || key === "key" || key === "ref" || isEventPropName(key) || value === undefined || value === null || typeof value === "function") return undefined
   if (typeof value === "object" && key !== "style" && key !== "className" && key !== "class") return undefined
   const name = assertHtmlName(htmlAttributeName(key), "attribute")
   const serialized = key === "style" ? styleAttribute(value) : key === "className" || key === "class" ? classNameOf(value) : String(value)

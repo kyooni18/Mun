@@ -5,6 +5,7 @@ import {
   htmlAttributeName,
   isBooleanHtmlAttribute,
   isEnumeratedBooleanAttribute,
+  isEventPropName,
   styleAttribute,
   type DomRenderContext,
 } from "./shared.js"
@@ -29,7 +30,7 @@ export function hydratedPropsMatch(
   for (const key in props) {
     if (!Object.prototype.hasOwnProperty.call(props, key)) continue
     const value = props[key]
-    if (key === "children" || key === "key" || key === "ref" || /^on[A-Za-z]/.test(key)
+    if (key === "children" || key === "key" || key === "ref" || isEventPropName(key)
       || value === undefined || value === null || typeof value === "function") continue
     if ((tag === "textarea" || tag === "select") && htmlAttributeName(key).toLowerCase() === "value") return false
     if (typeof value === "object" && key !== "style" && key !== "className" && key !== "class") return false
@@ -121,7 +122,7 @@ function activateHydratedProps(source: Element, target: Element, context: DomRen
   if (tag) context.domTags.set(target, tag)
   for (const [key, value] of Object.entries(props ?? {})) {
     if (key === "children" || key === "key" || key === "ref" || value === undefined || value === null) continue
-    if (typeof value === "function" && /^on[A-Za-z]/.test(key)) {
+    if (typeof value === "function" && isEventPropName(key)) {
       setDomEvent(target, key, value, context)
       continue
     }
