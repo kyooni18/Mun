@@ -1190,6 +1190,8 @@ function copyCandidateMetadata(source: Node, target: Node, context: DomRenderCon
     if (lazyKey !== undefined) context.lazyKeys.set(target, lazyKey)
     const lazyItem = context.lazyItemMetadata.get(source as Element)
     if (lazyItem) context.lazyItemMetadata.set(target as Element, lazyItem)
+    const geometryKey = context.geometryKeys.get(source as Element)
+    if (geometryKey !== undefined) context.geometryKeys.set(target as Element, geometryKey)
   }
   if (runtime) {
     const boundaryKeys = runtime.nodeKeys.get(source)
@@ -1772,6 +1774,11 @@ function reconcileDomNode(parent: Node, current: Node, next: Node, context: DomR
   const reusable = runtimeFor(context)?.reuseCandidates.get(next)
   const lazyKey = context.lazyKeys.get(nextElement)
   if (lazyKey) context.lazyKeys.set(currentElement, lazyKey)
+  const geometryKey = context.geometryKeys.get(nextElement)
+  if (geometryKey !== undefined) {
+    context.geometryKeys.set(currentElement, geometryKey)
+    if ((currentElement as HTMLElement).dataset.munGeometry !== geometryKey) (currentElement as HTMLElement).dataset.munGeometry = geometryKey
+  }
   const lazyItem = context.lazyItemMetadata.get(nextElement)
   if (lazyItem) {
     // Row wrappers carry their slot outside the prop diff. A reused wrapper
@@ -4034,15 +4041,21 @@ function createDomRenderer(context: DomRenderContext): MunRenderer<Node> {
     view(node, render, identity) {
       return materializeView(node, render, identity)
     },
-    geometry(_node, render) {
+    geometry(_node, render, identity) {
       markUnsafeViewAncestors(context)
       const index = context.geometryIndex++
+      // Key readers by view identity when the core renderer provides it. A
+      // render-order index only stays coherent when every reader is visited,
+      // which forced each geometry change through a whole-mount re-render.
+      const key = identity ? viewIdentityKey(identity) : `#${index}`
       const wrapper = context.document.createElement("div")
       wrapper.dataset.mun = "GeometryReader"
-      wrapper.dataset.munGeometry = String(index)
+      wrapper.dataset.munGeometry = key
       wrapper.style.boxSizing = "border-box"
       wrapper.style.width = "100%"
-      appendDomChild(wrapper, render(context.geometries.get(index) ?? zeroGeometry), context)
+      context.geometryKeys.set(wrapper, key)
+      context.geometryOwners.set(key, runtime ? [...runtime.stack] : [])
+      appendDomChild(wrapper, render(context.geometries.get(key) ?? zeroGeometry), context)
       return wrapper
     },
   }
@@ -4145,6 +4158,8 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       states: new Map(),
       visitedStateIdentities: new Set(),
       geometries: new Map(),
+      geometryKeys: new WeakMap(),
+      geometryOwners: new Map(),
       hydrationProps: new WeakMap(),
       domProps: new WeakMap(),
       eventListeners: new WeakMap(),
@@ -4411,42 +4426,100 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       }
       activeRefs = next
     }
-    const updateGeometry = () => {
-      if (stopped || context.geometryIndex === 0) {
-        // GeometryReaders removed since the last pass must not leave stale
-        // frames behind: a recycled render-order index would otherwise
-        // inherit the removed reader's measurements.
-        if (context.geometries.size > 0) context.geometries.clear()
-        return
+    let geometryReadersRendered = false
+    // Readers re-measure when their box resizes, not only after a render.
+    let geometryObserver: ResizeObserver | undefined
+    const observedGeometryReaders = new Set<Element>()
+    let geometryMeasureScheduled = false
+    const scheduleGeometryMeasure = () => {
+      if (stopped || geometryMeasureScheduled) return
+      geometryMeasureScheduled = true
+      queueMicrotask(() => {
+        geometryMeasureScheduled = false
+        updateGeometry()
+      })
+    }
+    // Re-render only the View boundaries that enclose a reader whose frame
+    // changed; unrelated boundaries are reused by the non-forced root pass.
+    let geometryChangedKeys = new Set<string>()
+    let geometryPassesThisFrame = 0
+    let geometryFrameResetScheduled = false
+    const requestGeometryUpdate = () => {
+      const changedKeys = geometryChangedKeys
+      geometryChangedKeys = new Set()
+      if (stopped || changedKeys.size === 0) return
+      for (const key of changedKeys) {
+        for (const ownerKey of context.geometryOwners.get(key) ?? []) {
+          const owner = viewRuntime.boundaries.get(ownerKey)
+          if (owner) owner.scheduled = true
+        }
       }
-      let changed = false
-      const seen = new Set<number>()
+      requestRootUpdate(undefined, false)
+    }
+    const updateGeometry = () => {
+      if (context.geometryIndex > 0) geometryReadersRendered = true
+      if (stopped || !geometryReadersRendered) return
       let insets: SafeAreaInsets | undefined
       const safeAreaInsets = () => insets ??= measureSafeAreaInsets(document, geometryProbe)
-      container.querySelectorAll<HTMLElement>('[data-mun="GeometryReader"][data-mun-geometry]').forEach(element => {
-        const index = Number(element.dataset.munGeometry)
-        if (!Number.isInteger(index)) return
-        seen.add(index)
+      const seen = new Set<string>()
+      const readers = container.querySelectorAll<HTMLElement>('[data-mun="GeometryReader"][data-mun-geometry]')
+      readers.forEach(element => {
+        const key = context.geometryKeys.get(element) ?? element.dataset.munGeometry
+        if (!key || seen.has(key)) return
+        seen.add(key)
         const next = geometryFromElement(element, safeAreaInsets)
-        const previous = context.geometries.get(index)
+        const previous = context.geometries.get(key)
         if (!previous || !sameGeometry(previous, next)) {
-          context.geometries.set(index, next)
-          changed = true
+          context.geometries.set(key, next)
+          geometryChangedKeys.add(key)
         }
       })
-      for (const index of [...context.geometries.keys()]) {
-        if (!seen.has(index)) {
-          context.geometries.delete(index)
-          changed = true
+      if (typeof ResizeObserver !== "undefined") {
+        geometryObserver ??= new ResizeObserver(scheduleGeometryMeasure)
+        const live = new Set<Element>()
+        readers.forEach(element => {
+          live.add(element)
+          if (observedGeometryReaders.has(element)) return
+          observedGeometryReaders.add(element)
+          geometryObserver!.observe(element)
+        })
+        for (const element of observedGeometryReaders) {
+          if (live.has(element)) continue
+          observedGeometryReaders.delete(element)
+          geometryObserver.unobserve(element)
         }
       }
-      if (changed && !geometryScheduled) {
-        geometryScheduled = true
-        queueMicrotask(() => {
-          geometryScheduled = false
-          requestRootUpdate(undefined, true)
+      // Readers removed since the last pass must not leave stale frames or
+      // owner paths behind.
+      for (const key of [...context.geometries.keys()]) {
+        if (seen.has(key)) continue
+        context.geometries.delete(key)
+        context.geometryOwners.delete(key)
+      }
+      for (const key of [...context.geometryOwners.keys()]) {
+        if (!seen.has(key)) context.geometryOwners.delete(key)
+      }
+      if (seen.size === 0) geometryReadersRendered = false
+      if (geometryChangedKeys.size === 0 || geometryScheduled) return
+      geometryScheduled = true
+      // Content whose size depends on its own measured frame can oscillate.
+      // Allow a few settling passes per frame, then defer to the next frame
+      // instead of re-rendering in an unbounded microtask chain.
+      const window = document.defaultView
+      geometryPassesThisFrame += 1
+      if (!geometryFrameResetScheduled && typeof window?.requestAnimationFrame === "function") {
+        geometryFrameResetScheduled = true
+        window.requestAnimationFrame(() => {
+          geometryFrameResetScheduled = false
+          geometryPassesThisFrame = 0
         })
       }
+      const run = () => {
+        geometryScheduled = false
+        requestGeometryUpdate()
+      }
+      if (geometryPassesThisFrame > 4 && typeof window?.requestAnimationFrame === "function") window.requestAnimationFrame(run)
+      else queueMicrotask(run)
     }
     const lazyStateRetained = (key: string): boolean => {
       if (context.visitedLazyIdentities.has(key)) return true
@@ -5182,6 +5255,8 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       lazyViewportCleanups.forEach(action => cleanup(action))
       lazyViewportCleanups.length = 0
       cleanup(() => geometryProbe.remove())
+      cleanup(() => geometryObserver?.disconnect())
+      observedGeometryReaders.clear()
       for (const child of [...container.childNodes]) cleanup(() => releaseDomSubtree(child, context))
       cleanup(() => (container as Element & { replaceChildren(...nodes: Node[]): void }).replaceChildren())
       if (failed) throw failure

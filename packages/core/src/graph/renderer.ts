@@ -167,7 +167,7 @@ function renderViewNodeStack<Output>(value: ViewGraphValue, renderer: MunRendere
     case "geometry": {
       const geometryIdentity: ViewIdentity = [...identity, "geometry"]
       return renderer.geometry
-        ? renderer.geometry(value, geometry => renderViewNodeStack(value.content(geometry), renderer, [...geometryIdentity]))
+        ? renderer.geometry(value, geometry => renderViewNodeStack(value.content(geometry), renderer, [...geometryIdentity]), geometryIdentity)
         : renderViewNodeStack(value.content(zeroGeometry), renderer, [...geometryIdentity])
     }
     case "lazy": {

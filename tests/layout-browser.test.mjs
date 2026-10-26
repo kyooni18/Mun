@@ -3,8 +3,8 @@ import { createServer } from "node:http"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 
-// Real layout is required: lazy ranges, row measurement and scroll anchoring
-// all read live geometry, which jsdom does not provide.
+// Real layout is required: lazy ranges, row measurement, scroll anchoring and
+// GeometryReader frames all read live geometry, which jsdom does not provide.
 const entry = `
 import { LazyVStack, ScrollView, Text, State } from ${JSON.stringify(fileURLToPath(new URL("../packages/core/dist/compat.js", import.meta.url)))}
 import { mount } from ${JSON.stringify(fileURLToPath(new URL("../packages/web/dist/index.js", import.meta.url)))}
@@ -27,7 +27,17 @@ const List = defineView("List", { initializers: [initializer("List()", args => a
 mount(VStack(Sidebar(), List()), document.getElementById("root"))
 `
 
-async function openPage(source) {
+const geometryEntry = `
+import { GeometryReader, Text, VStack, defineView, initializer } from ${JSON.stringify(fileURLToPath(new URL("../packages/core/dist/compat.js", import.meta.url)))}
+import { mount } from ${JSON.stringify(fileURLToPath(new URL("../packages/web/dist/index.js", import.meta.url)))}
+window.__bodies = { sidebar: 0 }
+const Sidebar = defineView("Sidebar", { initializers: [initializer("Sidebar()", args => args.length === 0)], body: () => { window.__bodies.sidebar += 1; return VStack(Text("nav")) } })
+const Measured = defineView("Measured", { initializers: [initializer("Measured()", args => args.length === 0)], body: () =>
+  GeometryReader(geometry => Text(\`width \${Math.round(geometry.size.width)}\`)) })
+mount(VStack(Sidebar(), Measured()), document.getElementById("root"))
+`
+
+async function openPage(source, ready = "[data-mun-lazy-item]") {
   const { build } = await import("esbuild")
   const { chromium } = await import("@playwright/test")
   const bundle = await build({ stdin: { contents: source, resolveDir: process.cwd(), loader: "js" }, bundle: true, format: "iife", write: false, logLevel: "silent" })
@@ -41,7 +51,7 @@ async function openPage(source) {
   const errors = []
   page.on("pageerror", error => errors.push(error))
   await page.goto(`http://localhost:${server.address().port}/`)
-  await page.waitForSelector("[data-mun-lazy-item]")
+  await page.waitForSelector(ready)
   const close = async () => { await browser.close(); server.close() }
   return { page, errors, close }
 }
@@ -91,6 +101,20 @@ test("a lazy stack inside a View scrolls without re-rendering unrelated Views", 
     const rows = await visibleRows(page)
     assert.ok(rows.length > 0 && Math.abs(rows[0].row - 400) <= 2, `expected row ~400, got ${rows[0]?.row}`)
     assert.equal(await page.evaluate(() => window.__bodies.sidebar), before, "scrolling must not re-run sibling View bodies")
+    assert.deepEqual(errors, [])
+  } finally {
+    await close()
+  }
+})
+
+test("a GeometryReader re-renders on resize without re-running unrelated Views", async () => {
+  const { page, errors, close } = await openPage(geometryEntry, '[data-mun="GeometryReader"]')
+  try {
+    await page.waitForFunction(() => document.body.textContent.includes("width 800"))
+    const before = await page.evaluate(() => window.__bodies.sidebar)
+    await page.setViewportSize({ width: 640, height: 600 })
+    await page.waitForFunction(() => document.body.textContent.includes("width 640"))
+    assert.equal(await page.evaluate(() => window.__bodies.sidebar), before, "a geometry change must not re-run sibling View bodies")
     assert.deepEqual(errors, [])
   } finally {
     await close()

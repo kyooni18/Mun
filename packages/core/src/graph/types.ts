@@ -564,7 +564,7 @@ export interface MunRenderer<Output = unknown> {
   /** Render a View host with an optional renderer-owned resolved prop set. */
   view?(node: ViewHostNode, render: (props?: Record<string, unknown>) => Output, identity: ViewIdentity): Output
   /** Materialize a geometry boundary and feed its measured proxy to the body. */
-  geometry?(node: GeometryViewNode, render: (geometry: GeometryProxy) => Output): Output
+  geometry?(node: GeometryViewNode, render: (geometry: GeometryProxy) => Output, identity?: ViewIdentity): Output
   /** Materialize a lazy container; `render` may request a visible child range. */
   lazy?(node: LazyViewNode, render: (range?: LazyViewRange) => Output, identity: ViewIdentity, renderItem?: (index: number) => Output): Output
   /** Materialize and own a compiler-proven GPU compute-to-render island. */

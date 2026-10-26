@@ -506,7 +506,12 @@ export interface DomRenderContext {
   readonly experimentalResidentCompute?: boolean
   readonly states: Map<string, { readonly host: unknown; readonly value: Record<string, unknown> }>
   readonly visitedStateIdentities: Set<string>
-  readonly geometries: Map<number, GeometryProxy>
+  /** Measured GeometryReader frames by stable reader key (view identity). */
+  readonly geometries: Map<string, GeometryProxy>
+  /** Live and candidate GeometryReader wrappers -> reader key. */
+  readonly geometryKeys: WeakMap<Element, string>
+  /** View boundary stack (outermost first) that rendered each GeometryReader. */
+  readonly geometryOwners: Map<string, readonly string[]>
   readonly hydrationProps: WeakMap<Element, Record<string, unknown> | null | undefined>
   readonly domProps: WeakMap<Element, Record<string, unknown>>
   readonly eventListeners: WeakMap<Element, Map<string, EventListener>>
