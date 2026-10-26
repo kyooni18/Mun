@@ -1,5 +1,10 @@
 # Mün roadmap
 
+The proposed [Mun language and web implementation plan](./LANGUAGE_AND_WEB_PLAN.md)
+sets out the next direction: primary `.mun` authoring with SwiftUI-like language
+semantics and complete web application capabilities. The sections below describe
+the existing implementation baseline during that migration.
+
 ## Primary: SwiftUI-inspired web frontend
 
 - Keep View composition, stacks, controls, state, bindings, identity, modifiers,
