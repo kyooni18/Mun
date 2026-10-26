@@ -2,6 +2,12 @@
 
 A renderer-agnostic motion runtime focused on interruptibility, low main-thread cost, smooth retargeting, and scalable execution. Mün can consume it through an adapter, but the core has no Mün, DOM, React, or Vue dependency.
 
+The optional `@mun/animation/rendering-quality` browser adapter owns the shared
+`full`/`reduced`/`none` policy for visual GPU consumers. It combines idle CSS sampling
+about every 30 seconds with passive frame/queue delays. Canvas motion rendering
+subscribes automatically when its canvas has an owner Window. See the
+[quality API and lifecycle](../../docs/RENDERING_QUALITY.md).
+
 ## Current state (0.2.2)
 
 ### Numeric runtime

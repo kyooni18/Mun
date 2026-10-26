@@ -14,6 +14,7 @@ class RenderingQualityController {
     this.owner = owner;
     this.listeners = new Set();
     this.queues = new WeakMap();
+    this.pendingQueues = new Set();
     this.snapshot = Object.freeze({ quality: 'full', source: 'default', baselineMs: null, frameDelayMs: null, gpuQueueDelayMs: null, longFrameMs: null, measuredAt: null });
     this.timer = 0;
     this.running = null;
@@ -26,6 +27,7 @@ class RenderingQualityController {
     this.pressureTimes = new Map();
     this.lastPressure = -Infinity;
     this.lastChange = -Infinity;
+    this.lastCheck = owner.performance.now();
     this.frameWindow = 0;
     this.frameSamples = 0;
     this.delayedFrames = 0;
@@ -113,6 +115,7 @@ class RenderingQualityController {
     this.frameSamples = this.delayedFrames = this.healthy = 0;
     this.pressureWindows.clear();
     this.pressureTimes.clear();
+    this.pendingQueues.clear();
     this.frameWindow = this.owner.performance.now();
   }
 
@@ -128,7 +131,8 @@ class RenderingQualityController {
   schedule() {
     this.owner.clearTimeout(this.timer);
     if (!this.started || !this.listeners.size || this.owner.document.visibilityState !== 'visible') return;
-    this.timer = this.owner.setTimeout(() => { this.timer = 0; void this.check(false); }, intervalMs);
+    const delay = Math.max(0, intervalMs - (this.owner.performance.now() - this.lastCheck));
+    this.timer = this.owner.setTimeout(() => { this.timer = 0; void this.check(false); }, delay);
   }
 
   async check(initial) {
@@ -139,13 +143,14 @@ class RenderingQualityController {
     if (this.running !== abort) return;
     this.running = null;
     const now = this.owner.performance.now();
+    this.lastCheck = now;
     if (result.quality) {
       const current = levels.indexOf(this.quality), target = levels.indexOf(result.quality);
       let quality = this.quality;
       if (!this.initialized || target > current) {
         quality = result.quality;
         this.healthy = 0;
-      } else if (target < current && now - this.lastPressure >= intervalMs) {
+      } else if (target < current && !this.pendingQueues.size && now - this.lastPressure >= intervalMs) {
         if (++this.healthy >= 2) { quality = levels[current - 1]; this.healthy = 0; }
       } else this.healthy = 0;
       if (quality !== this.quality) this.lastChange = now;
@@ -189,13 +194,13 @@ class RenderingQualityController {
 
   /** Piggyback on renderer-owned animation callbacks; never create a monitoring RAF. */
   recordFrame(durationMs) {
-    if (!this.started || this.running || durationMs < 4 || durationMs > 250 || !Number.isFinite(durationMs)) return;
+    if (!this.started || this.running || this.owner.document.visibilityState !== 'visible' || durationMs < 4 || durationMs > 250 || !Number.isFinite(durationMs)) return;
     const now = this.owner.performance.now();
     this.frameSamples++;
     if (durationMs >= Math.max(24, (this.snapshot.baselineMs ?? 16.67) * 1.5)) this.delayedFrames++;
     if (now - this.frameWindow < 1000) return;
     this.update({ frameDelayMs: durationMs });
-    if (this.frameSamples >= 10 && this.delayedFrames / this.frameSamples >= 0.25) this.pressure('frame');
+    if (this.frameSamples >= 4 && this.delayedFrames / this.frameSamples >= 0.25) this.pressure('frame');
     else this.pressureWindows.delete('frame');
     this.frameWindow = now;
     this.frameSamples = this.delayedFrames = 0;
@@ -207,6 +212,7 @@ class RenderingQualityController {
     const now = this.owner.performance.now();
     const previous = this.queues.get(queue);
     if (previous?.pending) {
+      this.pendingQueues.add(previous);
       if (now - (previous.reported ?? previous.at) >= 1000) {
         previous.reported = now;
         this.update({ gpuQueueDelayMs: now - previous.at });
@@ -217,17 +223,19 @@ class RenderingQualityController {
     if (previous && now - previous.at < 1000) return;
     const entry = { pending: true, at: now };
     this.queues.set(queue, entry);
+    this.pendingQueues.add(entry);
     const epoch = this.epoch;
     try {
       Promise.resolve(queue.onSubmittedWorkDone()).then(() => {
         entry.pending = false;
+        this.pendingQueues.delete(entry);
         if (!this.started || epoch !== this.epoch || this.running || this.owner.document.visibilityState !== 'visible') return;
         const duration = this.owner.performance.now() - now;
         this.update({ gpuQueueDelayMs: duration });
         if (duration >= Math.max(32, (this.snapshot.baselineMs ?? 16.67) * 2)) this.pressure('queue');
         else this.pressureWindows.delete('queue');
-      }, () => { entry.pending = false; });
-    } catch { entry.pending = false; }
+      }, () => { entry.pending = false; this.pendingQueues.delete(entry); });
+    } catch { entry.pending = false; this.pendingQueues.delete(entry); }
   }
 }
 

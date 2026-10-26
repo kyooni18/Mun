@@ -58,6 +58,9 @@ test("one global controller resamples every 30s and restores quality gradually",
     assert.equal(b.timers.size, 0)
     assert.equal(b.frames.size, 0)
     assert.ok(changes.includes("none") && changes.includes("reduced") && changes.includes("full"))
+    b.advance(15_000)
+    stop1 = observeRenderingQuality(() => {}, b.owner)
+    assert.equal([...b.timers.values()][0].delay, 15_000, "remounting cannot keep postponing the global check")
   } finally { stop1?.(); stop2?.(); b.owner.close() }
 })
 
@@ -82,6 +85,8 @@ test("sustained frame and queue pressure lower quality without extra render loop
     assert.equal(controller.quality, "none", "a backed-up queue is detected before its promise resolves")
     const delay = controller.snapshot.gpuQueueDelayMs
     assert.ok(delay >= 3000)
+    await recheck(b); await recheck(b)
+    assert.equal(controller.quality, "none", "a healthy CSS sample cannot hide an outstanding GPU backlog")
     stop()
     resolve()
     await Promise.resolve()

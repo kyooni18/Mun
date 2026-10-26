@@ -72,6 +72,7 @@ plugin registry and no initialization step. An import that is never used adds ze
 | --- | --- | --- |
 | Progressive blur | `@mun/ui/progressive-blur` | `ProgressiveBlur`, `progressiveBlur`, `BlurProfile`, `blurFocus`, `focus`, `planBlur`, `prepareProgressiveBlur` |
 | Progressive blur planner | `@mun/ui/progressive-blur/plan` | `planBlur`, `BlurProfile`, `focus`, `strengthAt`, `layerAlphas`, `layerCount`, `effectiveRadius` (pure, DOM-free) |
+| Rendering quality | `@mun/ui/rendering-quality` | `getRenderingQuality`, `observeRenderingQuality`, `prepareRenderingQuality` |
 
 ```swift
 import { BlurProfile, ProgressiveBlur, blurFocus, focus, progressiveBlur } from "@mun/ui/progressive-blur"
@@ -91,8 +92,10 @@ struct Feed: View {
 
 Changing `amount` animates the effect. `pnpm demo:progressive-blur` serves an
 SSR + hydration example of every profile ([`examples/progressive-blur`](../examples/progressive-blur/App.mun)).
-GPU renderer startup prepares an idle, cached CSS backdrop quality hint; the planner
-accepts `quality: "full" | "reduced" | "none"`. See the [probe contract and measurements](../packages/progressive-blur/README.md).
+GPU and blur renderers share an idle rendering-quality controller. It repeats the
+tiny CSS backdrop probe about every 30 seconds, monitors passive delay signals, and
+updates mounted consumers. The planner accepts `quality: "full" | "reduced" | "none"`.
+See the [policy, lifecycle, and measurements](RENDERING_QUALITY.md).
 
 ### Adding an opt-in feature
 
