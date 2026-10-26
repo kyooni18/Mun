@@ -1,6 +1,6 @@
 import { Element, type ContentModifier, type ModifiableViewNode, type ViewNode } from "@mun/core"
 import { BlurProfile, focus, planBlur, type BlurCenter, type Easing, type Edge, type UnitPoint } from "./plan.js"
-import { progressiveBlurQuality } from "./quality.js"
+import { observeRenderingQuality, type RenderingQuality } from "@mun/animation/rendering-quality"
 
 export { BlurProfile, focus, planBlur }
 export { prepareProgressiveBlur } from "./quality.js"
@@ -23,10 +23,14 @@ const focusSelector = (id: string) => `[data-pb-focus="${id.replace(/["\\]/g, "\
  * Keep `--pb-cx/--pb-cy` pointing at the focus view's center, relative to the
  * blur box, for as long as the box is connected and visible.
  */
-function followFocus(box: HTMLElement, id: string) {
-  const tick = () => {
+function followFocus(box: HTMLElement, id: string, quality: RenderingQuality) {
+  const owner = box.ownerDocument.defaultView!
+  let frame = 0
+  let previous = -Infinity
+  const tick = (time: number) => {
     if (!box.isConnected) return
-    if (Number(box.dataset.pbAmount) > 0) {
+    if (Number(box.dataset.pbAmount) > 0 && (quality === "full" || time - previous >= 1000 / 30)) {
+      previous = time
       const target = box.ownerDocument.querySelector(focusSelector(id))
       if (target) {
         const t = target.getBoundingClientRect()
@@ -35,9 +39,10 @@ function followFocus(box: HTMLElement, id: string) {
         box.style.setProperty("--pb-cy", `${t.top - b.top + t.height / 2}px`)
       }
     }
-    requestAnimationFrame(tick)
+    frame = owner.requestAnimationFrame(tick)
   }
-  requestAnimationFrame(tick)
+  frame = owner.requestAnimationFrame(tick)
+  return () => owner.cancelAnimationFrame(frame)
 }
 
 /** Backdrop-blurs whatever is behind it. Place it in `.overlay`, `.background` or a ZStack. */
@@ -48,18 +53,24 @@ export function ProgressiveBlur(profile: BlurProfile, options: ProgressiveBlurOp
   const layers = planBlur(profile, { radius })
   const center: BlurCenter | undefined = profile.kind === "radial" ? profile.around : undefined
   const focusId = center && typeof center === "object" && "focus" in center ? center.focus : undefined
-  let mounted: HTMLElement | null = null
+  let stopQuality: (() => void) | undefined
+  let stopFocus: (() => void) | undefined
   const box = Element("div", {
     "aria-hidden": "true",
     "data-pb-amount": String(amount),
     ref: (element: HTMLElement | null) => {
-      mounted = element
+      stopQuality?.()
+      stopFocus?.()
       if (!element) return
-      if (focusId !== undefined) followFocus(element, focusId)
       const owner = element.ownerDocument.defaultView
       if (!owner) return
-      void progressiveBlurQuality(owner).then(quality => {
-        if (mounted !== element || !element.isConnected) return
+      let applied: RenderingQuality | undefined
+      stopQuality = observeRenderingQuality(({ quality }) => {
+        if (applied === quality) return
+        applied = quality
+        element.dataset.pbQuality = quality
+        stopFocus?.()
+        if (focusId !== undefined && quality !== "none") stopFocus = followFocus(element, focusId, quality)
         const planned = planBlur(profile, { radius, quality })
         Array.from(element.children).forEach((child, index) => {
           const style = (child as HTMLElement).style
@@ -69,7 +80,7 @@ export function ProgressiveBlur(profile: BlurProfile, options: ProgressiveBlurOp
           style.setProperty("-webkit-backdrop-filter", style.backdropFilter)
           style.maskImage = style.webkitMaskImage = layer?.mask ?? "none"
         })
-      })
+      }, owner)
     },
     style: { position: "absolute", inset: "0px", pointerEvents: "none" },
   }, ...layers.map((layer, index) => Element("div", {

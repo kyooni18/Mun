@@ -1,4 +1,4 @@
-import { prepareProgressiveBlur } from "@mun/progressive-blur/quality"
+import { getRenderingQuality, prepareRenderingQuality, type RenderingQuality } from "@mun/animation/rendering-quality"
 
 const WORKGROUP_SIZE = 64
 const FLOATS_PER_PARTICLE = 8
@@ -923,21 +923,45 @@ function seededLineChartData(count: number, provided: Float32Array | undefined):
  * hidden or detached canvas stops requesting frames instead of burning a
  * main-thread draw every 16ms; it resumes when it becomes visible again.
  */
-function runVisibleFrameLoop(canvas: HTMLCanvasElement, owner: Window, step: () => void): () => void {
+function runVisibleFrameLoop(canvas: HTMLCanvasElement, owner: Window, step: (deltaSeconds: number) => void): () => void {
   const document = canvas.ownerDocument
+  const controller = getRenderingQuality(owner)
   let stopped = false
   let frame = 0
   let intersecting = true
-  const visible = () => intersecting && document.visibilityState !== "hidden"
-  const tick = () => {
+  let quality: RenderingQuality = "full"
+  let previousFrame: number | undefined
+  let previousDraw: number | undefined
+  const visible = () => intersecting && document.visibilityState !== "hidden" && quality !== "none"
+  const tick = (time: number) => {
     frame = 0
     if (stopped || !visible()) return
-    step()
-    frame = owner.requestAnimationFrame(tick)
+    if (previousFrame !== undefined) controller?.recordFrame(time - previousFrame)
+    previousFrame = time
+    if (!visible()) return
+    if (quality === "full" || previousDraw === undefined || time - previousDraw >= 1000 / 30 - 0.5) {
+      const delta = previousDraw === undefined ? 1 / 60 : Math.min(0.1, Math.max(0, (time - previousDraw) / 1000))
+      previousDraw = time
+      step(delta)
+    }
+    if (!stopped && visible()) frame = owner.requestAnimationFrame(tick)
   }
   const resume = () => {
-    if (!stopped && frame === 0 && visible()) frame = owner.requestAnimationFrame(tick)
+    if (!visible()) {
+      if (frame) owner.cancelAnimationFrame(frame)
+      frame = 0
+      previousFrame = previousDraw = undefined
+    } else if (!stopped && frame === 0) {
+      previousFrame = previousDraw = undefined
+      frame = owner.requestAnimationFrame(tick)
+    }
   }
+  const stopQuality = controller?.subscribe(snapshot => {
+    if (canvas.dataset.munRenderingQuality !== snapshot.quality) canvas.dataset.munRenderingQuality = snapshot.quality
+    if (quality === snapshot.quality) return
+    quality = snapshot.quality
+    resume()
+  })
   const IntersectionObserverConstructor = (owner as Window & { IntersectionObserver?: typeof IntersectionObserver }).IntersectionObserver
   let observer: IntersectionObserver | undefined
   if (typeof IntersectionObserverConstructor === "function") {
@@ -953,6 +977,7 @@ function runVisibleFrameLoop(canvas: HTMLCanvasElement, owner: Window, step: () 
   resume()
   return () => {
     stopped = true
+    stopQuality?.()
     observer?.disconnect()
     document.removeEventListener("visibilitychange", resume)
     if (frame) owner.cancelAnimationFrame(frame)
@@ -971,8 +996,8 @@ function runLineChartCanvasFallback(
   if (!context) return () => undefined
   const owner = canvas.ownerDocument.defaultView
   let elapsed = 0
-  const draw = (step: boolean) => {
-    if (step) elapsed += 1 / 60
+  const draw = (deltaSeconds: number) => {
+    elapsed += deltaSeconds
     context!.clearRect(0, 0, canvas.width, canvas.height)
     context!.beginPath()
     for (let index = 0; index < node.ir.render.vertexCount; index += 1) {
@@ -988,9 +1013,9 @@ function runLineChartCanvasFallback(
     }
     context!.stroke()
   }
-  draw(false)
+  draw(0)
   if (node.ir.fallback !== "canvas" || typeof owner?.requestAnimationFrame !== "function") return () => undefined
-  return runVisibleFrameLoop(canvas, owner, () => draw(true))
+  return runVisibleFrameLoop(canvas, owner, draw)
 }
 
 function runCanvasFallback(
@@ -1014,12 +1039,12 @@ function runCanvasFallback(
     if (!bucket) colorBuckets.set(color, bucket = [])
     bucket.push(offset)
   }
-  const draw = (step: boolean) => {
-    if (step) {
+  const draw = (deltaSeconds: number) => {
+    if (deltaSeconds > 0) {
       for (let index = 0; index < node.ir.render.vertexCount; index += 1) {
         const offset = index * FLOATS_PER_PARTICLE
-        let x = data[offset]! + data[offset + 2]!
-        let y = data[offset + 1]! + data[offset + 3]!
+        let x = data[offset]! + data[offset + 2]! * deltaSeconds * 60
+        let y = data[offset + 1]! + data[offset + 3]! * deltaSeconds * 60
         if (Math.abs(x) > 1) { data[offset + 2] = -data[offset + 2]!; x = Math.max(-1, Math.min(1, x)) }
         if (Math.abs(y) > 1) { data[offset + 3] = -data[offset + 3]!; y = Math.max(-1, Math.min(1, y)) }
         data[offset] = x
@@ -1042,9 +1067,9 @@ function runCanvasFallback(
       context!.fill()
     }
   }
-  draw(false)
+  draw(0)
   if (node.ir.fallback !== "canvas" || typeof owner?.requestAnimationFrame !== "function") return () => undefined
-  return runVisibleFrameLoop(canvas, owner, () => draw(true))
+  return runVisibleFrameLoop(canvas, owner, draw)
 }
 
 /**
@@ -1069,7 +1094,7 @@ export function mountParticleFieldGPUIslandCanvas(
     return dispose
   }
   // Optional CSS-compositing probe: schedule after startup without delaying GPU activation.
-  if (owner) void prepareProgressiveBlur(owner)
+  if (owner) void prepareRenderingQuality(owner)
   let stopped = false
   let stopLoop: (() => void) | undefined
   let island: ParticleFieldGPUIsland | LineChartGPUIsland | undefined
@@ -1117,15 +1142,11 @@ export function mountParticleFieldGPUIslandCanvas(
       if (stopped) { island.dispose(); island = undefined; return }
       canvas.dataset.munGpuBackend = "webgpu"
       if (owner && typeof owner.requestAnimationFrame === "function") {
-        let previous: number | undefined
-        stopLoop = runVisibleFrameLoop(canvas, owner, () => {
+        const controller = getRenderingQuality(owner)
+        const queue = record(record(device, "GPUDevice").queue, "GPUDevice.queue")
+        stopLoop = runVisibleFrameLoop(canvas, owner, delta => {
           if (stopped || island?.status !== "active") return
-          const timestamp = owner.performance?.now() ?? Date.now()
-          // A paused (offscreen/hidden) island resumes at a normal step
-          // instead of integrating the whole pause in one frame.
-          const delta = previous === undefined ? 1 / 60 : Math.min(1 / 15, Math.max(0, (timestamp - previous) / 1000))
-          previous = timestamp
-          try { island.renderFrame(delta) } catch (error) { fallback(error) }
+          try { island.renderFrame(delta); controller?.sampleGPUQueue(queue) } catch (error) { fallback(error) }
         })
       } else island.renderFrame(1 / 60)
     } catch (error) {

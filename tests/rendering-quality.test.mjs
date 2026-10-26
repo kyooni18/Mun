@@ -3,7 +3,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { browser } from "./helpers/rendering-quality.mjs"
-import { getRenderingQuality, observeRenderingQuality, prepareRenderingQuality } from "../packages/animation/src/rendering-quality/index.js"
+import { getRenderingQuality, observeRenderingQuality, prepareRenderingQuality } from "../packages/animation/dist/src/rendering-quality/index.js"
+import { motionValue } from "../packages/animation/dist/src/index.js"
+import { createCanvasRenderer } from "../packages/animation/dist/src/canvas/index.js"
+import { compileParticleFieldGPUIsland } from "../packages/compiler/dist/gpu-island-ir.js"
+import { VStack } from "../packages/core/dist/index.js"
+import { mount } from "../packages/web/dist/index.js"
+import { BlurProfile, ProgressiveBlur } from "../packages/progressive-blur/dist/index.js"
 
 async function initial(b, quality = "full") {
   const owner = b.owner
@@ -74,10 +80,12 @@ test("sustained frame and queue pressure lower quality without extra render loop
     for (let sample = 0; sample < 3; sample++) { b.advance(1034); controller.sampleGPUQueue(queue) }
     assert.equal(calls, 1, "one outstanding queue observation is shared")
     assert.equal(controller.quality, "none", "a backed-up queue is detected before its promise resolves")
+    const delay = controller.snapshot.gpuQueueDelayMs
+    assert.ok(delay >= 3000)
     stop()
     resolve()
     await Promise.resolve()
-    assert.equal(controller.snapshot.gpuQueueDelayMs, null, "stale completions cannot update a stopped controller")
+    assert.equal(controller.snapshot.gpuQueueDelayMs, delay, "stale completions cannot update a stopped controller")
   } finally { stop(); b.owner.close() }
 })
 
@@ -104,4 +112,79 @@ test("hidden pages, unmounts, screen changes, and unavailable APIs fail safely",
     assert.equal(await prepareRenderingQuality(null), "full")
     assert.equal(getRenderingQuality(null), null)
   } finally { stop(); b.owner.close() }
+})
+
+test("live blur and canvas rendering share quality, pacing, freezing and restoration", async () => {
+  const b = browser()
+  let dispose
+  try {
+    let draws = 0
+    b.owner.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() { draws++ }, beginPath() {}, moveTo() {}, arc() {}, fill() {} })
+    const graph = VStack(
+      compileParticleFieldGPUIsland({ id: "adaptive", count: 1, fallback: "canvas" }),
+      ProgressiveBlur(BlurProfile.edge("bottom", 80), { radius: 12 }),
+    )
+    const container = b.owner.document.querySelector("main")
+    dispose = mount(graph, container)
+    await initial(b)
+    const controller = getRenderingQuality(b.owner)
+    const blur = container.querySelector("[data-pb-amount]")
+    const canvas = container.querySelector("canvas")
+    const activeLayers = () => [...blur.children].filter(layer => layer.style.display !== "none").length
+    const lateWindows = () => {
+      for (let window = 0; window < 3; window++) for (let frame = 0; frame < 10; frame++) { b.advance(100); controller.recordFrame(33) }
+    }
+    let before = draws
+    for (const time of [20, 36.7, 53.4, 70.1, 86.8, 103.5]) b.frame(time)
+    assert.equal(draws - before, 6)
+    lateWindows()
+    assert.equal(blur.dataset.pbQuality, "reduced")
+    assert.equal(canvas.dataset.munRenderingQuality, "reduced")
+    assert.equal(activeLayers(), 2)
+    before = draws
+    for (const time of [120.2, 136.9, 153.6, 170.3, 187, 203.7]) b.frame(time)
+    assert.equal(draws - before, 3, "reduced canvas work runs at 30fps")
+    b.advance(10_000); controller.recordFrame(16); lateWindows()
+    assert.equal(activeLayers(), 0)
+    assert.equal(b.frames.size, 0, "none stops the renderer frame loop")
+    before = draws
+    b.frame(300)
+    assert.equal(draws, before)
+    await recheck(b); await recheck(b)
+    assert.equal(activeLayers(), 2)
+    b.frame(400)
+    assert.ok(draws > before, "the same canvas resumes after recovery")
+    dispose()
+    assert.equal(b.frames.size, 0)
+    assert.equal(b.timers.size, 0)
+  } finally { dispose?.(); b.owner.close() }
+})
+
+test("demand-driven Canvas motion retains the newest state while quality is reduced or paused", async () => {
+  const b = browser()
+  let renderer
+  try {
+    const canvas = b.owner.document.createElement("canvas")
+    b.owner.document.body.append(canvas)
+    const value = motionValue(0)
+    const draws = []
+    renderer = createCanvasRenderer({ canvas }, [value], (_context, values) => draws.push(values[0]))
+    await initial(b, "none")
+    value.set(1); value.set(2)
+    b.frame(100)
+    const paused = draws.length
+    assert.equal(renderer.snapshot[0], 2)
+    await recheck(b); await recheck(b)
+    b.frame(200)
+    assert.equal(draws.at(-1), 2)
+    assert.equal(draws.length, paused + 1)
+    value.set(3); b.frame(210)
+    assert.equal(draws.at(-1), 2)
+    const trailing = [...b.timers.values()].find(timer => timer.delay < 100)
+    assert.ok(trailing, "a single trailing update preserves the last value")
+    b.timer(trailing.delay); b.frame(234)
+    assert.equal(draws.at(-1), 3)
+    renderer.dispose()
+    assert.equal(b.timers.size, 0)
+  } finally { renderer?.dispose(); b.owner.close() }
 })

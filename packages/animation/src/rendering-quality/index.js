@@ -57,6 +57,7 @@ class RenderingQualityController {
   get quality() { return this.snapshot.quality; }
 
   subscribe(listener) {
+    if (screenKey(this.owner) !== this.key) this.onResize();
     const subscription = snapshot => listener(snapshot);
     this.listeners.add(subscription);
     this.emit(subscription);
@@ -93,10 +94,9 @@ class RenderingQualityController {
       if (type) {
         this.observer = new Observer(list => {
           if (this.owner.document.visibilityState !== 'visible') return;
-          for (const entry of list.getEntries()) {
-            this.update({ longFrameMs: entry.duration });
-            if (entry.duration >= 50) this.pressure('long-frame');
-          }
+          const duration = Math.max(0, ...list.getEntries().map(entry => entry.duration));
+          this.update({ longFrameMs: duration });
+          if (duration >= 50) this.pressure('long-frame');
         });
         this.observer.observe({ type });
       }
@@ -207,7 +207,11 @@ class RenderingQualityController {
     const now = this.owner.performance.now();
     const previous = this.queues.get(queue);
     if (previous?.pending) {
-      if (now - previous.at >= Math.max(32, (this.snapshot.baselineMs ?? 16.67) * 2)) this.pressure('queue');
+      if (now - (previous.reported ?? previous.at) >= 1000) {
+        previous.reported = now;
+        this.update({ gpuQueueDelayMs: now - previous.at });
+        this.pressure('queue');
+      }
       return;
     }
     if (previous && now - previous.at < 1000) return;
@@ -237,12 +241,12 @@ export function getRenderingQuality(owner = defaultOwner()) {
 }
 
 export function prepareRenderingQuality(owner = defaultOwner()) {
-  return getRenderingQuality(owner)?.prepare() ?? Promise.resolve('full');
+  try { return getRenderingQuality(owner)?.prepare() ?? Promise.resolve('full'); } catch { return Promise.resolve('full'); }
 }
 
 export function observeRenderingQuality(listener, owner = defaultOwner()) {
   const controller = getRenderingQuality(owner);
   if (controller) return controller.subscribe(listener);
-  listener(Object.freeze({ quality: 'full', source: 'default', baselineMs: null, frameDelayMs: null, gpuQueueDelayMs: null, longFrameMs: null, measuredAt: null }));
+  try { listener(Object.freeze({ quality: 'full', source: 'default', baselineMs: null, frameDelayMs: null, gpuQueueDelayMs: null, longFrameMs: null, measuredAt: null })); } catch { /* isolate renderer callbacks */ }
   return () => {};
 }

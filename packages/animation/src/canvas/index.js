@@ -1,4 +1,5 @@
 import { FrameBatcher } from '../render/frame-batcher.js';
+import { getRenderingQuality } from '../rendering-quality/index.js';
 
 function isMotionValue(value) {
   return value && typeof value.get === 'function' && (typeof value.subscribeValue === 'function' || typeof value.subscribe === 'function');
@@ -26,7 +27,21 @@ export class CanvasMotionRenderer {
     this.unsubscribers = [];
     this.frames = 0;
     this.disposed = false;
-    this.batcher = new FrameBatcher((time) => this.#render(time), { requestFrame, cancelFrame });
+    this.owner = context.canvas?.ownerDocument?.defaultView;
+    this.quality = 'full';
+    this.lastDraw = -Infinity;
+    this.timer = 0;
+    this.batcher = new FrameBatcher((time) => this.#render(time), {
+      requestFrame: requestFrame ?? this.owner?.requestAnimationFrame?.bind(this.owner),
+      cancelFrame: cancelFrame ?? this.owner?.cancelAnimationFrame?.bind(this.owner),
+    });
+    this.stopQuality = getRenderingQuality(this.owner ?? null)?.subscribe(snapshot => {
+      if (this.quality === snapshot.quality) return;
+      this.quality = snapshot.quality;
+      this.owner.clearTimeout(this.timer);
+      this.timer = 0;
+      this.invalidate();
+    });
 
     values.forEach((value, index) => {
       if (!isMotionValue(value)) throw new TypeError(`Canvas motion value at index ${index} is not MotionValue-like.`);
@@ -41,7 +56,16 @@ export class CanvasMotionRenderer {
   }
 
   #render(time) {
-    if (this.disposed) return;
+    if (this.disposed || this.quality === 'none') return;
+    const remaining = this.lastDraw + 1000 / 30 - time;
+    if (this.quality === 'reduced' && remaining > 0.5) {
+      if (!this.timer) this.timer = this.owner.setTimeout(() => {
+        this.timer = 0;
+        this.batcher.invalidate();
+      }, remaining);
+      return;
+    }
+    this.lastDraw = time;
     if (this.autoClear) {
       const canvas = this.context.canvas;
       if (canvas && typeof this.context.clearRect === 'function') this.context.clearRect(0, 0, canvas.width, canvas.height);
@@ -50,12 +74,14 @@ export class CanvasMotionRenderer {
     this.draw(this.context, this.snapshot, time, this);
   }
 
-  invalidate() { this.batcher.invalidate(); return this; }
+  invalidate() { if (this.quality !== 'none' && !this.timer) this.batcher.invalidate(); return this; }
   renderNow(time) { this.batcher.flushNow(time); return this; }
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.stopQuality?.();
+    this.owner?.clearTimeout(this.timer);
     this.batcher.dispose();
     for (const unsubscribe of this.unsubscribers) unsubscribe?.();
     this.unsubscribers.length = 0;
