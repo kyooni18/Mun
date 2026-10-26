@@ -1791,7 +1791,26 @@ function lazyOverscan(node: LazyViewNode): number {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 2
 }
 
+// Resolving the scroll parent walks every ancestor through getComputedStyle.
+// Overflow only changes when the tree is re-rendered, so results are reused
+// until the next root pass bumps the generation. Scroll ticks never pay it.
+let lazyScrollParentGeneration = 0
+const lazyScrollParentCache = new WeakMap<HTMLElement, { readonly generation: number; readonly axis: LazyViewNode["axis"]; readonly parent: HTMLElement | null }>()
+
+function invalidateLazyScrollParents(): void {
+  lazyScrollParentGeneration += 1
+}
+
 function lazyScrollParent(element: HTMLElement, axis: LazyViewNode["axis"]): HTMLElement | null {
+  const cached = lazyScrollParentCache.get(element)
+  if (cached && cached.generation === lazyScrollParentGeneration && cached.axis === axis
+    && (!cached.parent || cached.parent.contains(element))) return cached.parent
+  const parent = resolveLazyScrollParent(element, axis)
+  lazyScrollParentCache.set(element, { generation: lazyScrollParentGeneration, axis, parent })
+  return parent
+}
+
+function resolveLazyScrollParent(element: HTMLElement, axis: LazyViewNode["axis"]): HTMLElement | null {
   const property = axis === "horizontal" ? "overflowX" : "overflowY"
   let parent = element.parentElement
   while (parent) {
@@ -3907,14 +3926,15 @@ function createDomRenderer(context: DomRenderContext): MunRenderer<Node> {
   return renderer
 }
 
-function geometryFromElement(element: Element, persistentProbe?: HTMLElement): GeometryProxy {
-  const rect = safeBoundingRect(element)
-  if (!rect) return zeroGeometry
-  const frame = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left }
-  const document = element.ownerDocument
+type SafeAreaInsets = GeometryProxy["safeAreaInsets"]
+
+/**
+ * env(safe-area-inset-*) is a property of the viewport, not of a reader, so
+ * one probe read per measurement pass serves every GeometryReader.
+ */
+function measureSafeAreaInsets(document: Document, persistentProbe?: HTMLElement): SafeAreaInsets {
   const view = document.defaultView
-  const fallback = { frame, size: { width: rect.width, height: rect.height }, safeAreaInsets: zeroGeometry.safeAreaInsets }
-  if (!view?.getComputedStyle || !document.body) return fallback
+  if (!view?.getComputedStyle || !document.body) return zeroGeometry.safeAreaInsets
   const probe = persistentProbe ?? document.createElement("div")
   const ownsProbe = persistentProbe === undefined
   let measured = false
@@ -3922,18 +3942,25 @@ function geometryFromElement(element: Element, persistentProbe?: HTMLElement): G
   try {
     if (!probe.parentNode) document.body.appendChild(probe)
     const style = view.getComputedStyle(probe)
-    const safeAreaInsets = edgeInsetsFromCss({ top: style.paddingTop, right: style.paddingRight, bottom: style.paddingBottom, left: style.paddingLeft })
+    const insets = edgeInsetsFromCss({ top: style.paddingTop, right: style.paddingRight, bottom: style.paddingBottom, left: style.paddingLeft })
     measured = true
-    return { frame, size: { width: rect.width, height: rect.height }, safeAreaInsets }
+    return insets
   } catch {
     // Geometry is still useful when CSSOM access is unavailable (sandboxed or
     // synthetic documents). Safe-area measurement is optional, not fatal.
-    return fallback
+    return zeroGeometry.safeAreaInsets
   } finally {
     if (ownsProbe || !measured) {
       try { probe.remove() } catch { /* detached/synthetic DOM cleanup is best-effort */ }
     }
   }
+}
+
+function geometryFromElement(element: Element, safeAreaInsets: () => SafeAreaInsets): GeometryProxy {
+  const rect = safeBoundingRect(element)
+  if (!rect) return zeroGeometry
+  const frame = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left }
+  return { frame, size: { width: rect.width, height: rect.height }, safeAreaInsets: safeAreaInsets() }
 }
 
 function sameGeometry(left: GeometryProxy, right: GeometryProxy): boolean {
@@ -4269,11 +4296,13 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       }
       let changed = false
       const seen = new Set<number>()
+      let insets: SafeAreaInsets | undefined
+      const safeAreaInsets = () => insets ??= measureSafeAreaInsets(document, geometryProbe)
       container.querySelectorAll<HTMLElement>('[data-mun="GeometryReader"][data-mun-geometry]').forEach(element => {
         const index = Number(element.dataset.munGeometry)
         if (!Number.isInteger(index)) return
         seen.add(index)
-        const next = geometryFromElement(element, geometryProbe)
+        const next = geometryFromElement(element, safeAreaInsets)
         const previous = context.geometries.get(index)
         if (!previous || !sameGeometry(previous, next)) {
           context.geometries.set(index, next)
@@ -4321,86 +4350,153 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
         requestRootUpdate(undefined, true)
       })
     }
-    const measureLazyItem = (element: HTMLElement): boolean => {
-      const metadata = context.lazyItemMetadata.get(element)
-      if (!metadata) return false
-      const node = context.lazyNodes.get(metadata.key)
-      const measurement = context.lazySizeIndexes.get(metadata.key)
-      if (!node || !measurement) return false
-      const rect = safeBoundingRect(element)
-      let size = node.axis === "horizontal" ? rect?.width : rect?.height
-      if (!size || !Number.isFinite(size) || size <= 0) {
-        // The wrapper can be temporarily unmeasurable while its rendered
-        // child already has a stable intrinsic box. This also keeps lazy
-        // measurement useful in lightweight DOM implementations that do
-        // not lay wrapper elements out themselves.
-        const childRect = element.firstElementChild ? safeBoundingRect(element.firstElementChild) : undefined
-        size = node.axis === "horizontal" ? childRect?.width : childRect?.height
+    // Lazy row measurement runs in two phases. Every rect is read first, then
+    // sizes are committed and scroll anchoring is applied once per scroll
+    // target. Interleaving a scrollTop write with the next row's rect read
+    // forced one synchronous layout per measured row.
+    // Scroll and resize can fire many times per frame. Measuring on a
+    // microtask per event repeated the rect reads (and possibly a render)
+    // for each one; coalesce them into a single measurement per frame.
+    let lazyFrameScheduled = false
+    const scheduleLazyMeasureOnFrame = () => {
+      if (stopped || lazyFrameScheduled) return
+      const window = document.defaultView
+      if (typeof window?.requestAnimationFrame !== "function") {
+        scheduleLazyMeasure()
+        return
       }
-      if (!size || !Number.isFinite(size) || size <= 0) return false
-      const delta = measurement.set(metadata.index, size)
-      if (Math.abs(delta) < 0.01) return false
-
-      // Keep the same logical content under the viewport when an overscan row
-      // above it changes height. The normal root pass snapshots this adjusted
-      // position and therefore does not undo the correction.
-      const containerElement = element.parentElement
-      if (!containerElement) return true
-      const scrollParent = lazyScrollParent(containerElement, node.axis)
-      const elementRect = safeBoundingRect(element)
-      const logicalStart = context.lazyRanges.get(metadata.key)?.start ?? 0
-      if (scrollParent) {
-        const parentRect = safeBoundingRect(scrollParent)
-        const measuredAxis = node.axis === "horizontal"
-          ? Math.max(elementRect?.width ?? 0, parentRect?.width ?? 0)
-          : Math.max(elementRect?.height ?? 0, parentRect?.height ?? 0)
-        const beforeViewport = measuredAxis > 0
-          ? node.axis === "horizontal"
-            ? (elementRect?.right ?? 0) <= (parentRect?.left ?? 0)
-            : (elementRect?.bottom ?? 0) <= (parentRect?.top ?? 0)
-          : metadata.index < logicalStart
-        if (beforeViewport) {
-          if (node.axis === "horizontal") scrollParent.scrollLeft += delta
-          else scrollParent.scrollTop += delta
-        }
-      } else {
-        const window = document.defaultView
-        const measuredAxis = node.axis === "horizontal" ? elementRect?.width ?? 0 : elementRect?.height ?? 0
-        const beforeViewport = measuredAxis > 0
-          ? node.axis === "horizontal" ? (elementRect?.right ?? 0) <= 0 : (elementRect?.bottom ?? 0) <= 0
-          : metadata.index < logicalStart
-        if (window && beforeViewport) {
-          window.scrollBy(node.axis === "horizontal" ? delta : 0, node.axis === "horizontal" ? 0 : delta)
-        }
-      }
-      return true
+      lazyFrameScheduled = true
+      window.requestAnimationFrame(() => {
+        lazyFrameScheduled = false
+        scheduleLazyMeasure()
+      })
     }
+    const measureLazyItems = (elements: Iterable<HTMLElement>): boolean => {
+      interface PendingLazyMeasurement {
+        readonly measurement: LazyMeasurementIndex
+        readonly index: number
+        readonly size: number
+        readonly axis: LazyViewNode["axis"]
+        readonly scrollTarget: HTMLElement | Window | undefined
+        readonly beforeViewport: boolean
+      }
+      const pending: PendingLazyMeasurement[] = []
+      const parentRects = new Map<HTMLElement, DOMRect | undefined>()
+      const window = document.defaultView
+      for (const element of elements) {
+        const metadata = context.lazyItemMetadata.get(element)
+        if (!metadata) continue
+        const node = context.lazyNodes.get(metadata.key)
+        const measurement = context.lazySizeIndexes.get(metadata.key)
+        if (!node || !measurement) continue
+        const horizontal = node.axis === "horizontal"
+        const elementRect = safeBoundingRect(element)
+        let size = horizontal ? elementRect?.width : elementRect?.height
+        if (!size || !Number.isFinite(size) || size <= 0) {
+          // The wrapper can be temporarily unmeasurable while its rendered
+          // child already has a stable intrinsic box. This also keeps lazy
+          // measurement useful in lightweight DOM implementations that do
+          // not lay wrapper elements out themselves.
+          const childRect = element.firstElementChild ? safeBoundingRect(element.firstElementChild) : undefined
+          size = horizontal ? childRect?.width : childRect?.height
+        }
+        if (!size || !Number.isFinite(size) || size <= 0) continue
+
+        // Keep the same logical content under the viewport when an overscan
+        // row above it changes height. The normal root pass snapshots this
+        // adjusted position and therefore does not undo the correction.
+        const containerElement = element.parentElement
+        const logicalStart = context.lazyRanges.get(metadata.key)?.start ?? 0
+        let scrollTarget: HTMLElement | Window | undefined
+        let beforeViewport = false
+        if (containerElement) {
+          const scrollParent = lazyScrollParent(containerElement, node.axis)
+          if (scrollParent) {
+            if (!parentRects.has(scrollParent)) parentRects.set(scrollParent, safeBoundingRect(scrollParent))
+            const parentRect = parentRects.get(scrollParent)
+            const measuredAxis = horizontal
+              ? Math.max(elementRect?.width ?? 0, parentRect?.width ?? 0)
+              : Math.max(elementRect?.height ?? 0, parentRect?.height ?? 0)
+            beforeViewport = measuredAxis > 0
+              ? horizontal
+                ? (elementRect?.right ?? 0) <= (parentRect?.left ?? 0)
+                : (elementRect?.bottom ?? 0) <= (parentRect?.top ?? 0)
+              : metadata.index < logicalStart
+            scrollTarget = scrollParent
+          } else if (window) {
+            const measuredAxis = horizontal ? elementRect?.width ?? 0 : elementRect?.height ?? 0
+            beforeViewport = measuredAxis > 0
+              ? horizontal ? (elementRect?.right ?? 0) <= 0 : (elementRect?.bottom ?? 0) <= 0
+              : metadata.index < logicalStart
+            scrollTarget = window
+          }
+        }
+        pending.push({ measurement, index: metadata.index, size, axis: node.axis, scrollTarget, beforeViewport })
+      }
+
+      let changed = false
+      const scrollDeltas = new Map<HTMLElement | Window, { x: number; y: number }>()
+      for (const item of pending) {
+        const delta = item.measurement.set(item.index, item.size)
+        if (Math.abs(delta) < 0.01) continue
+        changed = true
+        if (!item.beforeViewport || !item.scrollTarget) continue
+        let total = scrollDeltas.get(item.scrollTarget)
+        if (!total) scrollDeltas.set(item.scrollTarget, total = { x: 0, y: 0 })
+        if (item.axis === "horizontal") total.x += delta
+        else total.y += delta
+      }
+      for (const [target, delta] of scrollDeltas) {
+        if (target === window) {
+          (target as Window).scrollBy(delta.x, delta.y)
+        } else {
+          const element = target as HTMLElement
+          if (delta.x) element.scrollLeft += delta.x
+          if (delta.y) element.scrollTop += delta.y
+        }
+      }
+      return changed
+    }
+    // Observed row -> the lazy slot it was measured for. A row element reused
+    // for another slot must be measured again even if it never resizes.
+    const observedLazyItems = new Map<HTMLElement, string>()
     const observeLazyItems = () => {
       if (context.lazyNodes.size === 0) {
         lazyItemObserver?.disconnect()
+        observedLazyItems.clear()
         return
       }
+      const items = container.querySelectorAll<HTMLElement>("[data-mun-lazy-item]")
       if (typeof ResizeObserver === "undefined") {
-        let changed = false
-        container.querySelectorAll<HTMLElement>("[data-mun-lazy-item]").forEach(element => {
-          if (measureLazyItem(element)) changed = true
-        })
-        if (changed) scheduleLazyMeasure()
+        if (measureLazyItems(items)) scheduleLazyMeasure()
         return
       }
       lazyItemObserver ??= new ResizeObserver(entries => {
-        let changed = false
-        for (const entry of entries) {
-          if (measureLazyItem(entry.target as HTMLElement)) changed = true
-        }
-        if (changed) scheduleLazyMeasure()
+        if (measureLazyItems(entries.map(entry => entry.target as HTMLElement))) scheduleLazyMeasure()
       })
-      lazyItemObserver.disconnect()
-      container.querySelectorAll<HTMLElement>("[data-mun-lazy-item]").forEach(element => lazyItemObserver!.observe(element))
+      // Observe only rows that entered and drop rows that left. Disconnecting
+      // and re-observing everything made the observer re-deliver (and the
+      // engine re-measure) every mounted row after each render pass.
+      const current = new Set<HTMLElement>()
+      items.forEach(element => {
+        current.add(element)
+        const metadata = context.lazyItemMetadata.get(element)
+        const slot = metadata ? `${metadata.key}\u0000${metadata.index}` : ""
+        const observedSlot = observedLazyItems.get(element)
+        if (observedSlot === slot) return
+        if (observedSlot !== undefined) lazyItemObserver!.unobserve(element)
+        observedLazyItems.set(element, slot)
+        lazyItemObserver!.observe(element)
+      })
+      for (const element of observedLazyItems.keys()) {
+        if (current.has(element)) continue
+        observedLazyItems.delete(element)
+        lazyItemObserver.unobserve(element)
+      }
     }
 
     const observeLazyViewport = () => {
-      const listener = scheduleLazyMeasure as EventListener
+      const listener = scheduleLazyMeasureOnFrame as EventListener
       if (context.lazyNodes.size === 0) {
         for (const target of lazyViewportTargets) {
           target.removeEventListener("scroll", listener)
@@ -4720,6 +4816,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       // A root pass owns its before/after geometry snapshot as one atomic
       // unit. Never let a capture from an aborted local pass leak into it.
       clearLayoutCaptures(viewRuntime)
+      invalidateLazyScrollParents()
       const scrollPositions = captureLazyScrollPositions()
       context.geometryIndex = 0
       context.hasRefs = false
@@ -4920,6 +5017,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       activeRefs.clear()
       cleanup(() => lazyItemObserver?.disconnect())
       lazyItemObserver = undefined
+      observedLazyItems.clear()
       lazyViewportCleanups.forEach(action => cleanup(action))
       lazyViewportCleanups.length = 0
       cleanup(() => geometryProbe.remove())
