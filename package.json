@@ -80,6 +80,7 @@
     "test:browser": "node --test tests/browser.test.mjs",
     "test:browser:vue": "node --test tests/vue-browser.test.mjs",
     "test:browser:web": "node --test tests/web-browser.test.mjs",
+    "test:browser:lazy": "node --test tests/lazy-browser.test.mjs",
     "test:browser:language-web": "node --test tests/language-web-browser.test.mjs",
     "demo:language-web": "node examples/language-web/server.mjs",
     "demo:language-web:build": "vite build --config examples/language-web/vite.config.ts",

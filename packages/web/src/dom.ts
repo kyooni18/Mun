@@ -1137,6 +1137,8 @@ function copyCandidateMetadata(source: Node, target: Node, context: DomRenderCon
     if (tag !== undefined) context.domTags.set(target as Element, tag)
     const lazyKey = context.lazyKeys.get(source)
     if (lazyKey !== undefined) context.lazyKeys.set(target, lazyKey)
+    const lazyItem = context.lazyItemMetadata.get(source as Element)
+    if (lazyItem) context.lazyItemMetadata.set(target as Element, lazyItem)
   }
   if (runtime) {
     const boundaryKeys = runtime.nodeKeys.get(source)
@@ -1661,6 +1663,15 @@ function reconcileDomNode(parent: Node, current: Node, next: Node, context: DomR
   const reusable = runtimeFor(context)?.reuseCandidates.get(next)
   const lazyKey = context.lazyKeys.get(nextElement)
   if (lazyKey) context.lazyKeys.set(currentElement, lazyKey)
+  const lazyItem = context.lazyItemMetadata.get(nextElement)
+  if (lazyItem) {
+    // Row wrappers carry their slot outside the prop diff. A reused wrapper
+    // must take the candidate's slot, or its measurements land on the index
+    // it rendered in an earlier pass.
+    context.lazyItemMetadata.set(currentElement, lazyItem)
+    const index = String(lazyItem.index)
+    if (currentElement.getAttribute("data-mun-lazy-index") !== index) currentElement.setAttribute("data-mun-lazy-index", index)
+  }
   const resolvedMotion = resolveMotionState(currentElement, nextElement, context)
   const resolvedContentTransition = resolveContentTransitionState(currentElement, nextElement, context)
   const symbolPlan = resolvedContentTransition
@@ -3896,6 +3907,11 @@ function createDomRenderer(context: DomRenderContext): MunRenderer<Node> {
           wrapper.style.flex = "0 0 auto"
           if (node.axis !== "horizontal") wrapper.style.width = "100%"
           context.lazyItemMetadata.set(wrapper, { key, index })
+          // Key rows by slot so a scrolling window reuses the row that already
+          // shows an index instead of re-diffing every row against its
+          // neighbour's content.
+          context.domKeys.set(wrapper, `\u0000mun-lazy:${index}`)
+          context.hasDomKeys = true
           appendDomChild(wrapper, renderItem(index), context)
           appendDomChild(element, wrapper, context)
         }
