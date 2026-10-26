@@ -172,7 +172,11 @@ test("render Transactions feed the initial Web animation wrapper", () => {
     () => renderToHTML(graph),
   )
   assert.match(html, /transition-property:/)
-  assert.match(html, /transition-duration:0\.4s/)
+  // Springs play their step response over the settle time, which is never
+  // shorter than the response (0.4s) for a damped spring.
+  const duration = Number(/transition-duration:([\d.]+)s/.exec(html)?.[1])
+  assert.ok(duration >= 0.4 && duration < 1, `settle duration ${duration}`)
+  assert.match(html, /transition-timing-function:linear\(0,/)
   assert.match(html, /scale:0\.9/)
 })
 

@@ -1582,7 +1582,28 @@ function reconcilePureKeyedPermutation(
   return true
 }
 
-function releaseDomSubtree(node: Node, context: DomRenderContext): void {
+/** Live nodes an incoming candidate subtree will move into place in bindInsertedSubtree(). */
+function reusedLiveNodes(candidate: Node, context: DomRenderContext): Set<Node> | undefined {
+  const runtime = runtimeFor(context)
+  if (!runtime) return undefined
+  let retained: Set<Node> | undefined
+  const visit = (node: Node): void => {
+    const reusable = runtime.reuseCandidates.get(node)
+    if (reusable && reusable !== node) {
+      (retained ??= new Set()).add(reusable)
+      return
+    }
+    const content = node.nodeType === 1 ? domContentContainer(node as Element) : node
+    for (let child = content.firstChild; child; child = child.nextSibling) visit(child)
+  }
+  visit(candidate)
+  return retained
+}
+
+function releaseDomSubtree(node: Node, context: DomRenderContext, retained?: ReadonlySet<Node>): void {
+  // A live View carried into a replacement ancestor keeps its listeners,
+  // refs and animations; only the nodes that actually leave are released.
+  if (retained?.has(node)) return
   const runtime = runtimeFor(context)
   const compiledRoot = runtime?.compiledTemplateRoots.get(node)
   if (compiledRoot) runtime?.compiledTemplates.delete(compiledRoot.key)
@@ -1596,16 +1617,16 @@ function releaseDomSubtree(node: Node, context: DomRenderContext): void {
     disposeContinuousCorners(element)
     disposeFocusScope(element)
     if (context.eventTargetCount > 0) clearDomEvents(element, context)
-    for (const child of domContentContainer(element).childNodes) releaseDomSubtree(child, context)
+    for (const child of domContentContainer(element).childNodes) releaseDomSubtree(child, context, retained)
     return
   }
-  for (const child of node.childNodes) releaseDomSubtree(child, context)
+  for (const child of node.childNodes) releaseDomSubtree(child, context, retained)
 }
 
 function replaceDomNode(parent: Node, current: Node, next: Node, context: DomRenderContext): Node {
   const anchor = current.nextSibling
   const exiting = beginExitTransition(parent, current, context)
-  if (!exiting) releaseDomSubtree(current, context)
+  if (!exiting) releaseDomSubtree(current, context, reusedLiveNodes(next, context))
   commitStagedSubtree(next, context)
   if (exiting) parent.insertBefore(next, anchor)
   else parent.replaceChild(next, current)
