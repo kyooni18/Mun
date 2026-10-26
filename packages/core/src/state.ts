@@ -971,6 +971,15 @@ function notifyOwnerAdditions(
   if (failed) throw failure
 }
 
+/** Clamps relative (possibly negative) start/end arguments like Array.prototype.fill. */
+function relativeArrayRange(length: number, start: unknown, end: unknown): { readonly start: number; readonly end: number } {
+  const clamp = (value: unknown, fallback: number): number => {
+    const number = value === undefined ? fallback : Math.trunc(Number(value)) || 0
+    return number < 0 ? Math.max(length + number, 0) : Math.min(number, length)
+  }
+  return { start: clamp(start, 0), end: clamp(end, length) }
+}
+
 function sameArraySnapshot(previous: readonly unknown[], current: readonly unknown[]): boolean {
   if (previous.length !== current.length) return false
   for (let index = 0; index < previous.length; index += 1) {
@@ -1040,16 +1049,27 @@ function wrap<T>(value: T, record: StateRecord<unknown>): T {
               mutatorArguments[0] = (left: unknown, right: unknown) => compare(wrap(left, record), wrap(right, record))
             }
 
-            const previous = property === "push" || property === "unshift" || property === "pop" || property === "shift"
-              ? undefined
-              : Array.prototype.slice.call(actual) as unknown[]
+            // Change detection only snapshots what the operation can touch:
+            // splice compares its removed and inserted items, fill its target
+            // range. Only reorderings (sort/reverse/copyWithin) need the full
+            // array, which they already traverse.
             const previousLength = actual.length
+            const fillRange = property === "fill" ? relativeArrayRange(previousLength, mutatorArguments[1], mutatorArguments[2]) : undefined
+            const previous = property === "push" || property === "unshift" || property === "pop" || property === "shift" || property === "splice"
+              ? undefined
+              : fillRange
+                ? Array.prototype.slice.call(actual, fillRange.start, fillRange.end) as unknown[]
+                : Array.prototype.slice.call(actual) as unknown[]
             const result = Reflect.apply(nativeMutator, actual, mutatorArguments)
             const changed = property === "push" || property === "unshift"
               ? mutatorArguments.length > 0
               : property === "pop" || property === "shift"
                 ? previousLength > 0
-                : !sameArraySnapshot(previous ?? [], actual)
+                : property === "splice"
+                  ? !sameArraySnapshot(result as unknown[], mutatorArguments.slice(2))
+                  : fillRange
+                    ? !sameArraySnapshot(previous ?? [], Array.prototype.slice.call(actual, fillRange.start, fillRange.end) as unknown[])
+                    : !sameArraySnapshot(previous ?? [], actual)
 
             if (changed) {
               const mutation: StateMutation = {
