@@ -916,6 +916,48 @@ function seededLineChartData(count: number, provided: Float32Array | undefined):
   return data
 }
 
+/**
+ * Drives a CPU canvas animation only while it can be seen. An offscreen,
+ * hidden or detached canvas stops requesting frames instead of burning a
+ * main-thread draw every 16ms; it resumes when it becomes visible again.
+ */
+function runVisibleFrameLoop(canvas: HTMLCanvasElement, owner: Window, step: () => void): () => void {
+  const document = canvas.ownerDocument
+  let stopped = false
+  let frame = 0
+  let intersecting = true
+  const visible = () => intersecting && document.visibilityState !== "hidden"
+  const tick = () => {
+    frame = 0
+    if (stopped || !visible()) return
+    step()
+    frame = owner.requestAnimationFrame(tick)
+  }
+  const resume = () => {
+    if (!stopped && frame === 0 && visible()) frame = owner.requestAnimationFrame(tick)
+  }
+  const IntersectionObserverConstructor = (owner as Window & { IntersectionObserver?: typeof IntersectionObserver }).IntersectionObserver
+  let observer: IntersectionObserver | undefined
+  if (typeof IntersectionObserverConstructor === "function") {
+    observer = new IntersectionObserverConstructor(entries => {
+      const entry = entries[entries.length - 1]
+      if (!entry) return
+      intersecting = entry.isIntersecting
+      resume()
+    })
+    observer.observe(canvas)
+  }
+  document.addEventListener("visibilitychange", resume)
+  resume()
+  return () => {
+    stopped = true
+    observer?.disconnect()
+    document.removeEventListener("visibilitychange", resume)
+    if (frame) owner.cancelAnimationFrame(frame)
+    frame = 0
+  }
+}
+
 function runLineChartCanvasFallback(
   canvas: HTMLCanvasElement,
   node: GPUIslandViewNode,
@@ -926,7 +968,6 @@ function runLineChartCanvasFallback(
   try { context = canvas.getContext("2d") } catch { /* synthetic DOM or an existing WebGPU context may reject 2D */ }
   if (!context) return () => undefined
   const owner = canvas.ownerDocument.defaultView
-  let frame = 0
   let elapsed = 0
   const draw = (step: boolean) => {
     if (step) elapsed += 1 / 60
@@ -947,17 +988,7 @@ function runLineChartCanvasFallback(
   }
   draw(false)
   if (node.ir.fallback !== "canvas" || typeof owner?.requestAnimationFrame !== "function") return () => undefined
-  let stopped = false
-  const tick = () => {
-    if (stopped) return
-    draw(true)
-    frame = owner.requestAnimationFrame(tick)
-  }
-  frame = owner.requestAnimationFrame(tick)
-  return () => {
-    stopped = true
-    if (frame) owner.cancelAnimationFrame(frame)
-  }
+  return runVisibleFrameLoop(canvas, owner, () => draw(true))
 }
 
 function runCanvasFallback(
@@ -970,8 +1001,17 @@ function runCanvasFallback(
   let context: CanvasRenderingContext2D | null = null
   try { context = canvas.getContext("2d") } catch { /* synthetic DOM or a prior WebGPU context may reject 2D */ }
   if (!context) return () => undefined
-  let frame = 0
   const owner = canvas.ownerDocument.defaultView
+  // Particle colours never change after seeding; build each fillStyle once
+  // and draw every particle of one colour as a single path.
+  const colorBuckets = new Map<string, number[]>()
+  for (let index = 0; index < node.ir.render.vertexCount; index += 1) {
+    const offset = index * FLOATS_PER_PARTICLE
+    const color = `rgba(${Math.round(data[offset + 4]! * 255)}, ${Math.round(data[offset + 5]! * 255)}, ${Math.round(data[offset + 6]! * 255)}, ${data[offset + 7]!})`
+    let bucket = colorBuckets.get(color)
+    if (!bucket) colorBuckets.set(color, bucket = [])
+    bucket.push(offset)
+  }
   const draw = (step: boolean) => {
     if (step) {
       for (let index = 0; index < node.ir.render.vertexCount; index += 1) {
@@ -986,27 +1026,23 @@ function runCanvasFallback(
     }
     context!.clearRect(0, 0, canvas.width, canvas.height)
     const radius = Math.max(1, Math.min(canvas.width, canvas.height) / 256)
-    for (let index = 0; index < node.ir.render.vertexCount; index += 1) {
-      const offset = index * FLOATS_PER_PARTICLE
-      context!.fillStyle = `rgba(${Math.round(data[offset + 4]! * 255)}, ${Math.round(data[offset + 5]! * 255)}, ${Math.round(data[offset + 6]! * 255)}, ${data[offset + 7]!})`
+    const halfWidth = canvas.width / 2
+    const halfHeight = canvas.height / 2
+    for (const [color, offsets] of colorBuckets) {
+      context!.fillStyle = color
       context!.beginPath()
-      context!.arc((data[offset]! + 1) * canvas.width / 2, (1 - data[offset + 1]!) * canvas.height / 2, radius, 0, Math.PI * 2)
+      for (const offset of offsets) {
+        const x = (data[offset]! + 1) * halfWidth
+        const y = (1 - data[offset + 1]!) * halfHeight
+        context!.moveTo(x + radius, y)
+        context!.arc(x, y, radius, 0, Math.PI * 2)
+      }
       context!.fill()
     }
   }
   draw(false)
   if (node.ir.fallback !== "canvas" || typeof owner?.requestAnimationFrame !== "function") return () => undefined
-  let stopped = false
-  const tick = () => {
-    if (stopped) return
-    draw(true)
-    frame = owner.requestAnimationFrame(tick)
-  }
-  frame = owner.requestAnimationFrame(tick)
-  return () => {
-    stopped = true
-    if (frame) owner.cancelAnimationFrame(frame)
-  }
+  return runVisibleFrameLoop(canvas, owner, () => draw(true))
 }
 
 /**
@@ -1031,12 +1067,12 @@ export function mountParticleFieldGPUIslandCanvas(
     return dispose
   }
   let stopped = false
-  let frame = 0
+  let stopLoop: (() => void) | undefined
   let island: ParticleFieldGPUIsland | LineChartGPUIsland | undefined
   let fallbackCleanup: (() => void) | undefined
   const stopFrame = () => {
-    if (frame && owner && typeof owner.cancelAnimationFrame === "function") owner.cancelAnimationFrame(frame)
-    frame = 0
+    stopLoop?.()
+    stopLoop = undefined
   }
   const fallback = (reason: unknown) => {
     if (stopped || fallbackCleanup) return
@@ -1076,16 +1112,18 @@ export function mountParticleFieldGPUIslandCanvas(
         })
       if (stopped) { island.dispose(); island = undefined; return }
       canvas.dataset.munGpuBackend = "webgpu"
-      let previous: number | undefined
-      const render = (timestamp: number) => {
-        if (stopped || island?.status !== "active") return
-        const delta = previous === undefined ? 1 / 60 : Math.max(0, (timestamp - previous) / 1000)
-        previous = timestamp
-        try { island.renderFrame(delta) } catch (error) { fallback(error); return }
-        if (owner && typeof owner.requestAnimationFrame === "function") frame = owner.requestAnimationFrame(render)
-      }
-      if (owner && typeof owner.requestAnimationFrame === "function") frame = owner.requestAnimationFrame(render)
-      else island.renderFrame(1 / 60)
+      if (owner && typeof owner.requestAnimationFrame === "function") {
+        let previous: number | undefined
+        stopLoop = runVisibleFrameLoop(canvas, owner, () => {
+          if (stopped || island?.status !== "active") return
+          const timestamp = owner.performance?.now() ?? Date.now()
+          // A paused (offscreen/hidden) island resumes at a normal step
+          // instead of integrating the whole pause in one frame.
+          const delta = previous === undefined ? 1 / 60 : Math.min(1 / 15, Math.max(0, (timestamp - previous) / 1000))
+          previous = timestamp
+          try { island.renderFrame(delta) } catch (error) { fallback(error) }
+        })
+      } else island.renderFrame(1 / 60)
     } catch (error) {
       fallback(error)
     }
