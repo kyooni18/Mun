@@ -364,6 +364,8 @@ interface DomViewRuntime {
   readonly layoutSnapshots: Map<Element, { readonly before: DomLayoutBox; animation: Animation }>
   /** Last animation used to snapshot one sibling neighborhood in this pass. */
   readonly layoutNeighborhoodAnimations: Map<Node, Animation>
+  /** Boxes read in one batch before an animated pass starts writing (null = unmeasurable). */
+  readonly layoutPrecapture: Map<Element, DomLayoutBox | null>
   readonly stack: string[]
   renderedKeys: Set<string>
   passVisitedStates: Set<string>
@@ -728,8 +730,55 @@ function captureLayoutElement(element: Element, animation: Animation | null | un
     if (animation !== undefined && animation !== null) existing.animation = animation
     return
   }
-  const before = readLayoutBox(element)
+  const before = beforeLayoutBox(element, context)
   if (before) runtime.layoutSnapshots.set(element, { before, animation: selected })
+}
+
+// Layout captures happen while reconciliation is already writing to earlier
+// siblings, so each on-demand getBoundingClientRect forces a synchronous
+// layout. An animated pass therefore reads the live range once, up front,
+// and captures resolve from that batch. Elements outside it (or beyond the
+// cap) still fall back to a direct read.
+const layoutPrecaptureLimit = 3000
+
+function beforeLayoutBox(element: Element, context: DomRenderContext): DomLayoutBox | undefined {
+  const precaptured = runtimeFor(context)?.layoutPrecapture
+  if (precaptured?.has(element)) return precaptured.get(element) ?? undefined
+  return readLayoutBox(element)
+}
+
+function precaptureLayout(roots: ArrayLike<Node>, context: DomRenderContext): void {
+  const transaction = context.activeTransaction
+  if (!transaction?.animation || transaction.disablesAnimations) return
+  const runtime = runtimeFor(context)
+  if (!runtime) return
+  const boxes = runtime.layoutPrecapture
+  if (boxes.size === 0) {
+    // Boxes are only valid for the synchronous pass that read them.
+    queueMicrotask(() => boxes.clear())
+  }
+  const record = (element: Element): boolean => {
+    if (boxes.size >= layoutPrecaptureLimit) return false
+    if (!boxes.has(element)) boxes.set(element, readLayoutBox(element) ?? null)
+    return true
+  }
+  const stack: Element[] = []
+  for (let index = roots.length - 1; index >= 0; index -= 1) {
+    const root = roots[index]
+    if (root.nodeType === 1) stack.push(root as Element)
+  }
+  // Neighbourhood captures include the range's parent and its siblings.
+  const parent = roots.length > 0 ? roots[0].parentElement : null
+  if (parent) {
+    record(parent)
+    for (const sibling of parent.children) if (!record(sibling)) return
+  }
+  while (stack.length > 0) {
+    const element = stack.pop()!
+    if (!record(element)) return
+    const children = element.children
+    for (let index = children.length - 1; index >= 0; index -= 1) stack.push(children[index])
+  }
 }
 
 function captureLayoutNeighborhood(element: Element, animation: Animation | null | undefined, context: DomRenderContext): void {
@@ -770,6 +819,7 @@ function captureLayoutChildren(parent: Node, animation: Animation | null | undef
 function clearLayoutCaptures(runtime: DomViewRuntime): void {
   runtime.layoutSnapshots.clear()
   runtime.layoutNeighborhoodAnimations.clear()
+  runtime.layoutPrecapture.clear()
 }
 
 function flushLayoutMotion(context: DomRenderContext): void {
@@ -777,6 +827,7 @@ function flushLayoutMotion(context: DomRenderContext): void {
   if (!runtime) return
   if (runtime.layoutSnapshots.size === 0) {
     runtime.layoutNeighborhoodAnimations.clear()
+    runtime.layoutPrecapture.clear()
     return
   }
   const changed: Array<{ readonly element: Element; readonly before: DomLayoutBox; readonly after: DomLayoutBox; readonly animation: Animation }> = []
@@ -1643,7 +1694,7 @@ function reconcileDomNode(parent: Node, current: Node, next: Node, context: DomR
     if (current.nodeValue !== next.nodeValue) {
       const host = current.parentElement
       const contentState = host ? runtime?.contentTransitionStates.get(host) : undefined
-      const before = host && contentState ? readLayoutBox(host) : undefined
+      const before = host && contentState ? beforeLayoutBox(host, context) : undefined
       const previousText = current.nodeValue ?? ""
       if (host) captureLayoutNeighborhood(host, undefined, context)
       current.nodeValue = next.nodeValue
@@ -1712,7 +1763,7 @@ function reconcileDomNode(parent: Node, current: Node, next: Node, context: DomR
       const nextText = nextChildren[0]
       if (currentText.nodeValue !== nextText.nodeValue) {
         const contentState = runtime?.contentTransitionStates.get(currentElement)
-        const before = contentState ? readLayoutBox(currentElement) : undefined
+        const before = contentState ? beforeLayoutBox(currentElement, context) : undefined
         const previousText = currentText.nodeValue ?? ""
         captureLayoutNeighborhood(currentElement, resolvedMotion.layoutAnimation, context)
         currentText.nodeValue = nextText.nodeValue
@@ -4086,6 +4137,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       exitTransitions: new Map(),
       animationsDisabled,
       layoutSnapshots: new Map(),
+      layoutPrecapture: new Map(),
       layoutNeighborhoodAnimations: new Map(),
       stack: [],
       renderedKeys: new Set(),
@@ -4829,6 +4881,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
         requestRootUpdate(renderTransaction, false)
         return
       }
+      precaptureLayout(currentNodes, context)
       reconcileDomRange(parent, currentNodes, outputNodes(output), context)
       recordMunRuntimeEvent("reconcilePasses")
       flushLayoutMotion(context)
@@ -5011,6 +5064,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
           appendNodeBatch(container, outputChildren)
           for (const child of outputChildren) bindInsertedSubtree(child, context)
         } else {
+          precaptureLayout(container.childNodes, context)
           reconcileDomChildren(container, outputChildren, context)
         }
       }
