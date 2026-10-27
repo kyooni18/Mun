@@ -43,7 +43,7 @@ import { applyDomProps, clearDomEvents, commitStagedDomProps, patchDomProps, set
 import { disposeContinuousCorners } from "./continuous-corners.js"
 import { animateDomLayout, cancelDomAnimations, type DomLayoutBox } from "./motion.js"
 import { recordMunBoundaryDisposed, recordMunBoundaryRender, recordMunRuntimeEvent, munDevtoolsEnabled } from "./devtools.js"
-import { classNameOf, isEventPropName, cssPropertyName, domContentContainer, nativeElementProps, normalizedRawTextValue, propsOf, rawTextHtmlElements, styleOf, validTableChildElements, voidHtmlElements, type DomRenderContext } from "./shared.js"
+import { classNameOf, isEventPropName, cssPropertyName, domContentContainer, nativeElementProps, normalizedRawTextValue, propsOf, rawTextHtmlElements, styleOf, validTableChildElements, voidHtmlElements, validateUnsafeHTML, type DomRenderContext } from "./shared.js"
 import { disposeFocusScope } from "./focus.js"
 import { LazyMeasurementIndex, lazyViewportOffset } from "./lazy-index.js"
 import { playWebTransition, type WebTransitionPlayback } from "./transition.js"
@@ -1848,7 +1848,7 @@ function reconcileDomNode(parent: Node, current: Node, next: Node, context: DomR
   commitResolvedMotionState(currentElement, resolvedMotion, context)
   if (resolvedContentTransition && runtime) runtime.contentTransitionStates.set(currentElement, resolvedContentTransition)
   if (reusable === current) runtime?.compiledTemplatePatches.get(next)?.()
-  if (reusable !== current) {
+  if (reusable !== current && context.domProps.get(nextElement)?.unsafeHTML == null) {
     const currentContent = domContentContainer(currentElement)
     const nextContent = domContentContainer(nextElement)
     const currentChildren = currentContent.childNodes
@@ -2091,6 +2091,7 @@ const directKeyedPatchUnsafeTags = new Set([
 
 const directKeyedPatchUnsafeProps = new Set([
   "ref",
+  "unsafeHTML",
   "innerHTML",
   "outerHTML",
   "textContent",
@@ -3447,6 +3448,7 @@ function createDomRenderer(context: DomRenderContext): MunRenderer<Node> {
   }
   const renderElement = (type: unknown, props: Record<string, unknown> | null, children: readonly Node[]): Node => {
     const tag = typeof type === "string" ? type : "div"
+    validateUnsafeHTML(tag, props, children.length)
     const reuse = runtime?.hydrationReuse
     if (reuse) {
       const live = nextHydrationNode(runtime)

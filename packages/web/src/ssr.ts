@@ -1,7 +1,7 @@
 import { isSafeUrlAttribute } from "./url-policy.js"
 import { isForeignComponent, renderViewNode, zeroGeometry, type CompiledTemplateValue, type MunRenderer, type ViewGraphValue, type ViewHostNode } from "@mun/core/compat"
 import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
-import { assertHtmlName, isEventPropName, classNameOf, escape, escapeAttribute, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, nativeElementProps, normalizedRawTextValue, normalizedTextAreaValue, propsOf, rawTextHtmlElements, styleAttribute, styleOf, styleText, validTableChildElements, voidHtmlElements } from "./shared.js"
+import { assertHtmlName, isEventPropName, classNameOf, escape, escapeAttribute, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, nativeElementProps, normalizedRawTextValue, normalizedTextAreaValue, propsOf, rawTextHtmlElements, styleAttribute, styleOf, styleText, validTableChildElements, voidHtmlElements, validateUnsafeHTML } from "./shared.js"
 
 
 
@@ -24,7 +24,7 @@ function mergeSerializedStyles(current: string, extra: string): string {
 }
 
 function serializedAttribute(key: string, value: unknown): string | undefined {
-  if (key === "children" || key === "key" || key === "ref" || isEventPropName(key) || value === undefined || value === null || typeof value === "function") return undefined
+  if (key === "unsafeHTML" || key === "children" || key === "key" || key === "ref" || isEventPropName(key) || value === undefined || value === null || typeof value === "function") return undefined
   if (typeof value === "object" && key !== "style" && key !== "className" && key !== "class") return undefined
   const name = assertHtmlName(htmlAttributeName(key), "attribute")
   const serialized = key === "style" ? styleAttribute(value) : key === "className" || key === "class" ? classNameOf(value) : String(value)
@@ -139,6 +139,7 @@ const htmlRenderer: MunRenderer<string> = {
     const effectiveProps = foreign
       ? { ...foreign.props, ...foreign.events, ...(foreign.ref === undefined ? {} : { ref: foreign.ref }), ...(props ?? {}), "data-mun-foreign": foreign.name }
       : props
+    const unsafeHTML = validateUnsafeHTML(tag, effectiveProps, children.length)
     const isTextArea = tag.toLowerCase() === "textarea"
     const isSelect = tag.toLowerCase() === "select"
     const isRawText = rawTextHtmlElements.has(tag.toLowerCase())
@@ -157,7 +158,7 @@ const htmlRenderer: MunRenderer<string> = {
       : tag.toLowerCase() === "table"
         ? serializeTableChildren(children)
         : children.join("")
-    const content = hasTextAreaValue
+    const content = unsafeHTML != null ? unsafeHTML : hasTextAreaValue
       ? serializedTextAreaValue(textAreaValue)
       : hasSelectValue
         ? serializeSelectedOption(childContent, selectValue)

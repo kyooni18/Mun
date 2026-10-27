@@ -164,7 +164,10 @@ export function defineCompiledTemplate(
       if ((location.kind === "attribute" || location.kind === "property" || location.kind === "style") && (!location.key || /^on/iu.test(location.key))) {
         throw new TypeError(`Unsafe compiled ${location.kind} patch key`)
       }
-      if (location.kind === "property" && ["__proto__", "constructor", "innerHTML", "outerHTML", "prototype", "textContent"].includes(location.key)) {
+      if ((location.kind === "attribute" || location.kind === "property") && location.key === "unsafeHTML") {
+        throw new TypeError("Unsafe compiled markup patch key")
+      }
+      if (location.kind === "property" && ["__proto__", "constructor", "unsafeHTML", "innerHTML", "outerHTML", "prototype", "textContent"].includes(location.key)) {
         throw new TypeError("Unsafe compiled property patch key")
       }
       return Object.freeze({ ...location })

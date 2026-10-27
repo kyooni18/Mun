@@ -346,7 +346,11 @@ export function propsOf(modifier: ViewModifierNode): Record<string, unknown> {
   const [value] = modifier.arguments
   switch (modifier.name) {
     case "className": return { class: classNameOf(value) }
-    case "withProps": return value && typeof value === "object" ? value as Record<string, unknown> : {}
+    case "withProps": {
+      const props = value && typeof value === "object" ? value as Record<string, unknown> : {}
+      if (Object.prototype.hasOwnProperty.call(props, "unsafeHTML")) throw new TypeError("unsafeHTML must be supplied to Element, not withProps")
+      return props
+    }
     case "id": return { "data-mun-id": String(value) }
     case "disabled": return value === true ? { disabled: true, inert: true, "aria-disabled": true } : { disabled: false, inert: false, "aria-disabled": false }
     case "onTapGesture": {
@@ -541,4 +545,17 @@ export interface DomRenderContext {
   stagingEvents: boolean
   stagingProps: boolean
   activeTransaction?: Transaction
+}
+
+// Raw markup is a web-only escape hatch. Restrict host contexts to ordinary
+// HTML containers; form controls, table/select syntax, SVG and raw-text elements
+// have parser-specific ownership and cannot safely share this contract.
+const unsafeHtmlHosts = new Set(['div', 'span', 'section', 'article', 'aside', 'main', 'header', 'footer', 'nav', 'blockquote', 'figure', 'figcaption'])
+export function validateUnsafeHTML(tag: string, props: Record<string, unknown> | null | undefined, childCount: number): string | undefined {
+  const value = props?.unsafeHTML
+  if (value == null) return undefined
+  if (typeof value !== 'string') throw new TypeError('unsafeHTML must be a string')
+  if (childCount) throw new TypeError('unsafeHTML cannot be combined with children')
+  if (!unsafeHtmlHosts.has(tag.toLowerCase())) throw new TypeError('unsafeHTML is not supported on this element')
+  return value
 }

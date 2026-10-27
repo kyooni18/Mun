@@ -12,7 +12,7 @@ export function snapshotElementProps(type: unknown, props: Record<string, unknow
       const value = descriptor.value
       const primitive = value === undefined || value === null || typeof value === "string" || typeof value === "boolean"
         || (typeof value === "number" && Number.isFinite(value))
-      const supported = primitive
+      const supported = primitive || key === "unsafeHTML"
         || (key === "style" && typeof value === "object" && value !== null)
         || (key === "ref" && (typeof value === "object" || typeof value === "function"))
         || (/^on[A-Za-z]/.test(key) && typeof value === "function")

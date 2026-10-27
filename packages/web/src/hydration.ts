@@ -30,6 +30,7 @@ export function hydratedPropsMatch(
   for (const key in props) {
     if (!Object.prototype.hasOwnProperty.call(props, key)) continue
     const value = props[key]
+    if (key === "unsafeHTML") return false
     if (key === "children" || key === "key" || key === "ref" || isEventPropName(key)
       || value === undefined || value === null || typeof value === "function") continue
     if ((tag === "textarea" || tag === "select") && htmlAttributeName(key).toLowerCase() === "value") return false

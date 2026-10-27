@@ -161,6 +161,11 @@ export function synchronizeDomSelectValue(element: Element, props: Record<string
 }
 
 function applyAttributeValue(element: Element, key: string, value: unknown): void {
+  if (key === "unsafeHTML") {
+    if (typeof value !== "string") throw new TypeError("unsafeHTML must be a string")
+    if (element.innerHTML !== value) element.innerHTML = value
+    return
+  }
   const name = htmlAttributeName(key)
   if (!isSafeUrlAttribute(name, value)) {
     removeAttribute(element, name)
@@ -404,6 +409,7 @@ export function commitStagedDomProps(element: Element, context: DomRenderContext
 }
 
 function removeDomProp(element: Element, key: string): void {
+  if (key === "unsafeHTML") { element.innerHTML = ""; return }
   if (key === "style") {
     element.removeAttribute("style")
     return

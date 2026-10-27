@@ -24,6 +24,7 @@ export interface PatchValues {
 const unsafePropertyKeys = new Set([
   "__proto__",
   "constructor",
+  "unsafeHTML",
   "innerHTML",
   "outerHTML",
   "prototype",
@@ -44,7 +45,7 @@ function validateLocation(location: PatchLocation): PatchLocation {
   if (!patchKinds.has(location.kind)) throw new TypeError(`unknown patch kind: ${JSON.stringify(location.kind)}`)
   assertNodeIndex(location.node, "patch node index")
   if (location.kind === "attribute") {
-    if (!attributeNamePattern.test(location.key) || /^on/iu.test(location.key)
+    if (!attributeNamePattern.test(location.key) || location.key === "unsafeHTML" || /^on/iu.test(location.key)
       || location.key === "style" || location.key === "class" || location.key.toLowerCase() === "srcdoc") {
       throw new TypeError(`unsafe patch attribute: ${JSON.stringify(location.key)}`)
     }

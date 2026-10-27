@@ -51,6 +51,23 @@ Server markup itself must be trusted: hydration cannot undo script execution tha
 occurred before the framework started. Direct third-party DOM mutation is outside
 the renderer's guarantees.
 
+### Explicit trusted HTML (web only)
+
+`Element("div", { unsafeHTML: html })` renders a **trusted string** as raw HTML
+in DOM and SSR. This API performs **no sanitization, URL validation or script
+filtering** and must never receive untrusted text. Sanitize or otherwise establish
+trust before use, and apply an appropriate CSP. Raw markup can escape its
+container in server output, so hydration cannot make unsafe input safe. Ordinary
+`Text` and Element children remain escaped.
+
+`unsafeHTML` is mutually exclusive with renderer-managed children. It is limited
+to ordinary HTML container hosts (`div`, `span`, `section`, `article`, `aside`,
+`main`, `header`, `footer`, `nav`, `blockquote`, `figure`, `figcaption`);
+void, raw-text, form, table, SVG and custom-element hosts are rejected. The web
+renderer owns the content as an opaque subtree. Input and element identity within
+that subtree may be replaced when the string changes. Other rendering backends
+do not implement this web-specific escape hatch.
+
 ## Reconciliation and ownership
 
 Matching hydration avoids DOM writes; structural mismatches fall back to a fresh

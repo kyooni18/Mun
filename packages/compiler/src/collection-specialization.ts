@@ -43,6 +43,7 @@ const unsafeCompiledCollectionProps = new Set([
   "children",
   "key",
   "ref",
+  "unsafeHTML",
   "innerHTML",
   "outerHTML",
   "textContent",

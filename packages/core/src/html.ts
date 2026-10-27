@@ -189,6 +189,8 @@ type AriaAttributes = { readonly [Name in `aria-${string}`]?: string | number | 
 type DataAttributes = { readonly [Name in `data-${string}`]?: string | number | boolean }
 
 export interface MunGlobalHtmlAttributes {
+  /** UNSAFE: inserts trusted HTML verbatim. Never pass untrusted content. Cannot be combined with children. */
+  readonly unsafeHTML?: string
   readonly id?: string
   readonly class?: string
   readonly className?: string
