@@ -142,3 +142,23 @@ test('keyed rows retain correct trusted markup across updates and reordering', a
   assert.deepEqual([...root.querySelectorAll('section > div')].map(el => [el.getAttribute('data-id'), el.innerHTML]), [['b', '<i>changed</i>'], ['a', '<b>A</b>']])
   stop(); dom.window.close()
 })
+
+test('switching managed children to trusted HTML releases detached listeners even for identical markup', async () => {
+  const raw = State(false)
+  let calls = 0
+  const App = defineView('UnsafeHtmlCleanup', {
+    initializers: [initializer('App()', args => args.length === 0)],
+    body: () => raw.value ? Element('div', { unsafeHTML: '<button>click</button>' })
+      : Element('div', {}, Element('button', { onClick: () => calls++ }, 'click')),
+  })
+  const dom = new JSDOM('<div id="app"></div>')
+  const root = dom.window.document.querySelector('#app')
+  const stop = mount(App(), root)
+  const old = root.querySelector('button')
+  raw.value = true
+  await Promise.resolve(); await Promise.resolve()
+  assert.notEqual(root.querySelector('button'), old)
+  old.click()
+  assert.equal(calls, 0)
+  stop(); dom.window.close()
+})

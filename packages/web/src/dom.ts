@@ -1830,6 +1830,14 @@ function reconcileDomNode(parent: Node, current: Node, next: Node, context: DomR
       )
     : undefined
   captureLayoutNeighborhood(currentElement, resolvedMotion.layoutAnimation, context)
+  if (context.domProps.get(nextElement)?.unsafeHTML != null && context.domProps.get(currentElement)?.unsafeHTML == null) {
+    // innerHTML replaces managed descendants without going through reconciliation.
+    // Release their listeners and resources first, even if their serialization
+    // happens to equal the incoming markup.
+    const content = domContentContainer(currentElement)
+    for (const child of [...content.childNodes]) releaseDomSubtree(child, context)
+    while (content.firstChild) content.removeChild(content.firstChild)
+  }
   patchDomProps(
     currentElement,
     context.domProps.get(nextElement),
