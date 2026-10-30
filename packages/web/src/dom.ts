@@ -4588,11 +4588,10 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
         context.preservedLazyStatePrefixes.delete(key)
       }
     }
-    const refreshLazyRanges = (changedKeys?: Set<string>): boolean => {
+    const refreshLazyRanges = (changedKeys?: Set<string>, elements?: Iterable<HTMLElement>): boolean => {
       if (context.lazyNodes.size === 0) return false
       let changed = false
-      const elements = [...container.querySelectorAll<HTMLElement>("[data-mun-lazy]")]
-      for (const element of elements) {
+      for (const element of elements ?? container.querySelectorAll<HTMLElement>("[data-mun-lazy]")) {
         const key = context.lazyKeys.get(element)
         if (!key) continue
         const node = context.lazyNodes.get(key)
@@ -4775,7 +4774,7 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       }
     }
 
-    const observeLazyViewport = () => {
+    const observeLazyViewport = (elements?: Iterable<HTMLElement>) => {
       const listener = scheduleLazyMeasureOnFrame as EventListener
       if (context.lazyNodes.size === 0) {
         for (const target of lazyViewportTargets) {
@@ -4789,12 +4788,12 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       const window = document.defaultView
       if (window) targets.add(window)
       targets.add(container)
-      container.querySelectorAll<HTMLElement>("[data-mun-lazy]").forEach(element => {
+      for (const element of elements ?? container.querySelectorAll<HTMLElement>("[data-mun-lazy]")) {
         const key = context.lazyKeys.get(element)
         const node = key ? context.lazyNodes.get(key) : undefined
         const parent = node ? lazyScrollParent(element, node.axis) : null
         if (parent) targets.add(parent)
-      })
+      }
       // Detached or replaced scroll parents keep handler references alive
       // until unmount unless pruned on every pass.
       for (const target of [...lazyViewportTargets]) {
@@ -5249,9 +5248,14 @@ export function mount(value: ViewGraphValue, container: Element, options: WebMou
       })
       updateGeometry()
       observeLazyItems()
-      observeLazyViewport()
+      // Both operations inspect the same committed tree. Reuse the static
+      // selector result instead of walking the mount twice on every pass.
+      const lazyElements = context.lazyNodes.size > 0
+        ? container.querySelectorAll<HTMLElement>("[data-mun-lazy]")
+        : undefined
+      observeLazyViewport(lazyElements)
       const changedLazyKeys = new Set<string>()
-      if (refreshLazyRanges(changedLazyKeys)) requestLazyRangeUpdate(changedLazyKeys)
+      if (refreshLazyRanges(changedLazyKeys, lazyElements)) requestLazyRangeUpdate(changedLazyKeys)
       hasMounted = true
       // A geometry/lazy measurement may have queued the next root pass while
       // this one was committing. Keep the force flag for that queued pass;
