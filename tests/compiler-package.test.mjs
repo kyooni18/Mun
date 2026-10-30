@@ -13,7 +13,7 @@ test("@mun-ui/compiler lowers .mun.ts builders through declaration-neutral synta
   assert.match(output, /if \(enabled\)[\s\S]*Text\("On"\)[\s\S]*Text\("Off"\)/)
   assert.match(output, /ForEach\(items, \(item\) => \[Row\(item\)\]\)/)
   assert.match(output, /Each\(items, \(item\) => \[Row\(item\)\]\)/)
-  assert.match(output, /import \{ namedArguments, viewFragment \} from "@mun\/core\/compat"/)
+  assert.match(output, /import \{ namedArguments, viewFragment \} from "@mun-ui\/core\/compat"/)
   assert.equal(ts.createSourceFile("Builder.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
@@ -38,8 +38,8 @@ test("@mun-ui/compiler keeps Vue imports separate when ensuring core imports", (
 import { Element } from "@mun-ui/core/compat"
 const App = MunView(() => Element("section", null, "Hi"))`
   const output = transformMunSource(source, "VueImports.mun.ts")
-  assert.match(output, /import \{ MunView \} from "@mun\/vue"/)
-  assert.match(output, /import \{ Element \} from "@mun\/core\/compat"/)
+  assert.match(output, /import \{ MunView \} from "@mun-ui\/vue"/)
+  assert.match(output, /import \{ Element \} from "@mun-ui\/core\/compat"/)
   assert.doesNotMatch(output, /Element,\s*Element/)
   assert.equal(ts.createSourceFile("VueImports.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
@@ -568,7 +568,7 @@ MyVueComponent(value: data)`
 test("Vue SFC default imports become transparent Mün Views", () => {
   const output = transformMunSource(`import VueChart from "./VueChart.vue"
 VueChart(values: values)`, "VueChart.mun.ts")
-  assert.match(output, /import \{ foreignComponent as __munForeignComponent \} from "@mun\/vue"/)
+  assert.match(output, /import \{ foreignComponent as __munForeignComponent \} from "@mun-ui\/vue"/)
   assert.match(output, /const VueChart = __munForeignComponent\(__munForeignComponent0\)/)
   assert.match(output, /VueChart\(namedArguments\(\{ values: values \}\)\)/)
   assert.equal(ts.createSourceFile("VueChart.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
@@ -588,7 +588,7 @@ Chart(values: values)`
 test("React TSX and JSX default imports become transparent Mün Views", () => {
   const output = transformMunSource(`import ReactChart from "./ReactChart.tsx"
 ReactChart(values: values)`, "ReactChart.mun.ts")
-  assert.match(output, /import \{ reactComponent as __munReactComponent \} from "@mun\/react"/)
+  assert.match(output, /import \{ reactComponent as __munReactComponent \} from "@mun-ui\/react"/)
   assert.match(output, /const ReactChart = __munReactComponent\(__munReactComponent0\)/)
   assert.match(output, /ReactChart\(namedArguments\(\{ values: values \}\)\)/)
   assert.equal(ts.createSourceFile("ReactChart.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
@@ -634,7 +634,7 @@ test("the checked-in .mun.ts example passes through the compiler pipeline", () =
   assert.match(output, /"gap": "12px"/)
   assert.match(output, /compiledTemplate\(__munTemplate0, \[`Count: \${count\.value}`, Button\.viewType\.createNodeCompiled/)
   assert.doesNotMatch(output, /namedArguments\(/)
-  assert.match(output, /from "@mun\/react"/)
+  assert.match(output, /from "@mun-ui\/react"/)
   assert.match(output, /view\(\{ state: \(\) => \{ const count = State\(0\)/)
   assert.doesNotMatch(output, /^const count = State/m)
   assert.equal(ts.createSourceFile("Counter.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
@@ -648,7 +648,7 @@ test("custom generic View structs lower to declaration-defined initializer metad
   assert.match(output, /fields: \[\{ name: "content", kind: "stored"/)
   assert.match(output, /Card\(@ViewBuilder content\)/)
   assert.match(output, /resolveBuilderInput\(content\)/)
-  assert.match(output, /from "@mun\/react"/)
+  assert.match(output, /from "@mun-ui\/react"/)
   assert.equal(ts.createSourceFile("Card.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
@@ -1146,7 +1146,7 @@ struct Card<Content: View>: View {
   assert.match(output, /Card\(@Binding title\)/)
   assert.match(output, /label: "title"/)
   assert.match(output, /kind: "binding"/)
-  assert.equal((output.match(/from "@mun\/core\/compat"/g) ?? []).length, 1)
+  assert.equal((output.match(/from "@mun-ui\/core\/compat"/g) ?? []).length, 1)
   assert.equal(ts.createSourceFile("Card.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
@@ -1189,7 +1189,7 @@ VStack() {
   </section>
 }`
   const output = transformMunSource(source, "Card.mun.ts")
-  assert.match(output, /import \{ [^}]*Element[^}]* \} from "@mun\/core\/compat"/)
+  assert.match(output, /import \{ [^}]*Element[^}]* \} from "@mun-ui\/core\/compat"/)
   assert.match(output, /Element\("section", \{ "class": "card", "data-kind": "hero" \}/)
   assert.match(output, /Element\("h1", null, title\)/)
   assert.match(output, /Element\("button", \{ "onclick": save, "aria-label": "Save" \}, "Save"\)/)
@@ -1221,7 +1221,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
   assert.match(output, /kind: "flat-text-host", indexIndependent: true/)
   assert.match(output, /evaluateProps: \(item\) => \(\{ title: item\.value \}\)/)
   assert.match(output, /evaluate: \(item\) => \(\{ type: "span", props: \{ title: item\.value \}, text: item\.value \}\)/)
-  assert.match(output, /import \{[^}]*compiledCollectionContent[^}]*\} from "@mun\/core\/internal\/runtime"/)
+  assert.match(output, /import \{[^}]*compiledCollectionContent[^}]*\} from "@mun-ui\/core\/internal\/runtime"/)
   assert.equal(ts.createSourceFile("CompiledCollection.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
@@ -1245,7 +1245,7 @@ const items = State([{ id: 1, value: "A" }])
 items.value = items.value.map((item, index) => ({ ...item, value: item.value + index }))`
   const output = transformMunSource(source, "StateArrayMap.mun.ts")
   assert.match(output, /mapStateArrayData\(items, \(item, index\) => \(\{ \.\.\.item, value: item\.value \+ index \}\)\)/)
-  assert.match(output, /import \{[^}]*mapStateArrayData[^}]*\} from "@mun\/core\/internal\/runtime"/)
+  assert.match(output, /import \{[^}]*mapStateArrayData[^}]*\} from "@mun-ui\/core\/internal\/runtime"/)
 })
 
 test("compiler keeps effectful or ambient-property State array maps on normal JavaScript semantics", () => {
@@ -1398,7 +1398,7 @@ const items = State([{ id: 0, value: "0" }])
 export function update() { items.value = items.value.map((item, index) => ({ ...item, value: \`next-\${index}\` })) }`
   const output = transformMunSource(source, "StateArrayMap.mun.ts")
   assert.match(output, /mapStateArrayData\(items, \(item, index\) => \(\{ \.\.\.item, value: `next-\$\{index\}` \}\)\)/)
-  assert.match(output, /import \{[^}]*mapStateArrayData[^}]*\} from "@mun\/core\/internal\/runtime"/)
+  assert.match(output, /import \{[^}]*mapStateArrayData[^}]*\} from "@mun-ui\/core\/internal\/runtime"/)
   assert.doesNotMatch(output, /items\.value\s*=\s*items\.value\.map/)
 
   const conditional = `import { State } from "@mun-ui/core/compat"
@@ -1413,7 +1413,7 @@ export function update(selectedId, nextValue) { items.value = items.value.map(it
 }`
   const structOutput = transformMunSource(structState, "StructStateArrayMap.mun.ts")
   assert.match(structOutput, /mapStateArrayData\(items, item => item\.id === 0 \? \(\{ \.\.\.item, value: "next" \}\) : item\)/)
-  assert.match(structOutput, /from "@mun\/core\/internal\/runtime"/)
+  assert.match(structOutput, /from "@mun-ui\/core\/internal\/runtime"/)
 })
 
 test("compiler keeps effectful or ambiguous State array maps on ordinary JavaScript semantics", () => {

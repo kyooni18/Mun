@@ -293,7 +293,7 @@ try {
   const webScaffold = spawnSync(process.execPath, [initializer, webGenerated, '--no-install'], { cwd: installDir, encoding: 'utf8' })
   assert.equal(webScaffold.status, 0, webScaffold.stderr)
   assert.equal(existsSync(resolve(webGenerated, 'mun.toml')), false, 'default scaffold must not require native tooling')
-  assert.match(readFileSync(resolve(webGenerated, 'src/main.ts'), 'utf8'), /import .*mount.* from ['"]@mun\/web['"]/u)
+  assert.match(readFileSync(resolve(webGenerated, 'src/main.ts'), 'utf8'), /import .*mount.* from ['"]@mun-ui\/web['"]/u)
   assert.match(readFileSync(resolve(webGenerated, 'src/App.mun'), 'utf8'), /VStack/u)
   const generatedManifest = readJSON(resolve(webGenerated, 'package.json'))
   assert.equal(generatedManifest.dependencies['@mun-ui/core'], `^${releaseVersion}`)

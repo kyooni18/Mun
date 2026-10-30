@@ -80,9 +80,9 @@ test("Swift modifier callbacks execute with their parameter and animation helper
   value.modifiers.find(modifier => modifier.name === "onHover").arguments[0](true)
   assert.deepEqual(events, [true])
   const output = transformMunSource('Text("Overlay").transition(Transition.opacity); withAnimation(Animation.default, () => update())', "Animation.mun.ts")
-  assert.match(output, /import \{[^}]*\bTransition\b[^}]*\} from "@mun\/core\/compat"/)
-  assert.match(output, /import \{[^}]*\bwithAnimation\b[^}]*\} from "@mun\/core\/compat"/)
+  assert.match(output, /import \{[^}]*\bTransition\b[^}]*\} from "@mun-ui\/core\/compat"/)
+  assert.match(output, /import \{[^}]*\bwithAnimation\b[^}]*\} from "@mun-ui\/core\/compat"/)
   const explicit = transformMunSource('import { Text, Transition, withAnimation, Animation } from "@mun-ui/core"\nText("x").transition(Transition.opacity); withAnimation(Animation.default, () => update())', "Explicit.mun.ts")
-  assert.doesNotMatch(explicit, /import \{[^}]*\b(?:Transition|withAnimation|Animation)\b[^}]*\} from "@mun\/core\/compat"/)
+  assert.doesNotMatch(explicit, /import \{[^}]*\b(?:Transition|withAnimation|Animation)\b[^}]*\} from "@mun-ui\/core\/compat"/)
 
 })

@@ -247,7 +247,7 @@ export default view(Toggle('Wi-Fi', isOn: $wifi))
 `
   const output = transformMunMacros(source, '/src/Binding.ts')
   assert.ok(output)
-  assert.match(output, /import \{ State, Toggle, view, Binding, namedArguments \} from '@mun\/ui\/legacy'/)
+  assert.match(output, /import \{ State, Toggle, view, Binding, namedArguments \} from '@mun-ui\/ui\/legacy'/)
   assert.match(output, /Toggle\('Wi-Fi', namedArguments\(\{ isOn: Binding\(wifi\) \}\)\)/)
   const parsed = ts.createSourceFile('Binding.ts', output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   assert.equal(parsed.parseDiagnostics.length, 0)

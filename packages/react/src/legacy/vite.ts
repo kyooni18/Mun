@@ -511,7 +511,7 @@ function lowerMunSyntax(source: string): string {
   ]
   if (required.length === 0) return lowered
 
-  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun\/ui\/legacy\2[\t ]*;?/.exec(lowered)
+  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun-ui\/ui\/legacy\2[\t ]*;?/.exec(lowered)
   if (!existing) return `import { ${required.join(', ')} } from '@mun-ui/ui/legacy'\n${lowered}`
   const imported = existing[1].split(',').map(name => name.trim()).filter(Boolean)
   const merged = [...imported]

@@ -229,10 +229,10 @@ test('local create mode wires a separate app to the source checkout without npm 
   assert.equal(manifest.devDependencies['@mun-ui/legacy-react'], undefined)
   assert.equal(manifest.pnpm?.overrides, undefined)
   const workspaceConfig = readFileSync(resolve(project, 'pnpm-workspace.yaml'), 'utf8')
-  assert.match(workspaceConfig, /"@mun\/core": "link:/u)
-  assert.match(workspaceConfig, /"@mun\/compiler": "link:/u)
-  assert.match(workspaceConfig, /"@mun\/web": "link:/u)
-  assert.doesNotMatch(workspaceConfig, /@mun\/(?:react|vue|legacy-react)/u)
+  assert.match(workspaceConfig, /"@mun-ui\/core": "link:/u)
+  assert.match(workspaceConfig, /"@mun-ui\/compiler": "link:/u)
+  assert.match(workspaceConfig, /"@mun-ui\/web": "link:/u)
+  assert.doesNotMatch(workspaceConfig, /@mun-ui\/(?:react|vue|legacy-react)/u)
   assert.doesNotMatch(JSON.stringify(manifest), /Desktop\/Muse|@muse\/|react-muse-ui/u)
 })
 
@@ -395,7 +395,7 @@ onlyBuiltDependencies:
   const workspaceConfig = readFileSync(resolve(project, 'pnpm-workspace.yaml'), 'utf8')
   assert.match(workspaceConfig, /packages:\n  - packages\/\*/u)
   assert.match(workspaceConfig, /"left-pad": "1\.3\.0"/u)
-  assert.match(workspaceConfig, /"@mun\/compiler": "link:/u)
+  assert.match(workspaceConfig, /"@mun-ui\/compiler": "link:/u)
   assert.match(workspaceConfig, /onlyBuiltDependencies:\n  - esbuild/u)
 })
 

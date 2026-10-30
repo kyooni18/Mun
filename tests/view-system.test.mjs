@@ -85,8 +85,8 @@ test('legacy struct lowering keeps canonical imports separate from compatibility
       var body: some View { Toggle("Count", isOn: $count) }
     }
   `)
-  const canonicalImports = output.match(/import \{[^}]+\} from '@mun\/ui'/g) ?? []
-  const legacyImports = output.match(/import \{[^}]+\} from '@mun\/ui\/legacy'/g) ?? []
+  const canonicalImports = output.match(/import \{[^}]+\} from '@mun-ui\/ui'/g) ?? []
+  const legacyImports = output.match(/import \{[^}]+\} from '@mun-ui\/ui\/legacy'/g) ?? []
   assert.equal(canonicalImports.length, 1)
   assert.match(canonicalImports[0], /Binding/)
   assert.match(canonicalImports[0], /Text/)

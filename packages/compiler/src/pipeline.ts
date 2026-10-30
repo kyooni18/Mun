@@ -805,7 +805,7 @@ function canonicalCallName(
  * untouched for the semantic TypeScript pass below.
  */
 function lowerStaticCanonicalCalls(source: string): string {
-  if (!/(?:from\s*|import\s*\()\s*["'](?:mun|@mun\/(?:core|react))["']/.test(source)) return source
+  if (!/(?:from\s*|import\s*\()\s*["'](?:mun|@mun-ui\/(?:core|react))["']/.test(source)) return source
   const file = ts.createSourceFile("mun-canonical-calls.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const bindings = canonicalRuntimeBindings(file)
   if (bindings.names.size === 0 && bindings.namespaces.size === 0) return source
@@ -1701,7 +1701,7 @@ function ensureImports(source: string, includeViewBuiltins = false): string {
   let result = source
   const internalRequired = ["compiledCollectionContent", "mapStateArrayData"].filter(name => new RegExp(`\\b${name}\\s*\\(`).test(source))
   if (required.length === 0 && internalRequired.length === 0) return result
-  const imports = [...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*(["'])(@mun\/core\/compat|@mun\/react)\2[\t ]*;?/g)]
+  const imports = [...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*(["'])(@mun-ui\/core\/compat|@mun-ui\/react)\2[\t ]*;?/g)]
   // Respect local named bindings from every entrypoint, including @mun-ui/core
   // and @mun-ui/ui, so adding implicit helpers cannot duplicate explicit imports.
   const imported = new Set([...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'][^"']+["']/g)]
@@ -1719,7 +1719,7 @@ function ensureImports(source: string, includeViewBuiltins = false): string {
     }
   }
   if (internalRequired.length > 0) {
-    const internalImport = /import\s*\{([^}]*)\}\s*from\s*(["'])@mun\/core\/internal\/runtime\2[\t ]*;?/.exec(result)
+    const internalImport = /import\s*\{([^}]*)\}\s*from\s*(["'])@mun-ui\/core\/internal\/runtime\2[\t ]*;?/.exec(result)
     if (!internalImport) result = `import { ${internalRequired.join(", ")} } from "@mun-ui/core/internal/runtime"\n${result}`
     else {
       const names = internalImport[1].split(",").map(value => value.trim()).filter(Boolean)

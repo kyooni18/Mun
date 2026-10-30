@@ -36,9 +36,9 @@ test("Web SSR imports tree-shake DOM and hydration internals", async () => {
       logLevel: "error",
       resolve: {
         alias: [
-          { find: /^@mun\/core\/internal\/motion-abi$/, replacement: resolve("packages/core/dist/motion-abi.js") },
-          { find: /^@mun\/core$/, replacement: resolve("packages/core/dist/index.js") },
-          { find: /^@mun\/web$/, replacement: resolve("packages/web/dist/index.js") },
+          { find: /^@mun-ui\/core\/internal\/motion-abi$/, replacement: resolve("packages/core/dist/motion-abi.js") },
+          { find: /^@mun-ui\/core$/, replacement: resolve("packages/core/dist/index.js") },
+          { find: /^@mun-ui\/web$/, replacement: resolve("packages/web/dist/index.js") },
         ],
       },
       build: {

@@ -21,7 +21,7 @@ export default Counter()
 `
 
 function builtinImports(output) {
-  const match = /import \{([^}]*)\} from "@mun\/core\/compat"/u.exec(output)
+  const match = /import \{([^}]*)\} from "@mun-ui\/core\/compat"/u.exec(output)
   return new Set(match ? match[1].split(',').map(name => name.trim()) : [])
 }
 
@@ -63,7 +63,7 @@ struct App: View {
 }
 export default App()
 `, 'Explicit.mun')
-  assert.match(aliased, /import \{ Text as Label2 \} from "@mun\/core"/u, 'explicit imports stay supported')
+  assert.match(aliased, /import \{ Text as Label2 \} from "@mun-ui\/core"/u, 'explicit imports stay supported')
   assert.ok(builtinImports(aliased).has('Text'))
   const explicit = transformMunSource(`import { Text } from "@mun-ui/core"
 struct App: View { var body: some View { Text("x") } }
@@ -78,7 +78,7 @@ test('unknown, native-only and opt-in identifiers report located diagnostics', (
   assert.match(unknown[0].message, /Cannot find 'Frobnicate' in scope/u)
   assert.deepEqual([unknown[0].line, unknown[0].column], [3, 14])
   const optIn = diagnoseMunSource('struct A: View {\n  var body: some View { ProgressiveBlur(1) }\n}\nexport default A()\n', 'A.mun', { target: 'web' })
-  assert.match(optIn[0].message, /import \{ ProgressiveBlur \} from "@mun\/ui\/progressive-blur"/u)
+  assert.match(optIn[0].message, /import \{ ProgressiveBlur \} from "@mun-ui\/ui\/progressive-blur"/u)
   const native = diagnoseMunSource('struct A: View {\n  @State var p = ""\n  var body: some View { SecureField("pw", text: $p) }\n}\nexport default A()\n', 'A.mun', { target: 'web' })
   assert.match(native[0].message, /only to the native target/u)
   const typo = diagnoseMunSource('struct A: View {\n  var greeting = "hi"\n  var body: some View { Text(greting) }\n}\nexport default A()\n', 'A.mun', { target: 'web' })
@@ -126,7 +126,7 @@ test('LSP completion and hover follow the built-in resolution rules', () => {
   const builtin = 'struct App: View {\n  var body: some View { Text("a").foregroundStyle(Color.red) }\n}\n'
   service.update(uri, builtin)
   const color = service.hover(uri, positionAt(builtin, builtin.indexOf('Color') + 1))
-  assert.match(color.contents.value, /Resolved without an import from `@mun\/core\/compat`/u)
+  assert.match(color.contents.value, /Resolved without an import from `@mun-ui\/core\/compat`/u)
   assert.deepEqual(service.diagnostics(uri), [])
   const missing = 'struct App: View {\n  var body: some View { Frobnicate() }\n}\nexport default App()\n'
   service.update(uri, missing)

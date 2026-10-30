@@ -10,7 +10,7 @@ export interface MunDiagnostic {
 }
 
 function ensureRuntimeImport(source: string, name: string): string {
-  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun\/ui\/legacy\2[\t ]*;?/.exec(source)
+  const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun-ui\/ui\/legacy\2[\t ]*;?/.exec(source)
   if (!existing) return `import { ${name} } from '@mun-ui/ui/legacy'\n${source}`
   const imported = existing[1].split(',').map(value => value.trim()).filter(Boolean)
   if (imported.includes(name)) return source

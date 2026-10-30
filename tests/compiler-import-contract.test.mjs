@@ -4,7 +4,7 @@ import { transformMunSource } from "../packages/compiler/dist/index.js"
 import * as core from "../packages/core/dist/compat.js"
 
 function execute(output, bindings) {
-  const match = /^import \{ ([^}]+) \} from "@mun\/core\/compat"\n/.exec(output)
+  const match = /^import \{ ([^}]+) \} from "@mun-ui\/core\/compat"\n/.exec(output)
   assert.ok(match, "lowering must make generated runtime names resolvable")
   const names = match[1].split(", ")
   assert.equal(new Set(names).size, names.length)
