@@ -1,6 +1,6 @@
 {
   "name": "@mun-ui/vue",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "Vue renderer and explicit interop bridges for the renderer-independent Mün core.",
   "type": "module",
   "files": [

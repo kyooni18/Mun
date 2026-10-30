@@ -1,6 +1,6 @@
 {
   "name": "@mun-ui/react",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "React renderer for the renderer-independent Mün core.",
   "type": "module",
   "files": [

@@ -1,6 +1,6 @@
 {
   "name": "@mun-ui/astro",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "First-class Astro renderer and embedded @mun integration for Mün.",
   "type": "module",
   "files": [

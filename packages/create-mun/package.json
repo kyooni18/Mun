@@ -1,6 +1,6 @@
 {
   "name": "create-mun",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "Create a canonical native Mün application, with explicit Web compatibility scaffolding.",
   "type": "module",
   "files": [

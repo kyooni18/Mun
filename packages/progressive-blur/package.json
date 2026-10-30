@@ -1,6 +1,6 @@
 {
   "name": "@mun-ui/progressive-blur",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "Internal implementation of Mün's opt-in progressive blur. Import it from @mun-ui/ui/progressive-blur; this package name remains for compatibility.",
   "type": "module",
   "files": [

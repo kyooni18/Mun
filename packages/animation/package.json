@@ -1,6 +1,6 @@
 {
   "name": "@mun-ui/animation",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "type": "module",
   "description": "Renderer-agnostic Mün animation runtime with JS/WASM/Worker execution, gestures, timelines, transitions, scroll linking, constraints, and GPU/canvas adapters.",
   "sideEffects": false,

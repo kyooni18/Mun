@@ -1,6 +1,6 @@
 {
   "name": "@mun-ui/core",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "SwiftUI-inspired JavaScript View graphs, state, layout, and modifiers.",
   "type": "module",
   "files": [
