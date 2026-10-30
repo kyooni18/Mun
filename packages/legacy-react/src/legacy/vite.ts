@@ -512,12 +512,12 @@ function lowerMunSyntax(source: string): string {
   if (required.length === 0) return lowered
 
   const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun\/ui\/legacy\2[\t ]*;?/.exec(lowered)
-  if (!existing) return `import { ${required.join(', ')} } from '@mun/ui/legacy'\n${lowered}`
+  if (!existing) return `import { ${required.join(', ')} } from '@mun-ui/ui/legacy'\n${lowered}`
   const imported = existing[1].split(',').map(name => name.trim()).filter(Boolean)
   const merged = [...imported]
   for (const name of required) if (!merged.includes(name)) merged.push(name)
   if (merged.length === imported.length) return lowered
-  const replacement = `import { ${merged.join(', ')} } from '@mun/ui/legacy'`
+  const replacement = `import { ${merged.join(', ')} } from '@mun-ui/ui/legacy'`
   return lowered.slice(0, existing.index) + replacement + lowered.slice(existing.index + existing[0].length)
 }
 

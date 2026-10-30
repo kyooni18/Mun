@@ -1,6 +1,6 @@
 import * as ts from "typescript"
 import { parseMunBuilder, type MunBuilderProgram, type MunStructDeclaration } from "./ast.js"
-import type { SemanticInitializerSymbol } from "@mun/core"
+import type { SemanticInitializerSymbol } from "@mun-ui/core"
 import { createMunSourceMap, mapGeneratedPosition } from "./source-map.js"
 
 function fail(message: string, offset: number): never {

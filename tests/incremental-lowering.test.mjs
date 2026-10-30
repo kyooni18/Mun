@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync, readdirSync } from 'node:fs'
-import { MunLoweringCache, compileMunDevProgram, parseMunStructs } from '@mun/compiler'
+import { MunLoweringCache, compileMunDevProgram, parseMunStructs } from '@mun-ui/compiler'
 
 // Differential check: a compile that reuses cached View instances must be
 // indistinguishable (IR and development metadata) from a from-scratch compile.

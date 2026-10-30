@@ -2,19 +2,19 @@
 
 Mün publishes every non-private package in the repository root and `packages/*` as one synchronized release. The current set is eleven packages:
 
-1. `@mun/execution`
-2. `@mun/animation`
-3. `@mun/core`
-4. `@mun/compiler`
-5. `@mun/legacy-react`
-6. `@mun/react`
-7. `@mun/vite`
-8. `@mun/vue`
-9. `@mun/web`
+1. `@mun-ui/execution`
+2. `@mun-ui/animation`
+3. `@mun-ui/core`
+4. `@mun-ui/compiler`
+5. `@mun-ui/legacy-react`
+6. `@mun-ui/react`
+7. `@mun-ui/vite`
+8. `@mun-ui/vue`
+9. `@mun-ui/web`
 10. `mun`
 11. `create-mun`
 
-The repository includes a release helper that discovers these packages from their manifests and topologically sorts their internal dependencies. `@mun/animation` therefore publishes after `@mun/execution` and before packages such as `@mun/web` and `mun` that depend on it. Adding another non-private package under `packages/*` automatically adds it to both packing and publishing instead of requiring two hard-coded target lists to be kept in sync.
+The repository includes a release helper that discovers these packages from their manifests and topologically sorts their internal dependencies. `@mun-ui/animation` therefore publishes after `@mun-ui/execution` and before packages such as `@mun-ui/web` and `mun` that depend on it. Adding another non-private package under `packages/*` automatically adds it to both packing and publishing instead of requiring two hard-coded target lists to be kept in sync.
 
 ## One-time npm setup
 
@@ -25,7 +25,7 @@ npm login
 npm whoami
 ```
 
-The scoped packages use `@mun/*`. If your npm username is not `mun`, the `mun` npm organization/scope must exist and your account must have publish access to it.
+The scoped packages use `@mun-ui/*`. If your npm username is not `mun`, the `mun` npm organization/scope must exist and your account must have publish access to it.
 
 The script never stores an npm token or OTP. Authentication is handled by the normal npm CLI. If npm requires a one-time password during direct publishing, enter it when npm asks for it.
 

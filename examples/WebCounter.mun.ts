@@ -1,4 +1,4 @@
-import { Button, State, Text, VStack } from "@mun/core/compat"
+import { Button, State, Text, VStack } from "@mun-ui/core/compat"
 
 const count = State(0)
 

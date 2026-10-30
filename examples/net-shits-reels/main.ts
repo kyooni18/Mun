@@ -1,6 +1,6 @@
-import { defineView, initializer, Element, ForEach, Image, State, Text, VStack } from '@mun/core'
-import type { ViewValue } from '@mun/core'
-import { mount } from '@mun/web'
+import { defineView, initializer, Element, ForEach, Image, State, Text, VStack } from '@mun-ui/core'
+import type { ViewValue } from '@mun-ui/core'
+import { mount } from '@mun-ui/web'
 import './style.css'
 
 interface MediaItem {

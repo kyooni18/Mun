@@ -1,4 +1,4 @@
-import { Element } from "@mun/core"
+import { Element } from "@mun-ui/core"
 import Counter from "./Counter.mun"
 import Profile from "./Profile.mun"
 

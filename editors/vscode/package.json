@@ -84,7 +84,7 @@
         "mun.server.command": {
           "type": "string",
           "default": "",
-          "description": "Explicit mun executable. Otherwise use workspace-local @mun/ui before global mun; versions must match the extension."
+          "description": "Explicit mun executable. Otherwise use workspace-local @mun-ui/ui before global mun; versions must match the extension."
         }
       }
     },

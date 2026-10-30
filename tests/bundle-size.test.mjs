@@ -29,7 +29,7 @@ test("Web SSR imports tree-shake DOM and hydration internals", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mun-tree-shake-"))
   try {
     const entry = join(directory, "entry.ts")
-    await writeFile(entry, `import { Animation } from "@mun/core"\nimport { renderMunUiProgramToHTML } from "@mun/web"\nconsole.log(Animation.default, renderMunUiProgramToHTML)\n`)
+    await writeFile(entry, `import { Animation } from "@mun-ui/core"\nimport { renderMunUiProgramToHTML } from "@mun-ui/web"\nconsole.log(Animation.default, renderMunUiProgramToHTML)\n`)
     const built = await build({
       root: directory,
       configFile: false,

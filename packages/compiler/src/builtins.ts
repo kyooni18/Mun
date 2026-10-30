@@ -9,8 +9,8 @@
 import * as ts from "typescript"
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import * as Core from "@mun/core/compat"
-import { swiftUIApiManifest, type SemanticInitializerSymbol } from "@mun/core/compat"
+import * as Core from "@mun-ui/core/compat"
+import { swiftUIApiManifest, type SemanticInitializerSymbol } from "@mun-ui/core/compat"
 import { canonicalViewSymbols } from "./semantic.js"
 
 export type MunBuiltinKind = "view" | "value" | "function" | "type"
@@ -24,14 +24,14 @@ export interface MunBuiltinSymbol {
 }
 
 export interface MunOptInFeature {
-  /** Public import path, e.g. `@mun/ui/progressive-blur`. */
+  /** Public import path, e.g. `@mun-ui/ui/progressive-blur`. */
   readonly module: string
   readonly exports: readonly string[]
 }
 
 /** Every implicitly imported runtime built-in comes from this one entry point. */
-export const munBuiltinRuntimeModule = "@mun/core/compat"
-const internalRuntimeModule = "@mun/core/internal/runtime"
+export const munBuiltinRuntimeModule = "@mun-ui/core/compat"
+const internalRuntimeModule = "@mun-ui/core/internal/runtime"
 
 /** Value types with static members (`Color.red`, `Animation.spring()`). */
 const builtinValues = ["Color", "LinearGradient", "Animation", "Transition", "ContentTransition", "SymbolEffect", "Transaction", "VectorSymbol"] as const
@@ -44,12 +44,12 @@ const compilerHelpers = ["defineView", "initializer", "resolveBuilderInput", "na
 const internalHelpers = ["compiledCollectionContent", "mapStateArrayData"] as const
 
 /**
- * Opt-in features ship inside `@mun/ui` but are never imported implicitly.
+ * Opt-in features ship inside `@mun-ui/ui` but are never imported implicitly.
  * Naming one without an import yields a diagnostic that names its module.
  */
 export const munOptInFeatures: readonly MunOptInFeature[] = Object.freeze([
-  Object.freeze({ module: "@mun/ui/rendering-quality", exports: Object.freeze(["getRenderingQuality", "observeRenderingQuality", "prepareRenderingQuality", "setRenderingQualityDebug"]) }),
-  Object.freeze({ module: "@mun/ui/progressive-blur", exports: Object.freeze(["ProgressiveBlur", "progressiveBlur", "BlurProfile", "blurFocus", "focus", "planBlur", "prepareProgressiveBlur"]) }),
+  Object.freeze({ module: "@mun-ui/ui/rendering-quality", exports: Object.freeze(["getRenderingQuality", "observeRenderingQuality", "prepareRenderingQuality", "setRenderingQualityDebug"]) }),
+  Object.freeze({ module: "@mun-ui/ui/progressive-blur", exports: Object.freeze(["ProgressiveBlur", "progressiveBlur", "BlurProfile", "blurFocus", "focus", "planBlur", "prepareProgressiveBlur"]) }),
 ])
 
 function buildRegistry(): ReadonlyMap<string, MunBuiltinSymbol> {

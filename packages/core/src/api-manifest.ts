@@ -13,12 +13,12 @@ import type { SemanticInitializerParameter, SemanticInitializerSymbol } from "./
  *   native semantics) or `divergent` (a deliberate, documented difference).
  *   Absent means the native compiler does not implement the overload.
  * - `web`: the secondary Web backends — never a reason to downgrade `native`.
- * - `compat`: the legacy TypeScript View graph (`@mun/core/compat`) used by
+ * - `compat`: the legacy TypeScript View graph (`@mun-ui/core/compat`) used by
  *   `.mun.ts` and the React/Vue compatibility renderers.
  *
  * The native compiler dispatches canonical calls through this table and
  * exports the implementations it has (`nativeLoweringMetadata` in
- * `@mun/compiler`); `pnpm check:swiftui-manifest` proves the two agree.
+ * `@mun-ui/compiler`); `pnpm check:swiftui-manifest` proves the two agree.
  */
 
 export type SwiftUIApiKind = "view" | "modifier" | "value"

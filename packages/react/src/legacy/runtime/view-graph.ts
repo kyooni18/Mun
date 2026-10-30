@@ -12,7 +12,7 @@ import {
   type ViewHostNode,
   type ViewModifierNode,
   type ViewNode,
-} from "@mun/core/compat"
+} from "@mun-ui/core/compat"
 import { snapshotArrayValues } from "./arrays.js"
 
 /**

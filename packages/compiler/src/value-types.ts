@@ -1,4 +1,4 @@
-import type { MunUiValue } from "@mun/core"
+import type { MunUiValue } from "@mun-ui/core"
 
 /**
  * Mün value types. Canonical `.mun` spells them like Swift (`String`, `Int`,

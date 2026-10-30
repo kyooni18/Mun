@@ -6,7 +6,7 @@ import { munPlugin } from "../packages/vite/dist/index.js"
 import { Text, VStack, compiledTemplate, defineCompiledTemplate, defineView, initializer, modifiedContent, modifiedContentCompiled, modifierGraphOf, namedArguments, overloadClosure, renderViewNode, resolveBuilderClosure, resolveBuilderInput } from "../packages/core/dist/compat.js"
 import { readFileSync } from "node:fs"
 
-test("@mun/compiler lowers .mun.ts builders through declaration-neutral syntax", () => {
+test("@mun-ui/compiler lowers .mun.ts builders through declaration-neutral syntax", () => {
   const source = `VStack(spacing: 12) {\n  Text("Header")\n  if (enabled) { Text("On") } else { Text("Off") }\n  ForEach(items) { item in Row(item) }\n  Each(items) { item in Row(item) }\n}`
   const output = transformMunSource(source, "Counter.mun.ts")
   assert.match(output, /VStack\(namedArguments\(\{ spacing: 12 \}\), \(\) =>/)
@@ -33,9 +33,9 @@ test("SwiftUI modifier labels preserve argument slots and gesture closure roles"
   assert.equal(ts.createSourceFile("Modifiers.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
-test("@mun/compiler keeps Vue imports separate when ensuring core imports", () => {
-  const source = `import { MunView } from "@mun/vue"
-import { Element } from "@mun/core/compat"
+test("@mun-ui/compiler keeps Vue imports separate when ensuring core imports", () => {
+  const source = `import { MunView } from "@mun-ui/vue"
+import { Element } from "@mun-ui/core/compat"
 const App = MunView(() => Element("section", null, "Hi"))`
   const output = transformMunSource(source, "VueImports.mun.ts")
   assert.match(output, /import \{ MunView \} from "@mun\/vue"/)
@@ -44,7 +44,7 @@ const App = MunView(() => Element("section", null, "Hi"))`
   assert.equal(ts.createSourceFile("VueImports.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
-test("@mun/compiler keeps TypeScript lexical syntax separate from Mun HTML and blocks", () => {
+test("@mun-ui/compiler keeps TypeScript lexical syntax separate from Mun HTML and blocks", () => {
   const source = `type Bar = number
 declare const foo: <T>(value: T) => T
 declare const a: number
@@ -62,7 +62,7 @@ const result = a < b && b > a`
   assert.equal(ts.createSourceFile("LexicalBoundaries.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
-test("@mun/compiler lowers ViewBuilder statements and children in one executable closure", () => {
+test("@mun-ui/compiler lowers ViewBuilder statements and children in one executable closure", () => {
   const source = `VStack() {
   const title = "Hello"
   const enabled = count > 0
@@ -96,10 +96,10 @@ test("@mun/compiler lowers ViewBuilder statements and children in one executable
   assert.equal(ts.createSourceFile("StatementControlFlow.ts", controlFlow, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
-test("@mun/compiler preserves State call shape, generic arguments, and object initializers", () => {
+test("@mun-ui/compiler preserves State call shape, generic arguments, and object initializers", () => {
   const source = `type Foo = { readonly value: string }
-import { State, Text } from "@mun/core/compat"
-import { view } from "@mun/react"
+import { State, Text } from "@mun-ui/core/compat"
+import { view } from "@mun-ui/react"
 const count = State(
   0
 )
@@ -120,7 +120,7 @@ export default view(() => [
   assert.equal(ts.createSourceFile("StateShapes.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
-test("@mun/compiler preserves meaningful raw HTML whitespace and explicit ForEach identity", () => {
+test("@mun-ui/compiler preserves meaningful raw HTML whitespace and explicit ForEach identity", () => {
   const html = transformMunSource(`<p>Hello <strong>world</strong> !</p>`, "Whitespace.mun.ts")
   assert.match(html, /Element\("p", null, "Hello ", Element\("strong", null, "world"\), " !"\)/)
   assert.doesNotMatch(html, /"Hello".*"world".*"!"/)
@@ -183,7 +183,7 @@ const pattern = /\\$wifi/`
 })
 
 test("compiler and IDE consumers share one Mun plus TypeScript semantic model", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 struct Card<Content: View>: View {
   let content: Content
   init(@ViewBuilder content: () => Content) { self.content = content() }
@@ -197,7 +197,7 @@ struct Card<Content: View>: View {
   assert.equal(card?.initializers[0]?.signature, "Card(@ViewBuilder content: () => Content)")
   assert.ok(model.calls.some(call => call.callee === "VStack" && call.trailingClosure))
   assert.ok(model.calls.some(call => call.callee === "Text"))
-  assert.ok(model.imports.some(item => item.module === "@mun/core/compat"))
+  assert.ok(model.imports.some(item => item.module === "@mun-ui/core/compat"))
   assert.equal(model.typescriptDiagnostics.length, 0)
   assert.equal(typeof model.typeChecker.typeToString(model.typeChecker.getTypeAtLocation(model.typescript.statements[0])), "string")
   assert.equal(model.symbol("Card")?.kind, "view")
@@ -208,7 +208,7 @@ struct Card<Content: View>: View {
 })
 
 test("every known Mun call exposes the shared initializer answer", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 struct Card: View {
   let title: string
   init(title: string) { self.title = title }
@@ -258,7 +258,7 @@ VueChart(values: values)`
   assert.equal("htmlDiagnostics" in model, false)
   assert.deepEqual(model.foreignComponents.map(component => [component.localName, component.module]), [["VueChart", "./VueChart.vue"]])
   assert.equal(model.symbol("VueChart")?.kind, "foreign-component")
-  assert.equal(model.symbol("VueChart")?.rendererAdapter, "@mun/vue")
+  assert.equal(model.symbol("VueChart")?.rendererAdapter, "@mun-ui/vue")
   assert.equal(source.slice(model.foreignComponents[0].range.start, model.foreignComponents[0].range.end), "VueChart(values: values)")
   assert.equal(model.typescriptDiagnostics.length, 0)
 })
@@ -267,7 +267,7 @@ test("semantic model records React foreign components with the React adapter", (
   const source = `import ReactChart from "./ReactChart.tsx"
 ReactChart(values: values)`
   const model = createMunSemanticModel(source, "ReactInterop.mun.ts")
-  assert.deepEqual(model.foreignComponents.map(component => [component.localName, component.module, component.symbol.rendererAdapter]), [["ReactChart", "./ReactChart.tsx", "@mun/react"]])
+  assert.deepEqual(model.foreignComponents.map(component => [component.localName, component.module, component.symbol.rendererAdapter]), [["ReactChart", "./ReactChart.tsx", "@mun-ui/react"]])
   assert.equal(source.slice(model.foreignComponents[0].range.start, model.foreignComponents[0].range.end), "ReactChart(values: values)")
 })
 
@@ -282,7 +282,7 @@ test("compatibility HTML lowers to graph Element calls without entering the sema
   assert.equal("htmlDiagnostics" in model, false)
 })
 
-test("@mun/compiler preserves empty, optional, and array builder results", () => {
+test("@mun-ui/compiler preserves empty, optional, and array builder results", () => {
   const source = `VStack() {
   if (showHeader) { Text("Header") }
   if (showEmpty) { }
@@ -295,7 +295,7 @@ test("@mun/compiler preserves empty, optional, and array builder results", () =>
   assert.equal(ts.createSourceFile("Builder.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
-test("@mun/compiler keeps statement-bearing action closures out of ViewBuilder arrays", () => {
+test("@mun-ui/compiler keeps statement-bearing action closures out of ViewBuilder arrays", () => {
   const output = transformMunSource("Button(\"Save\") { const value = 1; save(value) }", "Action.mun.ts")
   assert.match(output, /Button\("Save", \(\) => \{ const value = 1; save\(value\) \}\)/)
   assert.doesNotMatch(output, /overloadClosure\(/)
@@ -303,7 +303,7 @@ test("@mun/compiler keeps statement-bearing action closures out of ViewBuilder a
   assert.equal(ts.createSourceFile("Action.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
-test("@mun/compiler preserves async action closures", () => {
+test("@mun-ui/compiler preserves async action closures", () => {
   const output = transformMunSource("Button(\"Save\") { await save() }", "AsyncAction.mun.ts")
   assert.match(output, /Button\("Save", async \(\) => \{\s*await save\(\)\s*\}\)/)
   assert.doesNotMatch(output, /overloadClosure\(/)
@@ -341,7 +341,7 @@ test("the compiler enforces Button's two source forms and declaration order", ()
   assert.deepEqual(service.diagnose('Button(action: { save() }) { Text("Save") }'), [])
 })
 
-test("@mun/compiler exposes source-ranged builder and struct ASTs", () => {
+test("@mun-ui/compiler exposes source-ranged builder and struct ASTs", () => {
   const source = `VStack(spacing: 12) {
   Text("Header")
   if (loading) { ProgressView() } else { ContentView() }
@@ -399,7 +399,7 @@ test("compiler parsing preserves nested template expressions and comment-separat
   assert.equal(ts.createSourceFile("NestedTemplates.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
 
-test("@mun/compiler exposes source maps, diagnostics, language service, and Vite adapter", () => {
+test("@mun-ui/compiler exposes source maps, diagnostics, language service, and Vite adapter", () => {
   const result = compileMunFile("Text(\"Hi\")", "/src/Counter.mun.ts")
   assert.equal(result.map.sources[0], "/src/Counter.mun.ts")
   assert.ok(result.map.mappings.length > 0)
@@ -433,7 +433,7 @@ test("the Vite adapter exposes opt-in execution plans for compiler-owned compute
     sourceMap: false,
     onExecutionPlan: (plan, id) => plans.push({ plan, id }),
   })
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const scale = 2
 const items = State([{ id: 1, value: 2 }])
 items.value = items.value.map(item => ({ ...item, value: item.value * scale }))
@@ -474,7 +474,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 test("execution planning does not claim WASM portability without complete Kernel IR", () => {
   const plans = []
   const plugin = createMunVitePlugin({ sourceMap: false, onExecutionPlan: plan => plans.push(plan) })
-  const source = `import { State } from "@mun/core/compat"
+  const source = `import { State } from "@mun-ui/core/compat"
 const items = State([{ id: 1, value: "A" }])
 items.value = items.value.map((item, index) => ({ ...item, value: \`next-\${index}\` }))`
   const transformed = plugin.transform(source, "/src/StringExecutionPlan.mun.ts")
@@ -507,7 +507,7 @@ test("the Vite adapter caches unchanged modules and leaves CSS to Vite", () => {
   assert.equal(plugin.transform("function ordinary() { return 1 }", "/src/ordinary.ts"), null)
   assert.equal(plugin.transform("const pattern = /^[$A-Z_]/", "/src/ordinary.js"), null)
   assert.equal(plugin.transform('const App = () => <div className="card" />', "/src/App.tsx"), null)
-  const staticModifier = plugin.transform('import { Text } from "@mun/core/compat"\nconst value = Text("Hi").padding(4)', new URL("../StaticModifier.ts", import.meta.url).pathname)
+  const staticModifier = plugin.transform('import { Text } from "@mun-ui/core/compat"\nconst value = Text("Hi").padding(4)', new URL("../StaticModifier.ts", import.meta.url).pathname)
   assert.ok(staticModifier)
   assert.match(staticModifier.code, /modifiedContentCompiled\(/)
   const scoped = createMunVitePlugin({ include: /Counter\.mun\.ts/g })
@@ -597,7 +597,7 @@ ReactChart(values: values)`, "ReactChart.mun.ts")
 test("the canonical compiler preserves host stylesheet imports", () => {
   const source = `import styles from "./Card.module.css"
 import "./tokens.scss"
-import { Text } from "@mun/core/compat"
+import { Text } from "@mun-ui/core/compat"
 Text("Card").className(styles.card)`
   const output = transformMunSource(source, "Card.mun.ts")
   assert.match(output, /import styles from "\.\/Card\.module\.css"/)
@@ -641,7 +641,7 @@ test("the checked-in .mun.ts example passes through the compiler pipeline", () =
 })
 
 test("custom generic View structs lower to declaration-defined initializer metadata", () => {
-  const source = `import { VStack } from "@mun/react"\nstruct Card<Content: View>: View {\n  let content: Content\n  init(@ViewBuilder content: () => Content) { self.content = content() }\n  var body: some View { VStack() { content } }\n}`
+  const source = `import { VStack } from "@mun-ui/react"\nstruct Card<Content: View>: View {\n  let content: Content\n  init(@ViewBuilder content: () => Content) { self.content = content() }\n  var body: some View { VStack() { content } }\n}`
   const output = transformMunSource(source, "Card.mun.ts")
   assert.match(output, /defineView\("Card"/)
   assert.match(output, /genericParameters: "Content: View"/)
@@ -667,7 +667,7 @@ const card = Card(title: "Hello")`
 })
 
 test("compiler specializes imported Views from a unique typed call signature", () => {
-  const source = `import { Text } from "@mun/core/compat"
+  const source = `import { Text } from "@mun-ui/core/compat"
 const value = Text("Hello")`
   const output = transformMunSource(source, "ImportedText.mun.ts")
   assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "span", props: null, children: \["Hello"\] \}, 0, \[\]\)/)
@@ -681,7 +681,7 @@ const value = Text("Hello")`
 })
 
 test("compiler precomputes static expression results before runtime", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 export function App() {
   return VStack(spacing: 2 * (3 + 1)) {
     Text(\`Total: \${1 + 2}\`)
@@ -698,7 +698,7 @@ export function App() {
 })
 
 test("compiler normalizes proven Swift-style labels into the compiled runtime payload", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 const value = VStack(spacing: 12) { Text("Hello") }`
   const output = transformMunSource(source, "NamedCompiledStack.mun.ts")
   assert.match(output, /defineCompiledTemplate\(/)
@@ -711,7 +711,7 @@ const value = VStack(spacing: 12) { Text("Hello") }`
 })
 
 test("compiler lowers immutable host structure into a compiled template with dynamic slots", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 export function App(name: string) { return VStack() { Text("Static"); Text(name) } }`
   const output = transformMunSource(source, "StaticHoist.mun.ts")
   assert.match(output, /const __munTemplate0 = defineCompiledTemplate\(/)
@@ -723,7 +723,7 @@ export function App(name: string) { return VStack() { Text("Static"); Text(name)
 })
 
 test("compiler keeps opaque custom View children as identity-preserving template slots", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 struct Card: View {
   let title: string
   var body: some View { Text(title) }
@@ -737,7 +737,7 @@ export function App(title: string) { return VStack() { Card(title: title) } }`
 })
 
 test("compiler emits State dependency metadata and templates dynamic primitive content", () => {
-  const source = `import { Text } from "@mun/core/compat"
+  const source = `import { Text } from "@mun-ui/core/compat"
 struct Counter: View {
   @State var count: number = 0
   var body: some View { Text(String(count.value)) }
@@ -754,7 +754,7 @@ struct Counter: View {
 })
 
 test("compiler plans direct modifier patches for exhaustive State-backed struct Views", () => {
-  const source = `import { Text, State } from "@mun/core/compat"
+  const source = `import { Text, State } from "@mun-ui/core/compat"
 struct Counter: View {
   @State var count: number = 0
   var body: some View { Text(String(count.value)).opacity(count.value > 0 ? 1 : 0.25).className(count.value > 1 ? "hot" : "cold") }
@@ -767,7 +767,7 @@ struct Counter: View {
 })
 
 test("compiler emits property-aware automatic motion plans for bare .animation()", () => {
-  const source = `import { Text } from "@mun/core/compat"
+  const source = `import { Text } from "@mun-ui/core/compat"
 export function Demo(active: boolean) {
   return Text("A")
     .opacity(active ? 1 : 0)
@@ -782,7 +782,7 @@ export function Demo(active: boolean) {
 })
 
 test("compiler narrows frame motion masks and preserves custom-property fallback", () => {
-  const source = `import { Text } from "@mun/core/compat"
+  const source = `import { Text } from "@mun-ui/core/compat"
 export function Demo(active: boolean) {
   return Text("A")
     .frame({ width: active ? 240 : 180 })
@@ -796,7 +796,7 @@ export function Demo(active: boolean) {
 })
 
 test("compiler keeps independent animation domains inside direct compiled modifier plans", () => {
-  const source = `import { Animation, Text, State } from "@mun/core/compat"
+  const source = `import { Animation, Text, State } from "@mun-ui/core/compat"
 struct Counter: View {
   @State var count: number = 0
   var body: some View {
@@ -818,7 +818,7 @@ struct Counter: View {
 })
 
 test("compiler emits a direct compiled body plan for exhaustive State-backed template Views", () => {
-  const source = `import { Text, State, view } from "@mun/core/compat"
+  const source = `import { Text, State, view } from "@mun-ui/core/compat"
 const count = State(0)
 export const App = view(() => Text(String(count.value)))`
   const output = transformMunSource(source, "CompiledBodyPlan.mun.ts")
@@ -831,7 +831,7 @@ export const App = view(() => Text(String(count.value)))`
 })
 
 test("compiler maps independent State dependencies to sparse compiled text patches", () => {
-  const source = `import { Text, VStack, State } from "@mun/core/compat"
+  const source = `import { Text, VStack, State } from "@mun-ui/core/compat"
 struct Pair: View {
   @State var left: number = 0
   @State var right: number = 0
@@ -846,7 +846,7 @@ struct Pair: View {
 })
 
 test("compiler keeps struct dependency discovery dynamic when body reads external State", () => {
-  const source = `import { Text, State } from "@mun/core/compat"
+  const source = `import { Text, State } from "@mun-ui/core/compat"
 const external = State(1)
 struct Counter: View {
   @State var count: number = 0
@@ -860,7 +860,7 @@ struct Counter: View {
 })
 
 test("compiler emits reusable zero-slot host templates under dynamic modifiers", () => {
-  const source = `import { Text } from "@mun/core/compat"
+  const source = `import { Text } from "@mun-ui/core/compat"
 export function App(active: boolean) {
   return Text("Static").opacity(active ? 1 : 0.25)
 }`
@@ -872,7 +872,7 @@ export function App(active: boolean) {
 })
 
 test("compiler hoists and deduplicates immutable Animation plans out of render paths", () => {
-  const source = `import { Animation, Text } from "@mun/core/compat"
+  const source = `import { Animation, Text } from "@mun-ui/core/compat"
 export function App(active: boolean) {
   const first = Text("A").opacity(active ? 1 : 0.5).animation(Animation.easeInOut(0.2).delay(0.05), active)
   const second = Text("B").opacity(active ? 0.8 : 0.2).animation(Animation.easeInOut(0.2).delay(0.05), active)
@@ -886,7 +886,7 @@ export function App(active: boolean) {
 })
 
 test("compiler specializes a resolved imported ViewBuilder overload by declaration order", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 const value = VStack() { Text("Hello") }`
   const output = transformMunSource(source, "ImportedVStack.mun.ts")
   assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "div"/)
@@ -896,7 +896,7 @@ const value = VStack() { Text("Hello") }`
 })
 
 test("compiler lowers a statically typed modifier chain into one flat graph construction", () => {
-  const source = `import { Text } from "@mun/core/compat"
+  const source = `import { Text } from "@mun-ui/core/compat"
 const value = Text("Hello").padding(8).background("red").bold()`
   const output = transformMunSource(source, "StaticModifiers.mun.ts")
   assert.match(output, /modifiedContentCompiled\(compiledTemplate\(__munTemplate0, \[\]\), \[\["padding", \[8\]\], \["background", \["red"\]\], \["bold", \[\]\]\]\)/)
@@ -946,7 +946,7 @@ const card = Card("runtime")`
 })
 
 test("compiled generic ViewBuilder initializers enforce View results", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 struct GenericBox<Content: View>: View {
   let content: Content
   init(@ViewBuilder content: () => Content) { self.content = content() }
@@ -1087,7 +1087,7 @@ test("nested View structs keep the outer body and local View scope", () => {
 })
 
 test("nested View structs expose qualified constructors as well as local body names", () => {
-  const source = `import { Text, VStack } from "@mun/core/compat"
+  const source = `import { Text, VStack } from "@mun-ui/core/compat"
 struct Parent: View {
   struct Header: View {
     var body: some View { Text("Header") }
@@ -1131,7 +1131,7 @@ struct Parent: View {
 })
 
 test("custom structs retain multiple initializers, defaults, @State, and @Binding", () => {
-  const source = `import { Text, VStack, State } from "@mun/core/compat"
+  const source = `import { Text, VStack, State } from "@mun-ui/core/compat"
 struct Card<Content: View>: View {
   @State var count: number = 0
   @Binding var title: BindingRef<string>
@@ -1181,7 +1181,7 @@ test("AST-backed struct lowering preserves export boundaries and ignores initial
 })
 
 test("raw HTML lowers to core Element nodes and preserves real attributes", () => {
-  const source = `import { VStack } from "@mun/core/compat"
+  const source = `import { VStack } from "@mun-ui/core/compat"
 VStack() {
   <section class="card" data-kind="hero">
     <h1>{title}</h1>
@@ -1213,7 +1213,7 @@ test("raw HTML supports spread attributes, comments, void elements, custom eleme
 })
 
 test("compiler emits direct collection row plans only for proven flat host rows", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", { title: item.value }, item.value))) })`
   const output = transformMunSource(source, "CompiledCollection.mun.ts")
@@ -1226,7 +1226,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler specializes ordinary Text rows inside keyed collections", () => {
-  const source = `import { State, Text, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Text, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => ForEach(items.value, item => item.id, item => Text(item.value)) })`
   const output = transformMunSource(source, "TextCompiledCollection.mun.ts")
@@ -1240,7 +1240,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler lowers proven pure State array maps to the internal runtime ABI", () => {
-  const source = `import { State } from "@mun/core/compat"
+  const source = `import { State } from "@mun-ui/core/compat"
 const items = State([{ id: 1, value: "A" }])
 items.value = items.value.map((item, index) => ({ ...item, value: item.value + index }))`
   const output = transformMunSource(source, "StateArrayMap.mun.ts")
@@ -1250,9 +1250,9 @@ items.value = items.value.map((item, index) => ({ ...item, value: item.value + i
 
 test("compiler keeps effectful or ambient-property State array maps on normal JavaScript semantics", () => {
   const cases = [
-    `import { State } from "@mun/core/compat"\nconst settings = { suffix: "!" }\nconst items = State([{ id: 1, value: "A" }])\nitems.value = items.value.map(item => ({ ...item, value: item.value + settings.suffix }))`,
-    `import { State } from "@mun/core/compat"\nconst items = State([{ id: 1, value: "A" }])\nitems.value = items.value.map(item => ({ ...item, value: format(item.value) }))`,
-    `import { State } from "@mun/core/compat"\nconst items = State([{ id: 1, value: "A" }])\nitems.value = items.value.map(item => { item.value = "B"; return item })`,
+    `import { State } from "@mun-ui/core/compat"\nconst settings = { suffix: "!" }\nconst items = State([{ id: 1, value: "A" }])\nitems.value = items.value.map(item => ({ ...item, value: item.value + settings.suffix }))`,
+    `import { State } from "@mun-ui/core/compat"\nconst items = State([{ id: 1, value: "A" }])\nitems.value = items.value.map(item => ({ ...item, value: format(item.value) }))`,
+    `import { State } from "@mun-ui/core/compat"\nconst items = State([{ id: 1, value: "A" }])\nitems.value = items.value.map(item => { item.value = "B"; return item })`,
   ]
   for (const [index, source] of cases.entries()) {
     const output = transformMunSource(source, `UnsafeStateArrayMap${index}.mun.ts`)
@@ -1261,7 +1261,7 @@ test("compiler keeps effectful or ambient-property State array maps on normal Ja
 })
 
 test("compiler emits data-only collection descriptors for primitive attributes class and style", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A", tone: "active", color: "red", opacity: 0.5, hidden: false }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", { className: item.tone, style: { color: item.color, opacity: item.opacity }, title: item.value, hidden: item.hidden }, item.value))) })`
   const output = transformMunSource(source, "DataOnlyCompiledCollection.mun.ts")
@@ -1278,25 +1278,25 @@ test("compiler leaves refs raw HTML events and opaque style records on the gener
     ["OpaqueStyle", `{ style: item.style }`],
   ]
   for (const [name, props] of cases) {
-    const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+    const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", ${props}, item.value))) })`
     assert.doesNotMatch(transformMunSource(source, `${name}Collection.mun.ts`), /compiledCollectionContent/)
   }
 
-  const customElement = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const customElement = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("x-row", { title: item.value }, item.value))) })`
   assert.doesNotMatch(transformMunSource(customElement, "CustomElementCollection.mun.ts"), /compiledCollectionContent/)
 
-  const unsafeHost = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const unsafeHost = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("input", { value: item.value }, item.value))) })`
   assert.doesNotMatch(transformMunSource(unsafeHost, "UnsafeHostCollection.mun.ts"), /compiledCollectionContent/)
 })
 
 test("compiler keeps index-sensitive collection plans conservative", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, (item, index) => Element("span", { title: item.value }, index + ":" + item.value))) })`
   const output = transformMunSource(source, "IndexedCompiledCollection.mun.ts")
@@ -1305,7 +1305,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler does not isolate a State collection whose explicit key depends on index", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, (item, index) => index, item => Element("span", null, item.value))) })`
   const output = transformMunSource(source, "IndexKeyCollection.mun.ts")
@@ -1316,7 +1316,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler does not claim index independence for an unproven explicit key", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => String(item.id), item => Element("span", null, item.value))) })`
   const output = transformMunSource(source, "UnprovenKeyCollection.mun.ts")
@@ -1327,7 +1327,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler only isolates immutable same-file State bindings", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 let items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => item.id, item => Element("span", null, item.value))) })`
   const output = transformMunSource(source, "MutableStateBindingCollection.mun.ts")
@@ -1337,35 +1337,35 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler refuses asynchronous generator and shadowed collection row APIs", () => {
-  const asynchronous = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const asynchronous = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, async item => Element("span", null, item.value))) })`
   assert.doesNotMatch(transformMunSource(asynchronous, "AsyncCollection.mun.ts"), /compiledCollectionContent/)
 
-  const generator = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const generator = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, function* (item) { return Element("span", null, item.value) })) })`
   assert.doesNotMatch(transformMunSource(generator, "GeneratorCollection.mun.ts"), /compiledCollectionContent/)
 
-  const shadowed = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const shadowed = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => { const Element = (...args) => args; return ForEach(items.value, item => Element("span", null, item.value)) } })`
   assert.doesNotMatch(transformMunSource(shadowed, "ShadowedElementCollection.mun.ts"), /compiledCollectionContent/)
 
-  const namespaceShadowed = `import * as Mun from "@mun/core/compat"
+  const namespaceShadowed = `import * as Mun from "@mun-ui/core/compat"
 const items = Mun.State([{ id: "a", value: "A" }])
 export const App = Mun.defineView("App", { initializers: [Mun.initializer("App()", args => args.length === 0)], body: () => { const Mun = { Element: (...args) => args }; return Mun.ForEach(items.value, item => Mun.Element("span", null, item.value)) } })`
   assert.doesNotMatch(transformMunSource(namespaceShadowed, "ShadowedNamespaceCollection.mun.ts"), /compiledCollectionContent/)
 })
 
 test("compiler refuses effectful or structurally complex collection rows", () => {
-  const effectful = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const effectful = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 const format = value => value.toUpperCase()
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", { title: format(item.value) }, item.value))) })`
   assert.doesNotMatch(transformMunSource(effectful, "EffectfulCollection.mun.ts"), /compiledCollectionContent/)
 
-  const nested = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const nested = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", null, Element("strong", null, item.value)))) })`
   assert.doesNotMatch(transformMunSource(nested, "NestedCollection.mun.ts"), /compiledCollectionContent/)
@@ -1373,7 +1373,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler keeps proven keyed State collections owned by the collection executor", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => item.id, item => Element("span", null, item.value))) })`
   const output = transformMunSource(source, "StateOwnedCollection.mun.ts")
@@ -1382,7 +1382,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler keeps keyed struct @State collections owned by the collection executor", () => {
-  const source = `import { Element, ForEach } from "@mun/core/compat"
+  const source = `import { Element, ForEach } from "@mun-ui/core/compat"
 struct StateList: View {
   @State var items: any = [{ id: "a", value: "A" }]
   var body: some View { ForEach(items.value, item => item.id, item => Element("span", { title: item.value }, item.value)) }
@@ -1393,7 +1393,7 @@ struct StateList: View {
 })
 
 test("compiler lowers pure immutable State array maps to the internal runtime helper", () => {
-  const source = `import { State } from "@mun/core/compat"
+  const source = `import { State } from "@mun-ui/core/compat"
 const items = State([{ id: 0, value: "0" }])
 export function update() { items.value = items.value.map((item, index) => ({ ...item, value: \`next-\${index}\` })) }`
   const output = transformMunSource(source, "StateArrayMap.mun.ts")
@@ -1401,7 +1401,7 @@ export function update() { items.value = items.value.map((item, index) => ({ ...
   assert.match(output, /import \{[^}]*mapStateArrayData[^}]*\} from "@mun\/core\/internal\/runtime"/)
   assert.doesNotMatch(output, /items\.value\s*=\s*items\.value\.map/)
 
-  const conditional = `import { State } from "@mun/core/compat"
+  const conditional = `import { State } from "@mun-ui/core/compat"
 const items = State([{ id: 0, value: "0" }])
 export function update(selectedId, nextValue) { items.value = items.value.map(item => item.id === selectedId ? ({ ...item, value: nextValue }) : item) }`
   const conditionalOutput = transformMunSource(conditional, "ConditionalStateArrayMap.mun.ts")
@@ -1417,25 +1417,25 @@ export function update(selectedId, nextValue) { items.value = items.value.map(it
 })
 
 test("compiler keeps effectful or ambiguous State array maps on ordinary JavaScript semantics", () => {
-  const effectful = `import { State } from "@mun/core/compat"
+  const effectful = `import { State } from "@mun-ui/core/compat"
 const items = State([{ id: 0, value: "0" }])
 const format = value => String(value)
 export function update() { items.value = items.value.map(item => ({ ...item, value: format(item.value) })) }`
   assert.doesNotMatch(transformMunSource(effectful, "EffectfulStateArrayMap.mun.ts"), /mapStateArrayData/)
 
-  const mutated = `import { State } from "@mun/core/compat"
+  const mutated = `import { State } from "@mun-ui/core/compat"
 const items = State([{ id: 0, value: "0" }])
 export function update() { items.value = items.value.map(item => { item.value = "x"; return { ...item, value: "y" } }) }`
   assert.doesNotMatch(transformMunSource(mutated, "MutatingStateArrayMap.mun.ts"), /mapStateArrayData/)
 
-  const shadowed = `import { State } from "@mun/core/compat"
+  const shadowed = `import { State } from "@mun-ui/core/compat"
 const items = State([{ id: 0, value: "0" }])
 export function update(items) { items.value = items.value.map(item => ({ ...item, value: "x" })) }`
   assert.doesNotMatch(transformMunSource(shadowed, "ShadowedStateArrayMap.mun.ts"), /mapStateArrayData/)
 })
 
 test("compiler recognizes aliased State constructors for keyed collection ownership", () => {
-  const source = `import { State as S, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State as S, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = S([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => item.id, item => Element("span", null, item.value))) })`
   const output = transformMunSource(source, "AliasedStateCollection.mun.ts")
@@ -1443,7 +1443,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 })
 
 test("compiler specializes namespace-imported keyed State collections", () => {
-  const source = `import * as Mun from "@mun/core/compat"
+  const source = `import * as Mun from "@mun-ui/core/compat"
 const items = Mun.State([{ id: "a", value: "A" }])
 export const App = Mun.defineView("App", { initializers: [Mun.initializer("App()", args => args.length === 0)], body: () => Mun.Element("section", null, Mun.ForEach(items.value, item => item.id, item => Mun.Element("span", { title: item.value }, item.value))) })`
   const output = transformMunSource(source, "NamespaceStateCollection.mun.ts")
@@ -1452,7 +1452,7 @@ export const App = Mun.defineView("App", { initializers: [Mun.initializer("App()
 })
 
 test("compiler does not rewrite a shadowing local value as a StateRef collection", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "outer", value: "Outer" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => { const items = { value: [{ id: "local", value: "Local" }] }; return Element("section", null, ForEach(items.value, item => Element("span", null, item.value))) } })`
   const output = transformMunSource(source, "ShadowedStateCollection.mun.ts")
@@ -1462,7 +1462,7 @@ export const App = defineView("App", { initializers: [initializer("App()", args 
 
 
 test("compiler keeps implicit-key State collections on the conservative parent-owned path", () => {
-  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun/core/compat"
+  const source = `import { State, Element, ForEach, defineView, initializer } from "@mun-ui/core/compat"
 const items = State([{ id: "a", value: "A" }])
 export const App = defineView("App", { initializers: [initializer("App()", args => args.length === 0)], body: () => Element("section", null, ForEach(items.value, item => Element("span", null, item.value))) })`
   const output = transformMunSource(source, "ImplicitStateCollection.mun.ts")

@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from "node:url"
 import vue from "@vitejs/plugin-vue"
 import { defineConfig } from "vite"
-import { munPlugin } from "@mun/vite"
+import { munPlugin } from "@mun-ui/vite"
 
 export default defineConfig({
   cacheDir: '../node_modules/.vite-mun-parity-vue',

@@ -1,5 +1,5 @@
-import { Button, State, Text, VStack } from "@mun/core/compat"
-import { view } from "@mun/react"
+import { Button, State, Text, VStack } from "@mun-ui/core/compat"
+import { view } from "@mun-ui/react"
 
 const count = State(0)
 

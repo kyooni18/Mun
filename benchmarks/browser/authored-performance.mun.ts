@@ -1,4 +1,4 @@
-import { Button, Element, ForEach, State } from "@mun/core"
+import { Button, Element, ForEach, State } from "@mun-ui/core"
 
 let benchmarkCount = 5000
 let benchmarkMiddle = 2500

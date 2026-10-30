@@ -5,7 +5,7 @@ import {
   type KernelMapIR,
   type PackedLayout,
   type ResidentRegionIR,
-} from "@mun/core/internal/execution"
+} from "@mun-ui/core/internal/execution"
 
 /**
  * Residency at a producer-to-consumer connection considered for fusion.

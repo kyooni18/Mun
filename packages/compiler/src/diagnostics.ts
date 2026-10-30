@@ -10,7 +10,7 @@ import type { MunDiagnostic } from "./types.js"
 
 
 function isMunPackageSource(value: string): boolean {
-  return value.startsWith("@mun/")
+  return value.startsWith("@mun-ui/")
 }
 
 function unwrapDiagnosticExpression(expression: ts.Expression): ts.Expression {

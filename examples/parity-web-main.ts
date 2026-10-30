@@ -1,4 +1,4 @@
-import { mount } from "@mun/web"
+import { mount } from "@mun-ui/web"
 import graph from "./ParityGraph.mun"
 import "./parity.css"
 

@@ -3,7 +3,7 @@
 > **Experimental native area.** Web/JavaScript is the default Mün frontend.
 > Native scaffolds require `--target native`; this document describes the opt-in backend.
 
-`@mun/ui` ships a prebuilt `mun-native` host per OS/architecture under
+`@mun-ui/ui` ships a prebuilt `mun-native` host per OS/architecture under
 `native/bin/<platform>-<arch>/`. `mun run` uses that host; it never compiles
 Rust on an installed consumer's machine.
 
@@ -20,7 +20,7 @@ node scripts/assemble-native-host.mjs --out <staging-dir>
 
   | field | meaning |
   | --- | --- |
-  | `packageVersion` | the `@mun/ui` version the host was assembled for |
+  | `packageVersion` | the `@mun-ui/ui` version the host was assembled for |
   | `semanticUiIrVersion` | IR version the host accepts (from `mun-native --host-info`) |
   | `platform`, `arch`, `target` | Node platform/arch key and Rust triple |
   | `profile` | `release` for published hosts |

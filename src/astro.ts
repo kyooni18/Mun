@@ -1,2 +1,2 @@
-export { default } from "@mun/astro"
-export * from "@mun/astro"
+export { default } from "@mun-ui/astro"
+export * from "@mun-ui/astro"

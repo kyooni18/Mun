@@ -2,11 +2,11 @@
 
 Mün is a **SwiftUI-like frontend language for web applications**. Author UI and
 application behavior in `.mun` using Views, state, bindings, identity and ordered
-modifiers. The compiler targets JavaScript and the existing `@mun/web` HTML/DOM
+modifiers. The compiler targets JavaScript and the existing `@mun-ui/web` HTML/DOM
 runtime. React, Vue and native toolchains are optional integrations.
 
 ```text
-.mun -> parser / shared analysis -> JavaScript -> @mun/core -> @mun/web DOM / SSR
+.mun -> parser / shared analysis -> JavaScript -> @mun-ui/core -> @mun-ui/web DOM / SSR
 JS / TS integration builders ----------------------^
 ```
 
@@ -21,7 +21,7 @@ See the [language contract](docs/LANGUAGE_REFERENCE.md),
 Use Node.js 20.19 or newer and a package manager:
 
 ```bash
-npm install -g @mun/ui
+npm install -g @mun-ui/ui
 mun create HelloMun
 cd HelloMun
 npm run dev
@@ -51,13 +51,13 @@ export default Counter()
 Standard Views, layouts, modifiers, `State`/`Binding` and animation APIs resolve in
 `.mun` files without imports; only what a module uses is bundled. Advanced features
 ship in the same install and are opt-in through explicit imports, for example
-`import { BlurProfile, progressiveBlur } from "@mun/ui/progressive-blur"`. See
+`import { BlurProfile, progressiveBlur } from "@mun-ui/ui/progressive-blur"`. See
 [Built-ins and opt-in features](docs/BUILTINS_AND_OPT_IN.md).
 
 You can also author Views directly in JavaScript or TypeScript, without the
-`.mun` compiler. Import the authoring API from `@mun/core` (or `@mun/ui`) and
-`mount` / `renderToHTML` from `@mun/web`. Rendering is explicitly separate from
-View composition; `@mun/core/compat` remains an alias for existing imports.
+`.mun` compiler. Import the authoring API from `@mun-ui/core` (or `@mun-ui/ui`) and
+`mount` / `renderToHTML` from `@mun-ui/web`. Rendering is explicitly separate from
+View composition; `@mun-ui/core/compat` remains an alias for existing imports.
 
 ## Local development
 

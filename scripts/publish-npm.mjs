@@ -359,11 +359,13 @@ async function authPreflight() {
   const username = result.stdout.trim()
   console.log(`Authenticated as ${username}`)
 
-  if (username !== 'mun') {
-    const scopeProbe = await npm(['team', 'ls', 'mun:developers', '--json'], { stdio: 'pipe' })
+  const scopedPackage = releaseTargets.find(target => manifestFor(target).name.startsWith('@'))
+  const scope = scopedPackage ? manifestFor(scopedPackage).name.split('/')[0].slice(1) : null
+  if (scope) {
+    const scopeProbe = await npm(['team', 'ls', `${scope}:developers`, '--json'], { stdio: 'pipe' })
     if (scopeProbe.status !== 0) {
-      console.warn('Warning: could not verify membership in the npm @mun organization.')
-      console.warn('First-time scoped publishing requires access to the @mun scope; npm publish will be authoritative.')
+      console.warn(`Warning: could not verify membership in the npm @${scope} organization.`)
+      console.warn(`First-time scoped publishing requires access to the @${scope} scope; npm publish will be authoritative.`)
     }
   }
   return username

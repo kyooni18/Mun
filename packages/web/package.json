@@ -1,5 +1,5 @@
 {
-  "name": "@mun/web",
+  "name": "@mun-ui/web",
   "version": "0.1.20",
   "description": "Primary DOM, HTML, and hydration renderer for Mün View graphs.",
   "type": "module",
@@ -40,8 +40,8 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@mun/animation": "workspace:*",
-    "@mun/core": "workspace:*"
+    "@mun-ui/animation": "workspace:*",
+    "@mun-ui/core": "workspace:*"
   },
   "sideEffects": false,
   "publishConfig": {

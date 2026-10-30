@@ -79,7 +79,7 @@ test('struct syntax lowers to initializer metadata, a body, and instance State',
 
 test('legacy struct lowering keeps canonical imports separate from compatibility runtime helpers', () => {
   const output = transformMunStructSyntax(`
-    import { Binding, Text } from '@mun/ui'
+    import { Binding, Text } from '@mun-ui/ui'
     struct Counter: View {
       @State var count = 0
       var body: some View { Toggle("Count", isOn: $count) }
@@ -295,7 +295,7 @@ test('source maps align repeated View occurrences by token order', () => {
 test('TypeScript language service host parses lowered Mun snapshots', () => {
   const fileName = '/src/Editor.ts'
   const source = `
-import { Text, VStack } from '@mun/ui'
+import { Text, VStack } from '@mun-ui/ui'
 export const screen = VStack() { Text('Editor') }
 `
   const host = {

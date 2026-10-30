@@ -1,6 +1,6 @@
 import { isSafeUrlAttribute } from "./url-policy.js"
-import { isForeignComponent, renderViewNode, zeroGeometry, type CompiledTemplateValue, type MunRenderer, type ViewGraphValue, type ViewHostNode } from "@mun/core/compat"
-import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
+import { isForeignComponent, renderViewNode, zeroGeometry, type CompiledTemplateValue, type MunRenderer, type ViewGraphValue, type ViewHostNode } from "@mun-ui/core/compat"
+import type { GPUIslandViewNode } from "@mun-ui/core/internal/runtime"
 import { assertHtmlName, isEventPropName, classNameOf, escape, escapeAttribute, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, nativeElementProps, normalizedRawTextValue, normalizedTextAreaValue, propsOf, rawTextHtmlElements, styleAttribute, styleOf, styleText, validTableChildElements, voidHtmlElements, validateUnsafeHTML } from "./shared.js"
 
 

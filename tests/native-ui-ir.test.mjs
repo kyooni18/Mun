@@ -46,7 +46,7 @@ test("native UI IR keeps semantic controls and precompiles inherited spring moti
 
 
 test("compiler timing plans stay aligned with the inherited motion planner", () => {
-  const source = `import { Animation, Rectangle, State } from "@mun/core"
+  const source = `import { Animation, Rectangle, State } from "@mun-ui/core"
 const expanded = State(false)
 struct App: View {
   var body: some View {
@@ -78,7 +78,7 @@ export default App()`
 
 
 test("compiler native motion reuses core Animation descriptor modifiers", () => {
-  const source = `import { Animation, Rectangle, State } from "@mun/core"
+  const source = `import { Animation, Rectangle, State } from "@mun-ui/core"
 const expanded = State(false)
 struct App: View {
   var body: some View {
@@ -110,7 +110,7 @@ export default App()`
 })
 
 test("native compiler preserves inherited repeat iteration and autoreverse semantics", () => {
-  const source = `import { Animation, Rectangle, State } from "@mun/core"
+  const source = `import { Animation, Rectangle, State } from "@mun-ui/core"
 const expanded = State(false)
 struct App: View {
   var body: some View {
@@ -130,7 +130,7 @@ export default App()`
 })
 
 test("native compiler serializes repeatForever without inventing a finite iteration count", () => {
-  const source = `import { Animation, Rectangle, State } from "@mun/core"
+  const source = `import { Animation, Rectangle, State } from "@mun-ui/core"
 const expanded = State(false)
 struct App: View {
   var body: some View {
@@ -149,7 +149,7 @@ export default App()`
 })
 
 test("withAnimation lowers into a state transaction and dynamic properties remain motion participants", () => {
-  const source = `import { Animation, Button, Rectangle, State, VStack, withAnimation } from "@mun/core"
+  const source = `import { Animation, Button, Rectangle, State, VStack, withAnimation } from "@mun-ui/core"
 const expanded = State(false)
 struct App: View {
   var body: some View {
@@ -187,7 +187,7 @@ export default App()`
 })
 
 test("withAnimation null preserves transaction intent without inventing a motion plan", () => {
-  const source = `import { Button, Rectangle, State, VStack, withAnimation } from "@mun/core"
+  const source = `import { Button, Rectangle, State, VStack, withAnimation } from "@mun-ui/core"
 const expanded = State(false)
 struct App: View {
   var body: some View {
@@ -212,7 +212,7 @@ export default App()`
 })
 
 test("withTransaction lowers the core Transaction constructor without renderer semantics", () => {
-  const source = `import { Animation, Button, Rectangle, State, Transaction, VStack, withTransaction } from "@mun/core"
+  const source = `import { Animation, Button, Rectangle, State, Transaction, VStack, withTransaction } from "@mun-ui/core"
 const expanded = State(false)
 struct App: View {
   var body: some View {
@@ -240,7 +240,7 @@ export default App()`
 
 
 test("native Transition lowering rejects dynamic parameters instead of replacing them with defaults", () => {
-  const dynamicScale = `import { Rectangle, State, Transition } from "@mun/core"
+  const dynamicScale = `import { Rectangle, State, Transition } from "@mun-ui/core"
 const scale = State(0.8)
 struct App: View {
   var body: some View {
@@ -254,7 +254,7 @@ export default App()`
     /AnyTransition\.scale\(scale:anchor:\) does not match a supported signature/,
   )
 
-  const dynamicDistance = `import { Rectangle, State, Transition } from "@mun/core"
+  const dynamicDistance = `import { Rectangle, State, Transition } from "@mun-ui/core"
 const distance = State(24)
 struct App: View {
   var body: some View {
@@ -270,7 +270,7 @@ export default App()`
 })
 
 test("native compiler rejects semantic constructs it cannot represent instead of silently defaulting", () => {
-  const unsupportedModifier = `import { Rectangle } from "@mun/core"
+  const unsupportedModifier = `import { Rectangle } from "@mun-ui/core"
 struct App: View {
   var body: some View {
     Rectangle().shadow(radius: 4)
@@ -283,7 +283,7 @@ export default App()`
     /View modifier \.shadow\(color:radius:x:y:\) is a SwiftUI modifier implemented only by the compatibility Web graph; native Semantic UI IR does not support it/,
   )
 
-  const unsupportedPadding = `import { Rectangle } from "@mun/core"
+  const unsupportedPadding = `import { Rectangle } from "@mun-ui/core"
 struct App: View {
   var body: some View {
     Rectangle().padding("wide")
@@ -296,7 +296,7 @@ export default App()`
     /padding edges must be Edge.Set members/,
   )
 
-  const unsupportedBackground = `import { Rectangle, State } from "@mun/core"
+  const unsupportedBackground = `import { Rectangle, State } from "@mun-ui/core"
 const highlighted = State(false)
 struct App: View {
   var body: some View {
@@ -312,7 +312,7 @@ export default App()`
 })
 
 test("native UI IR expands custom View structs with bound values, defaults, state, and conditionals", () => {
-  const source = `import { Color, Rectangle, State, Text, VStack } from "@mun/core"
+  const source = `import { Color, Rectangle, State, Text, VStack } from "@mun-ui/core"
 const expanded = State(false)
 
 struct StatusCard: View {
@@ -372,7 +372,7 @@ export default App()`
 })
 
 test("custom View expansion keeps per-instance bindings isolated and node identities distinct", () => {
-  const source = `import { Text, VStack } from "@mun/core"
+  const source = `import { Text, VStack } from "@mun-ui/core"
 
 struct Badge: View {
   let title: String
@@ -406,7 +406,7 @@ export default App()`
 
 
 test("nested custom Views resolve by qualified lexical scope instead of simple-name order", () => {
-  const source = `import { Text, VStack } from "@mun/core"
+  const source = `import { Text, VStack } from "@mun-ui/core"
 
 struct First: View {
   struct Badge: View {
@@ -483,7 +483,7 @@ export default App()`
 })
 
 test("custom View memberwise calls use the shared semantic initializer contract", () => {
-  const source = `import { Text } from "@mun/core"
+  const source = `import { Text } from "@mun-ui/core"
 
 struct Badge: View {
   let title: String
@@ -533,7 +533,7 @@ export default App()`
 })
 
 test("native explicit initializer assigns fields and honors default arguments", () => {
-  const source = `import { Rectangle, Text, VStack } from "@mun/core"
+  const source = `import { Rectangle, Text, VStack } from "@mun-ui/core"
 
 struct Badge: View {
   let title: String
@@ -585,7 +585,7 @@ export default App()`
   assert.deepEqual(widePanel?.layout?.width, { kind: "literal", value: 220 })
 })
 test("native built-ins validate calls through the shared semantic initializer contract", () => {
-  const source = `import { Button, State, Text, VStack } from "@mun/core"
+  const source = `import { Button, State, Text, VStack } from "@mun-ui/core"
 const enabled = State(false)
 
 struct App: View {
@@ -622,7 +622,7 @@ export default App()`
 })
 
 test("entry View @State lowers to owned semantic state used by reads and actions", () => {
-  const source = `import { Button, Text, VStack } from "@mun/core"
+  const source = `import { Button, Text, VStack } from "@mun-ui/core"
 
 struct App: View {
   @State var enabled: Bool = false
@@ -660,7 +660,7 @@ export default App()`
 })
 
 test("custom View instances own distinct @State identities and initial values", () => {
-  const source = `import { Button, Text, VStack } from "@mun/core"
+  const source = `import { Button, Text, VStack } from "@mun-ui/core"
 
 struct Counter: View {
   let initiallyEnabled: Bool
@@ -722,7 +722,7 @@ export default App()`
 })
 
 test("source .id(_:) keys literal structural identity while preserving dynamic runtime identity", () => {
-  const source = `import { State, Text, VStack } from "@mun/core"
+  const source = `import { State, Text, VStack } from "@mun-ui/core"
 struct App: View {
   @State var selection: String = "alpha"
 
@@ -752,7 +752,7 @@ export default App()`
   assert.deepEqual(dynamicNode.identityKey, { kind: "state", state: "@component/entry/App/selection" })
 
   assert.throws(
-    () => compileMunUiProgram(`import { Text } from "@mun/core"
+    () => compileMunUiProgram(`import { Text } from "@mun-ui/core"
 struct App: View {
   var body: some View {
     Text("Bad").id(true)
@@ -765,7 +765,7 @@ export default App()`, "invalid-identity-key.mun"),
 
 
 test("literal semantic identity keys are type-safe and separator-safe", () => {
-  const source = `import { Text, VStack } from "@mun/core"
+  const source = `import { Text, VStack } from "@mun-ui/core"
 struct App: View {
   var body: some View {
     VStack() {
@@ -799,7 +799,7 @@ test("static .id scopes component-owned @State independently of sibling position
   }
 }`
 
-  const before = `import { Button, Text, VStack } from "@mun/core"
+  const before = `import { Button, Text, VStack } from "@mun-ui/core"
 ${counter}
 struct App: View {
   var body: some View {
@@ -811,7 +811,7 @@ struct App: View {
 }
 export default App()`
 
-  const after = `import { Button, Text, VStack } from "@mun/core"
+  const after = `import { Button, Text, VStack } from "@mun-ui/core"
 ${counter}
 struct App: View {
   var body: some View {
@@ -853,7 +853,7 @@ export default App()`
 })
 
 test("dynamic .id rejects stateful native subtrees until runtime state scopes can follow the key", () => {
-  const source = `import { Button, State, VStack } from "@mun/core"
+  const source = `import { Button, State, VStack } from "@mun-ui/core"
 
 struct Counter: View {
   @State var enabled: Bool = false
@@ -882,7 +882,7 @@ export default App()`
 })
 
 test("structural identities do not renumber unrelated component state or nodes", () => {
-  const baselineSource = `import { Button, Text, VStack } from "@mun/core"
+  const baselineSource = `import { Button, Text, VStack } from "@mun-ui/core"
 
 struct Decoration: View {
   var body: some View {
@@ -911,7 +911,7 @@ struct App: View {
 
 export default App()`
 
-  const changedSource = `import { Button, Text, VStack } from "@mun/core"
+  const changedSource = `import { Button, Text, VStack } from "@mun-ui/core"
 
 struct Decoration: View {
   @State var pulse: Bool = false
@@ -970,7 +970,7 @@ export default App()`
 })
 
 test("custom View @Binding aliases parent-owned State without copying storage", () => {
-  const source = `import { Button, Text, VStack } from "@mun/core"
+  const source = `import { Button, Text, VStack } from "@mun-ui/core"
 
 struct ToggleRow: View {
   @Binding var enabled: Bool
@@ -1028,7 +1028,7 @@ export default App()`
   assert.deepEqual(parentConditional.condition, { kind: "state", state: state.name })
 })
 test("native custom View expansion still rejects unsupported binding ownership and recursion", () => {
-  const entryBinding = `import { Text } from "@mun/core"
+  const entryBinding = `import { Text } from "@mun-ui/core"
 
 struct App: View {
   @Binding var enabled: Bool
@@ -1060,7 +1060,7 @@ export default Loop()`
 
 
 test("native compiler preserves renderer-neutral lifecycle Transition descriptors", () => {
-  const source = `import { Animation, Rectangle, State, Transition, VStack } from "@mun/core"
+  const source = `import { Animation, Rectangle, State, Transition, VStack } from "@mun-ui/core"
 const visible = State(true)
 struct App: View {
   var body: some View {

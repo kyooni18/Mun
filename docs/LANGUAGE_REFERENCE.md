@@ -120,7 +120,7 @@ Full runtime error fidelity and typed imported-module checking remain gaps.
 IR diagnostics; the LSP recognizes the legacy `@main` native compilation unit.
 Web editor completion/hover still need migration from the native API catalog.
 
-Existing `.mun`, `.mun.ts`, direct JS/TS builders and `@mun/core/compat` imports
+Existing `.mun`, `.mun.ts`, direct JS/TS builders and `@mun-ui/core/compat` imports
 remain supported. This milestone fixes lost binding metadata and adds web control
 support; it does not remove native APIs or require rewriting existing consumers.
 New documentation and scaffolds use `.mun` and instance `@State` first. Native-only

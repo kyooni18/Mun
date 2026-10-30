@@ -8,7 +8,7 @@ import {
   type ModifiableViewNode,
   type ViewValue,
   type BindingRef,
-} from "@mun/core/compat"
+} from "@mun-ui/core/compat"
 
 export type ReactComponentProps<C extends ElementType> = ComponentProps<C>
 type RequiredReactPropKeys<Props> = {

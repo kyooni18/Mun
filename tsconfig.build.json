@@ -14,8 +14,8 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@mun/react": ["packages/react/dist/index.d.ts"],
-      "@mun/react/*": ["packages/react/dist/*"]
+      "@mun-ui/react": ["packages/react/dist/index.d.ts"],
+      "@mun-ui/react/*": ["packages/react/dist/*"]
     }
   },
   "files": [

@@ -8,34 +8,34 @@ importers:
 
   .:
     dependencies:
-      '@mun/animation':
+      '@mun-ui/animation':
         specifier: workspace:*
         version: link:packages/animation
-      '@mun/astro':
+      '@mun-ui/astro':
         specifier: workspace:*
         version: link:packages/astro
-      '@mun/compiler':
+      '@mun-ui/compiler':
         specifier: workspace:*
         version: link:packages/compiler
-      '@mun/core':
+      '@mun-ui/core':
         specifier: workspace:*
         version: link:packages/core
-      '@mun/execution':
+      '@mun-ui/execution':
         specifier: workspace:*
         version: link:packages/execution
-      '@mun/progressive-blur':
+      '@mun-ui/progressive-blur':
         specifier: workspace:*
         version: link:packages/progressive-blur
-      '@mun/react':
+      '@mun-ui/react':
         specifier: workspace:*
         version: link:packages/react
-      '@mun/vite':
+      '@mun-ui/vite':
         specifier: workspace:*
         version: link:packages/vite
-      '@mun/vue':
+      '@mun-ui/vue':
         specifier: workspace:*
         version: link:packages/vue
-      '@mun/web':
+      '@mun-ui/web':
         specifier: workspace:*
         version: link:packages/web
     devDependencies:
@@ -98,22 +98,22 @@ importers:
 
   packages/animation:
     dependencies:
-      '@mun/execution':
+      '@mun-ui/execution':
         specifier: workspace:*
         version: link:../execution
 
   packages/astro:
     dependencies:
-      '@mun/compiler':
+      '@mun-ui/compiler':
         specifier: workspace:*
         version: link:../compiler
-      '@mun/core':
+      '@mun-ui/core':
         specifier: workspace:*
         version: link:../core
-      '@mun/vite':
+      '@mun-ui/vite':
         specifier: workspace:*
         version: link:../vite
-      '@mun/web':
+      '@mun-ui/web':
         specifier: workspace:*
         version: link:../web
       astro:
@@ -125,13 +125,13 @@ importers:
 
   packages/compiler:
     dependencies:
-      '@mun/animation':
+      '@mun-ui/animation':
         specifier: workspace:*
         version: link:../animation
-      '@mun/core':
+      '@mun-ui/core':
         specifier: workspace:*
         version: link:../core
-      '@mun/execution':
+      '@mun-ui/execution':
         specifier: workspace:*
         version: link:../execution
       typescript:
@@ -140,13 +140,13 @@ importers:
 
   packages/core:
     dependencies:
-      '@mun/execution':
+      '@mun-ui/execution':
         specifier: workspace:*
         version: link:../execution
 
   packages/create-mun:
     dependencies:
-      '@mun/ui':
+      '@mun-ui/ui':
         specifier: workspace:*
         version: link:../..
 
@@ -154,7 +154,7 @@ importers:
 
   packages/legacy-react:
     dependencies:
-      '@mun/core':
+      '@mun-ui/core':
         specifier: workspace:*
         version: link:../core
       react:
@@ -169,16 +169,16 @@ importers:
 
   packages/progressive-blur:
     dependencies:
-      '@mun/animation':
+      '@mun-ui/animation':
         specifier: workspace:*
         version: link:../animation
-      '@mun/core':
+      '@mun-ui/core':
         specifier: workspace:*
         version: link:../core
 
   packages/react:
     dependencies:
-      '@mun/core':
+      '@mun-ui/core':
         specifier: workspace:*
         version: link:../core
       react:
@@ -200,13 +200,13 @@ importers:
 
   packages/vite:
     dependencies:
-      '@mun/compiler':
+      '@mun-ui/compiler':
         specifier: workspace:*
         version: link:../compiler
 
   packages/vue:
     dependencies:
-      '@mun/core':
+      '@mun-ui/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -216,10 +216,10 @@ importers:
 
   packages/web:
     dependencies:
-      '@mun/animation':
+      '@mun-ui/animation':
         specifier: workspace:*
         version: link:../animation
-      '@mun/core':
+      '@mun-ui/core':
         specifier: workspace:*
         version: link:../core
 

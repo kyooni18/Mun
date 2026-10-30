@@ -1,4 +1,4 @@
-import { initializersOf, munView, namedArguments, type ViewGraphValue } from "@mun/core/compat"
+import { initializersOf, munView, namedArguments, type ViewGraphValue } from "@mun-ui/core/compat"
 
 export type MunAstroComponent = ((...args: unknown[]) => ViewGraphValue) & {
   readonly __munComponent?: boolean

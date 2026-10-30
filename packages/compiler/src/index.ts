@@ -64,8 +64,8 @@ export type {
   SemanticStructSymbol,
   SemanticSymbol,
   SemanticViewTypeSymbol,
-} from "@mun/core"
-export { resolveSemanticCall, resolveSemanticInitializer, SemanticModel } from "@mun/core"
+} from "@mun-ui/core"
+export { resolveSemanticCall, resolveSemanticInitializer, SemanticModel } from "@mun-ui/core"
 export { createMunSourceMap, mapGeneratedPosition, mapOriginalPosition } from "./source-map.js"
 export type { MunSourceMapAnchor, MunSourcePosition } from "./source-map.js"
 

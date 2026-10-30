@@ -72,7 +72,7 @@ async function mountLiveValue(renderer, value) {
 }
 
 async function compiledSharedGraph() {
-  const source = `import { Button, State, Text, VStack } from "@mun/core/compat"
+  const source = `import { Button, State, Text, VStack } from "@mun-ui/core/compat"
 struct SharedCounter: View {
   @State var count = State(0)
   var body: some View {
@@ -93,8 +93,8 @@ async function importCompiled(source) {
   const code = ts.transpileModule(result.code, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText
-    .replaceAll('from "@mun/core/compat"', `from "${coreUrl}"`)
-    .replaceAll('from "@mun/core"', `from "${coreUrl}"`)
+    .replaceAll('from "@mun-ui/core/compat"', `from "${coreUrl}"`)
+    .replaceAll('from "@mun-ui/core"', `from "${coreUrl}"`)
   return import(`data:text/javascript,${encodeURIComponent(code)}`)
 }
 
@@ -361,7 +361,7 @@ test("same-name concrete View type changes remount State identically in React, V
 })
 
 test("SwiftUI-style @State, computed properties, and interpolation stay per instance", async () => {
-  const compiled = await importCompiled(`import { Button, HStack, Text, VStack } from "@mun/core/compat"
+  const compiled = await importCompiled(`import { Button, HStack, Text, VStack } from "@mun-ui/core/compat"
 struct Tally: View {
   let label: string
   @State var count = 0
@@ -391,7 +391,7 @@ export const create = () => VStack { Tally(label: "a"); Tally(label: "b") }`)
 })
 
 test("@Observable models injected with .environment update descendants in every renderer", async () => {
-  const compiled = await importCompiled(`import { Button, Text, VStack } from "@mun/core/compat"
+  const compiled = await importCompiled(`import { Button, Text, VStack } from "@mun-ui/core/compat"
 @Observable
 final class Store {
   var count = 0
@@ -429,7 +429,7 @@ export const create = () => Panel().environment(Store())`)
 })
 
 test("struct methods, toggle(), and lifecycle modifiers behave alike in every renderer", async () => {
-  const compiled = await importCompiled(String.raw`import { Button, Text, VStack } from "@mun/core/compat"
+  const compiled = await importCompiled(String.raw`import { Button, Text, VStack } from "@mun-ui/core/compat"
 export const log: string[] = []
 struct Item: View {
   var body: some View {

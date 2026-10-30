@@ -23,7 +23,7 @@ import {
   type ViewGraphValue,
   type ViewHostNode,
   type ViewModifierNode,
-} from "@mun/core/compat"
+} from "@mun-ui/core/compat"
 import {
   keyedCollectionChildKey,
   keyedCollectionEntryKey,
@@ -35,8 +35,8 @@ import {
   type CompiledPatchValues,
   type GPUIslandViewNode,
   type StateMutation,
-} from "@mun/core/internal/runtime"
-import { compositorMotionPropertyMask, layoutMotionPropertyMask, motionPropertyBit, paintMotionPropertyMask } from "@mun/core/internal/motion-abi"
+} from "@mun-ui/core/internal/runtime"
+import { compositorMotionPropertyMask, layoutMotionPropertyMask, motionPropertyBit, paintMotionPropertyMask } from "@mun-ui/core/internal/motion-abi"
 import { renderToHTML } from "./ssr.js"
 import { activateReusedHydratedTree, hydratedPropsMatch, hydrateNode } from "./hydration.js"
 import { applyDomProps, clearDomEvents, commitStagedDomProps, patchDomProps, setDomRef, synchronizeDomSelectValue, type DomAttributeMotionPolicy, type DomStyleMotionPolicy } from "./props.js"

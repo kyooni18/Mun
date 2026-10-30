@@ -258,11 +258,11 @@ function stateValuesInSource(source: string): boolean {
 function injectRuntimeImports(source: string, names: string): string {
   const required = names.split(',').map(name => name.trim()).filter(Boolean)
   const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun\/ui\/legacy\2[\t ]*;?/.exec(source)
-  if (!existing) return `import { ${required.join(', ')} } from '@mun/ui/legacy'\n${source}`
+  if (!existing) return `import { ${required.join(', ')} } from '@mun-ui/ui/legacy'\n${source}`
 
   const imported = existing[1].split(',').map(name => name.trim()).filter(Boolean)
   const merged = [...imported]
   for (const name of required) if (!merged.includes(name)) merged.push(name)
-  const replacement = `import { ${merged.join(', ')} } from '@mun/ui/legacy'`
+  const replacement = `import { ${merged.join(', ')} } from '@mun-ui/ui/legacy'`
   return source.slice(0, existing.index) + replacement + source.slice(existing.index + existing[0].length)
 }

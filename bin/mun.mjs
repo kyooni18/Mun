@@ -106,18 +106,18 @@ const projectFiles = [
 ]
 
 const localPackagePaths = {
-  '@mun/ui': '.',
-  '@mun/astro': 'packages/astro',
-  '@mun/animation': 'packages/animation',
-  '@mun/core': 'packages/core',
-  '@mun/compiler': 'packages/compiler',
-  '@mun/execution': 'packages/execution',
-  '@mun/legacy-react': 'packages/legacy-react',
-  '@mun/progressive-blur': 'packages/progressive-blur',
-  '@mun/react': 'packages/react',
-  '@mun/vue': 'packages/vue',
-  '@mun/web': 'packages/web',
-  '@mun/vite': 'packages/vite',
+  '@mun-ui/ui': '.',
+  '@mun-ui/astro': 'packages/astro',
+  '@mun-ui/animation': 'packages/animation',
+  '@mun-ui/core': 'packages/core',
+  '@mun-ui/compiler': 'packages/compiler',
+  '@mun-ui/execution': 'packages/execution',
+  '@mun-ui/legacy-react': 'packages/legacy-react',
+  '@mun-ui/progressive-blur': 'packages/progressive-blur',
+  '@mun-ui/react': 'packages/react',
+  '@mun-ui/vue': 'packages/vue',
+  '@mun-ui/web': 'packages/web',
+  '@mun-ui/vite': 'packages/vite',
 }
 
 function template(source) {
@@ -226,7 +226,7 @@ function assertSourceCheckout(localRoot) {
   const manifestPath = resolve(localRoot, 'package.json')
   if (!existsSync(manifestPath)) throw new Error(`Local Mün checkout has no package.json: ${localRoot}`)
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  if (manifest.name !== '@mun/ui') throw new Error(`Local checkout is not @mun/ui: ${localRoot}`)
+  if (manifest.name !== '@mun-ui/ui') throw new Error(`Local checkout is not @mun-ui/ui: ${localRoot}`)
   for (const relativePath of Object.values(localPackagePaths)) {
     if (relativePath === '.') continue
     if (!existsSync(resolve(localRoot, relativePath, 'package.json'))) {
@@ -268,40 +268,40 @@ function configureLocalDependencies(projectRoot, localRoot, renderer = 'react', 
   manifest.dependencies ??= {}
   manifest.devDependencies ??= {}
 
-  // Templates depend on @mun/ui for its opt-in features; never let a local
+  // Templates depend on @mun-ui/ui for its opt-in features; never let a local
   // project resolve it from the registry.
-  const linkRootPackage = includeRootPackage || manifest.dependencies['@mun/ui'] !== undefined
-  if (linkRootPackage) manifest.dependencies['@mun/ui'] = linkSpecifier(localRoot)
-  manifest.dependencies[`@mun/${renderer}`] = linkSpecifier(resolve(localRoot, `packages/${renderer}`))
-  manifest.devDependencies['@mun/vite'] = linkSpecifier(resolve(localRoot, 'packages/vite'))
+  const linkRootPackage = includeRootPackage || manifest.dependencies['@mun-ui/ui'] !== undefined
+  if (linkRootPackage) manifest.dependencies['@mun-ui/ui'] = linkSpecifier(localRoot)
+  manifest.dependencies[`@mun-ui/${renderer}`] = linkSpecifier(resolve(localRoot, `packages/${renderer}`))
+  manifest.devDependencies['@mun-ui/vite'] = linkSpecifier(resolve(localRoot, 'packages/vite'))
 
   // link: packages deliberately do not install their own dependency graph.
   // Add the internal runtime/compiler plumbing directly so bundlers that
   // resolve through the consumer's node_modules (Vite/Rolldown included)
   // see the same graph as the Mün workspace.
-  for (const name of ['@mun/animation', '@mun/core', '@mun/compiler', '@mun/execution', '@mun/web']) {
+  for (const name of ['@mun-ui/animation', '@mun-ui/core', '@mun-ui/compiler', '@mun-ui/execution', '@mun-ui/web']) {
     manifest.devDependencies[name] = linkSpecifier(resolve(localRoot, localPackagePaths[name]))
   }
-  // Opt-in @mun/ui features re-export internal modules; a linked @mun/ui
+  // Opt-in @mun-ui/ui features re-export internal modules; a linked @mun-ui/ui
   // does not install them itself.
-  if (linkRootPackage) manifest.devDependencies['@mun/progressive-blur'] = linkSpecifier(resolve(localRoot, localPackagePaths['@mun/progressive-blur']))
+  if (linkRootPackage) manifest.devDependencies['@mun-ui/progressive-blur'] = linkSpecifier(resolve(localRoot, localPackagePaths['@mun-ui/progressive-blur']))
   // pnpm 11 moved overrides out of package.json and into pnpm-workspace.yaml.
   // Keep every internal package pinned to this checkout so unpublished
-  // transitive @mun/* dependencies never fall through to the registry.
+  // transitive @mun-ui/* dependencies never fall through to the registry.
   if (manifest.pnpm?.overrides) {
     delete manifest.pnpm.overrides
     if (Object.keys(manifest.pnpm).length === 0) delete manifest.pnpm
   }
   const selectedOverrideNames = [
-    '@mun/animation',
-    '@mun/core',
-    '@mun/compiler',
-    '@mun/execution',
-    '@mun/web',
-    '@mun/vite',
-    `@mun/${renderer}`,
+    '@mun-ui/animation',
+    '@mun-ui/core',
+    '@mun-ui/compiler',
+    '@mun-ui/execution',
+    '@mun-ui/web',
+    '@mun-ui/vite',
+    `@mun-ui/${renderer}`,
   ]
-  if (linkRootPackage) selectedOverrideNames.push('@mun/progressive-blur')
+  if (linkRootPackage) selectedOverrideNames.push('@mun-ui/progressive-blur')
   const overridePaths = includeRootPackage
     ? localPackagePaths
     : Object.fromEntries([...new Set(selectedOverrideNames)].map(name => [name, localPackagePaths[name]]))

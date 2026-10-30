@@ -143,7 +143,7 @@ test("Key and ElementRef are immutable graph modifiers", () => {
   assert.equal(referenced.kind, "modified")
 })
 
-test("@mun/react advanced Views are compatibility aliases of core Views", () => {
+test("@mun-ui/react advanced Views are compatibility aliases of core Views", () => {
   assert.equal(ReactBox, Box)
   assert.equal(ReactGrid, Grid)
 })

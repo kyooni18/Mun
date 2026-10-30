@@ -1,5 +1,5 @@
 // JSDOM structural benchmark, not a browser layout/frame-time measurement.
-// Run after building @mun/web: node benchmarks/patch-ranges.mjs
+// Run after building @mun-ui/web: node benchmarks/patch-ranges.mjs
 import assert from "node:assert/strict"
 import { performance } from "node:perf_hooks"
 import { JSDOM } from "jsdom"

@@ -22,13 +22,13 @@ const Text = defineBuiltinView(
   ({ value }) => viewElement("span", null, [value]),
 )
 
-test("@mun/react renders the core graph at the React boundary", () => {
+test("@mun-ui/react renders the core graph at the React boundary", () => {
   const html = renderToStaticMarkup(render(Text("Hello").padding(8)))
   assert.match(html, /<span style="padding:8px">Hello<\/span>/)
   assert.equal(renderToStaticMarkup(render(Text("Styled").className(["card", false, "active"]))), '<span class="card active">Styled</span>')
 })
 
-test("@mun/react materializes compiled templates through the native template path", () => {
+test("@mun-ui/react materializes compiled templates through the native template path", () => {
   const template = defineCompiledTemplate({
     kind: "element", type: "div", props: { className: "compiled" }, children: [
       { kind: "element", type: "span", props: null, children: ["Static"] },
@@ -38,13 +38,13 @@ test("@mun/react materializes compiled templates through the native template pat
   assert.equal(renderToStaticMarkup(render(compiledTemplate(template, ["React template"]))), '<div class="compiled"><span>Static</span><span>React template</span></div>')
 })
 
-test("@mun/react view keeps props at the renderer boundary", () => {
+test("@mun-ui/react view keeps props at the renderer boundary", () => {
   const Greeting = view(({ name }) => Text(`Hello, ${name}`))
   const html = renderToStaticMarkup(createElement(Greeting, { name: "Mun" }))
   assert.equal(html, "<span>Hello, Mun</span>")
 })
 
-test("@mun/react stateful view scopes State creation to each mounted identity", () => {
+test("@mun-ui/react stateful view scopes State creation to each mounted identity", () => {
   let factories = 0
   const Counter = view({
     state: () => { factories += 1; return { count: State(2) } },
@@ -55,7 +55,7 @@ test("@mun/react stateful view scopes State creation to each mounted identity", 
   assert.equal(factories, 2)
 })
 
-test("@mun/react adapts raw HTML names to native React props at the boundary", () => {
+test("@mun-ui/react adapts raw HTML names to native React props at the boundary", () => {
   const save = () => undefined
   const element = render(Element("button", { class: "card", for: "name", onclick: save }, "Save"))
   assert.equal(element.props.className, "card")
@@ -63,13 +63,13 @@ test("@mun/react adapts raw HTML names to native React props at the boundary", (
   assert.equal(element.props.onClick, save)
 })
 
-test("@mun/react adapts real inline CSS strings at the renderer boundary", () => {
+test("@mun-ui/react adapts real inline CSS strings at the renderer boundary", () => {
   const element = render(Element("x-card", { style: "color: red; --accent: blue", "data-kind": "custom" }, "Card"))
   assert.deepEqual(element.props.style, { color: "red", "--accent": "blue" })
   assert.equal(element.props["data-kind"], "custom")
 })
 
-test("@mun/react shares core scroll and safe-area Views", () => {
+test("@mun-ui/react shares core scroll and safe-area Views", () => {
   const value = SafeArea(() => [ScrollView("horizontal", () => [Element("span", null, "Items")])])
   const html = renderToStaticMarkup(render(value))
   assert.match(html, /data-mun="SafeArea"/)
@@ -78,7 +78,7 @@ test("@mun/react shares core scroll and safe-area Views", () => {
   assert.match(html, /overflow-y:hidden/)
 })
 
-test("@mun/react materializes GeometryReader with a renderer-owned boundary", () => {
+test("@mun-ui/react materializes GeometryReader with a renderer-owned boundary", () => {
   const value = GeometryReader(geometry => Element("span", null, `${geometry.size.width}x${geometry.size.height}`))
   const html = renderToStaticMarkup(render(value))
   assert.match(html, /data-mun="GeometryReader"/)

@@ -1,2 +1,2 @@
-/** SwiftUI-inspired JavaScript View authoring API. Use @mun/web to render. */
-export * from "@mun/core"
+/** SwiftUI-inspired JavaScript View authoring API. Use @mun-ui/web to render. */
+export * from "@mun-ui/core"

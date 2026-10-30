@@ -1,5 +1,5 @@
 import * as ts from "typescript"
-import type { ResidentRegionIR } from "@mun/core/internal/execution"
+import type { ResidentRegionIR } from "@mun-ui/core/internal/execution"
 import {
   analyzeMunMapperFunction,
   analyzeMunScalarFunction,

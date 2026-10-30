@@ -4,12 +4,12 @@ import {
   type MunUiPaint,
   type MunUiTransition,
   type TransitionEffect,
-} from "@mun/core"
+} from "@mun-ui/core"
 import {
   munExtension,
   nativeValueMemberSymbols,
   swiftUIApiManifest,
-} from "@mun/core/swiftui-manifest"
+} from "@mun-ui/core/swiftui-manifest"
 import { parseMunBuilder, type MunArgument } from "./ast.js"
 import { resolveContractCall, type ContractArgument } from "./native-contract.js"
 import { splitTopLevel } from "./scanner.js"

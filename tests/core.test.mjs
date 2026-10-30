@@ -81,7 +81,7 @@ const Text = defineBuiltinView(
   ({ value }) => viewElement("span", null, [value]),
 )
 
-test("@mun/core/compat builds a renderer-independent graph with immutable modifiers", () => {
+test("@mun-ui/core/compat builds a renderer-independent graph with immutable modifiers", () => {
   const original = Text("Hello")
   const modified = original.font("title").padding(12)
   assert.notEqual(original, modified)
@@ -105,7 +105,7 @@ test("@mun/core/compat builds a renderer-independent graph with immutable modifi
   assert.deepEqual(modifierGraphOf(batched).map(item => item.name), ["font", "padding"])
 })
 
-test("@mun/core/compat Switch keeps fractional geometry and isolates animatable channels", () => {
+test("@mun-ui/core/compat Switch keeps fractional geometry and isolates animatable channels", () => {
   const enabled = State(true)
   const graph = inspectGraph(CoreSwitch(Binding(enabled), {
     size: 22,
@@ -131,7 +131,7 @@ test("@mun/core/compat Switch keeps fractional geometry and isolates animatable 
   assert.equal(displayOnly.content.props.onClick, undefined)
 })
 
-test("@mun/core/compat Switch uses theme hooks with dark-safe defaults", () => {
+test("@mun-ui/core/compat Switch uses theme hooks with dark-safe defaults", () => {
   const enabled = State(true)
   const graph = inspectGraph(CoreSwitch(Binding(enabled), { size: 22 }))
   const [trackAnimation, thumbAnimation] = graph.content.children
@@ -142,7 +142,7 @@ test("@mun/core/compat Switch uses theme hooks with dark-safe defaults", () => {
   assert.equal(graph.arguments[0].background, "var(--mun-switch-off-bg, light-dark(#e9e9ea, #3a3a3c))")
 })
 
-test("@mun/core/compat preserves automatic and explicit animation modifier call shapes", () => {
+test("@mun-ui/core/compat preserves automatic and explicit animation modifier call shapes", () => {
   const automatic = modifierGraphOf(CoreText("Auto").opacity(0.5).animation())
   assert.deepEqual(automatic.map(item => [item.name, item.arguments]), [["opacity", [0.5]], ["animation", []]])
 
@@ -154,7 +154,7 @@ test("@mun/core/compat preserves automatic and explicit animation modifier call 
   assert.deepEqual(triggered.at(-1).arguments, [explicit, true])
 })
 
-test("@mun/core/compat trusted compiled paths skip redundant initializer and modifier shape work", () => {
+test("@mun-ui/core/compat trusted compiled paths skip redundant initializer and modifier shape work", () => {
   const CompiledProbe = defineBuiltinView(
     "CompiledProbe",
     [initializer("CompiledProbe(value)", args => args.length === 1 && typeof args[0] === "string", args => ({ value: args[0] }), [initializerKinds.value(true, undefined, undefined, "string")])],
@@ -176,7 +176,7 @@ test("@mun/core/compat trusted compiled paths skip redundant initializer and mod
   assert.deepEqual(modifierGraphOf(modified)[0].arguments[0], { opacity: 0.5 })
 })
 
-test("@mun/core/compat compiled templates preserve generic rendering, native fast paths, immutability, and View identity", () => {
+test("@mun-ui/core/compat compiled templates preserve generic rendering, native fast paths, immutability, and View identity", () => {
   const root = {
     kind: "element",
     type: "div",
@@ -514,7 +514,7 @@ test("class values omit array accessors without executing them", () => {
   assert.equal(getterCalls, 0)
 })
 
-test("@mun/core/compat state and Binding stay independent from a renderer", () => {
+test("@mun-ui/core/compat state and Binding stay independent from a renderer", () => {
   const state = State(1)
   const binding = Binding(state)
   let notifications = 0
@@ -944,7 +944,7 @@ test("State and Binding preserve derived, nested, and writable-lens semantics", 
   assert.equal(base.value, 5)
 })
 
-test("@mun/core/compat keeps View identity storage renderer-independent", () => {
+test("@mun-ui/core/compat keeps View identity storage renderer-independent", () => {
   const store = createViewIdentityStore()
   const identity = {}
   let creations = 0
@@ -954,7 +954,7 @@ test("@mun/core/compat keeps View identity storage renderer-independent", () => 
   assert.equal(store.getOrCreate(identity, () => ++creations), 2)
 })
 
-test("@mun/core/compat makes View type changes explicit remount boundaries", () => {
+test("@mun-ui/core/compat makes View type changes explicit remount boundaries", () => {
   const First = defineView("FirstBranch", { initializers: [initializer("FirstBranch()", args => args.length === 0)], body: () => CoreText("first") })
   const Second = defineView("SecondBranch", { initializers: [initializer("SecondBranch()", args => args.length === 0)], body: () => CoreText("second") })
   const identities = []
@@ -981,7 +981,7 @@ test("@mun/core/compat makes View type changes explicit remount boundaries", () 
   assert.notDeepEqual(identities.at(-2), identities.at(-1))
 })
 
-test("@mun/core/compat owns built-in and custom View graphs without a renderer", () => {
+test("@mun-ui/core/compat owns built-in and custom View graphs without a renderer", () => {
   const card = defineView("Card", {
     initializers: [initializer(
       "Card(@ViewBuilder content)",
@@ -1008,7 +1008,7 @@ test("@mun/core/compat owns built-in and custom View graphs without a renderer",
   assert.equal(graph.children[0].props.class, "card")
 })
 
-test("@mun/core/compat represents foreign components as explicit graph descriptors", () => {
+test("@mun-ui/core/compat represents foreign components as explicit graph descriptors", () => {
   const reference = { current: null }
   const component = function ProfileCard() { return null }
   const value = ForeignComponent(component, {
@@ -1159,7 +1159,7 @@ test("ForeignComponent snapshots nested schema records", () => {
   assert.equal(Object.isFrozen(value.type.schema.slots), true)
 })
 
-test("@mun/core/compat normalizes boolean leaves and rejects unsupported leaves before renderers", () => {
+test("@mun-ui/core/compat normalizes boolean leaves and rejects unsupported leaves before renderers", () => {
   const values = []
   const renderer = {
     element(type, props, ...children) { return { type, props, children } },
@@ -1178,7 +1178,7 @@ test("@mun/core/compat normalizes boolean leaves and rejects unsupported leaves 
   }
 })
 
-test("@mun/core/compat gives ForEach children stable identity keys", () => {
+test("@mun-ui/core/compat gives ForEach children stable identity keys", () => {
   const value = ForEach([{ id: "a", label: "A" }, { id: "b", label: "B" }], item => CoreText(item.label))
   assert.deepEqual(modifierGraphOf(value.children[0]).map(item => item.arguments), [["string:1:a|occurrence:0|child:0"]])
   assert.deepEqual(modifierGraphOf(value.children[1]).map(item => item.arguments), [["string:1:b|occurrence:0|child:0"]])
@@ -1545,7 +1545,7 @@ test("lazy containers are distinct graph constructors with browser lazy metadata
   }
 })
 
-test("@mun/core/compat exposes renderer-independent scroll and safe-area semantics", () => {
+test("@mun-ui/core/compat exposes renderer-independent scroll and safe-area semantics", () => {
   const scroll = ScrollView("both", () => [CoreText("Scrollable")])
   const safe = SafeArea(["top", "bottom"], () => [scroll])
   assert.equal(safe.kind, "element")
@@ -1560,7 +1560,7 @@ test("@mun/core/compat exposes renderer-independent scroll and safe-area semanti
   assert.equal(safe.children[0].props["data-mun"], "ScrollView")
 })
 
-test("@mun/core/compat falls back to a deterministic zero GeometryProxy without a renderer", () => {
+test("@mun-ui/core/compat falls back to a deterministic zero GeometryProxy without a renderer", () => {
   const value = GeometryReader(geometry => CoreText(`${geometry.size.width}x${geometry.size.height}`))
   const rendered = renderViewNode(value, {
     element(type, props, ...children) { return { type, props, children } },
@@ -1572,7 +1572,7 @@ test("@mun/core/compat falls back to a deterministic zero GeometryProxy without 
   assert.equal(rendered.children[0], "0x0")
 })
 
-test("@mun/core/compat normalizes measured CSS safe-area values", () => {
+test("@mun-ui/core/compat normalizes measured CSS safe-area values", () => {
   assert.deepEqual(edgeInsetsFromCss({ top: "12px", right: "8.5px", bottom: "env(safe-area-inset-bottom)", left: 4 }), {
     top: 12,
     right: 8.5,
@@ -1611,7 +1611,7 @@ test("layout normalization utilities do not execute option accessors", () => {
   assert.equal(getterCalls, 0)
 })
 
-test("@mun/core/compat applies declared generic View constraints during initializer resolution", () => {
+test("@mun-ui/core/compat applies declared generic View constraints during initializer resolution", () => {
   const GenericCard = defineView("GenericCard", {
     genericParameters: "Content: View",
     initializers: [initializer(
@@ -1626,12 +1626,12 @@ test("@mun/core/compat applies declared generic View constraints during initiali
   assert.throws(() => GenericCard("not a View"), /No matching initializer for GenericCard/)
 })
 
-test("@mun/core/compat resolves declared union value types without overload-order bias", () => {
+test("@mun-ui/core/compat resolves declared union value types without overload-order bias", () => {
   assert.doesNotThrow(() => CoreText(42))
   assert.doesNotThrow(() => CoreButton(42, () => undefined))
 })
 
-test("@mun/core/compat routes a trailing closure past omitted optional parameters", () => {
+test("@mun-ui/core/compat routes a trailing closure past omitted optional parameters", () => {
   const result = resolveSemanticInitializer([
     {
       kind: "initializer",
@@ -1647,7 +1647,7 @@ test("@mun/core/compat routes a trailing closure past omitted optional parameter
   assert.equal(result.ok && result.resolution.arguments[1]?.trailing, true)
 })
 
-test("@mun/core/compat recovers runtime trailing closures after omitted optional parameters", () => {
+test("@mun-ui/core/compat recovers runtime trailing closures after omitted optional parameters", () => {
   let captured
   const RuntimeLink = defineView("RuntimeLink", {
     initializers: [initializer(
@@ -1684,7 +1684,7 @@ test("@mun/core/compat recovers runtime trailing closures after omitted optional
   assert.equal(closureKindOf(captured[4]), "viewBuilder")
 })
 
-test("@mun/core/compat resolves MkA-shaped labeled optionals with a runtime trailing builder", () => {
+test("@mun-ui/core/compat resolves MkA-shaped labeled optionals with a runtime trailing builder", () => {
   let captured
   const RuntimeMkA = defineView("RuntimeMkA", {
     initializers: [initializer(
@@ -1718,12 +1718,12 @@ test("@mun/core/compat resolves MkA-shaped labeled optionals with a runtime trai
   assert.equal(closureKindOf(captured[6]), "viewBuilder")
 })
 
-test("@mun/core/compat applies Content: View constraints to built-in stack builders", () => {
+test("@mun-ui/core/compat applies Content: View constraints to built-in stack builders", () => {
   assert.doesNotThrow(() => CoreVStack(() => [CoreText("valid")]))
   assert.throws(() => CoreVStack(() => ["not a View"]), /No matching initializer for VStack/)
 })
 
-test("@mun/core/compat exposes the same View symbol consumed by compiler adapters", () => {
+test("@mun-ui/core/compat exposes the same View symbol consumed by compiler adapters", () => {
   assert.equal(CoreText.viewType.semanticSymbol.kind, "view")
   assert.equal(CoreText.viewType.semanticSymbol.name, "Text")
   assert.equal(CoreText.viewType.semanticSymbol.initializers[0].parameters[0].type, "string | number")

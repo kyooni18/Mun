@@ -57,7 +57,7 @@ struct App: View {
 export default App()
 `, 'Shadow.mun')
   assert.ok(!builtinImports(shadowed).has('Text'), 'a user View named Text wins over the built-in')
-  const aliased = transformMunSource(`import { Text as Label2 } from "@mun/core"
+  const aliased = transformMunSource(`import { Text as Label2 } from "@mun-ui/core"
 struct App: View {
   var body: some View { VStack { Label2("explicit"); Text("auto") } }
 }
@@ -65,7 +65,7 @@ export default App()
 `, 'Explicit.mun')
   assert.match(aliased, /import \{ Text as Label2 \} from "@mun\/core"/u, 'explicit imports stay supported')
   assert.ok(builtinImports(aliased).has('Text'))
-  const explicit = transformMunSource(`import { Text } from "@mun/core"
+  const explicit = transformMunSource(`import { Text } from "@mun-ui/core"
 struct App: View { var body: some View { Text("x") } }
 export default App()
 `, 'Own.mun')

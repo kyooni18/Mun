@@ -107,7 +107,7 @@ test("Image and Link stay graph values until rendered", () => {
   assert.match(renderToStaticMarkup(render(Link("Docs", "/docs"))), /href="\/docs".*Docs/)
 })
 
-test("@mun/react controls are compatibility aliases of core controls", () => {
+test("@mun-ui/react controls are compatibility aliases of core controls", () => {
   assert.equal(ReactImage, Image)
   assert.equal(ReactToggle, Toggle)
   assert.equal(ReactSwitch, Switch)

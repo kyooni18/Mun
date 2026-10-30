@@ -128,13 +128,13 @@ test('workspace-local toolchain discovery launches the actual LSP with version v
   const directory = mkdtempSync(resolve(tmpdir(), 'mun-lsp-client-'))
   let client
   try {
-    const local = resolve(directory, 'node_modules/@mun/ui')
+    const local = resolve(directory, 'node_modules/@mun-ui/ui')
     mkdirSync(local, { recursive: true })
     cpSync(new URL('../package.json', import.meta.url), resolve(local, 'package.json'))
     // Isolate the public CLI/LSP files; dependency resolution is supplied explicitly for this source fixture.
     cpSync(new URL('../bin', import.meta.url), resolve(local, 'bin'), { recursive: true })
     cpSync(new URL('../editors', import.meta.url), resolve(local, 'editors'), { recursive: true })
-    symlinkSync(resolve('node_modules/@mun/compiler'), resolve(directory, 'node_modules/@mun/compiler'), 'junction')
+    symlinkSync(resolve('node_modules/@mun-ui/compiler'), resolve(directory, 'node_modules/@mun-ui/compiler'), 'junction')
     const version = JSON.parse(readFileSync(resolve(local, 'package.json'))).version
     const base = await discoverMunCommand({ cwd: directory, expectedVersion: version })
     assert.equal(base.args[0], resolve(local, 'bin/mun.mjs'))
@@ -153,7 +153,7 @@ test('workspace-local toolchain discovery launches the actual LSP with version v
   } finally {
     await client?.dispose()
     // Windows keeps handles briefly after the server exits; drop the junction first and retry.
-    rmSync(resolve(directory, 'node_modules/@mun/compiler'), { recursive: true, force: true })
+    rmSync(resolve(directory, 'node_modules/@mun-ui/compiler'), { recursive: true, force: true })
     rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   }
 })

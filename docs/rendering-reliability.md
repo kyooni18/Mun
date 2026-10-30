@@ -1,7 +1,7 @@
 # Web rendering and release guarantees
 
 Mün's primary production target is the renderer-independent View graph with
-`@mun/web` DOM rendering, SSR and hydration. React, Vue and Astro are optional
+`@mun-ui/web` DOM rendering, SSR and hydration. React, Vue and Astro are optional
 adapters. Native Semantic UI IR and resident/accelerated execution are experimental,
 opt-in backends, not prerequisites for web rendering. Historical native-first
 proposals are not production guarantees.
@@ -172,7 +172,7 @@ it as a missing value. Completion, cancellation and disposal explicitly release
 both Web Animation listeners, timer handles and completion callbacks. Partially
 initialized animations are cancelled immediately before falling back to a timer.
 
-Reproduce the range measurements after building `@mun/web`:
+Reproduce the range measurements after building `@mun-ui/web`:
 
 ```sh
 node benchmarks/patch-ranges.mjs

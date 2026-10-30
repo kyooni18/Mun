@@ -1,5 +1,5 @@
 {
-  "name": "@mun/astro",
+  "name": "@mun-ui/astro",
   "version": "0.1.20",
   "description": "First-class Astro renderer and embedded @mun integration for Mün.",
   "type": "module",
@@ -29,10 +29,10 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@mun/compiler": "workspace:*",
-    "@mun/core": "workspace:*",
-    "@mun/vite": "workspace:*",
-    "@mun/web": "workspace:*",
+    "@mun-ui/compiler": "workspace:*",
+    "@mun-ui/core": "workspace:*",
+    "@mun-ui/vite": "workspace:*",
+    "@mun-ui/web": "workspace:*",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

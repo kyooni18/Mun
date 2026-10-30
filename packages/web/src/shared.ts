@@ -1,7 +1,7 @@
 import type { LazyMeasurementIndex } from "./lazy-index.js"
-import { animationCSSStyle, classNameOf, currentRenderTransaction, frameStyle, layoutLength, swiftUIAnimatableModifierNames, type Animation, type GeometryProxy, type LazyViewNode, type LazyViewRange, type Transaction, type ViewModifierNode } from "@mun/core/compat"
-import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@mun/core/corners"
-import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@mun/core/internal/runtime"
+import { animationCSSStyle, classNameOf, currentRenderTransaction, frameStyle, layoutLength, swiftUIAnimatableModifierNames, type Animation, type GeometryProxy, type LazyViewNode, type LazyViewRange, type Transaction, type ViewModifierNode } from "@mun-ui/core/compat"
+import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@mun-ui/core/corners"
+import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@mun-ui/core/internal/runtime"
 
 function alignmentCSSPosition(value: unknown, fallback = "center"): string {
   switch (value) {

@@ -171,7 +171,7 @@ const ordinaryDynamicGraph = measure(`ordinary dynamic graph construction ${temp
 const templateDynamicGraph = measure(`compiled template construction ${templateConstructionCount}`, () => Array.from({ length: templateConstructionCount }, (_, index) => compiledTemplate(dynamicTextTemplate, [String(index)])))
 ratio("compiled template construction", templateDynamicGraph, ordinaryDynamicGraph, budgets.templateConstruction)
 
-const compilerSource = `import { Text, VStack } from "@mun/ui"
+const compilerSource = `import { Text, VStack } from "@mun-ui/ui"
 struct BenchCard: View {
   let title: string
   init(title: string) { self.title = title }

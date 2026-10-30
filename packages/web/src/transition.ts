@@ -1,4 +1,4 @@
-import { Animation, animationCSSStyle, type Transition, type TransitionEffect } from "@mun/core/compat"
+import { Animation, animationCSSStyle, type Transition, type TransitionEffect } from "@mun-ui/core/compat"
 
 export interface WebTransitionPlayback {
   readonly durationMs: number

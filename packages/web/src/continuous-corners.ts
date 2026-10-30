@@ -1,4 +1,4 @@
-import { APPLE_CONTINUOUS_CORNER_SMOOTHING, continuousCornerPath, expandCornerRadiusShorthand } from "@mun/core/corners"
+import { APPLE_CONTINUOUS_CORNER_SMOOTHING, continuousCornerPath, expandCornerRadiusShorthand } from "@mun-ui/core/corners"
 
 const observers = new WeakMap<Element, ResizeObserver>()
 const lastClip = new WeakMap<Element, string>()

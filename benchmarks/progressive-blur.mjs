@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises"
 import { chromium } from "@playwright/test"
 
 // Isolate the real CSS probe from application startup and measure each browser
-// context only once. Run after building @mun/animation.
+// context only once. Run after building @mun-ui/animation.
 const server = createServer(async (request, response) => {
   if (request.url === "/index.js" || request.url === "/probe.js") {
     const source = await readFile(new URL(`../packages/animation/dist/src/rendering-quality${request.url}`, import.meta.url))

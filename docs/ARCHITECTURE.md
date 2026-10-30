@@ -6,15 +6,15 @@ identity, and animation. DOM/CSS rendering is the primary production direction.
 
 ```text
 JS / TS builders -------------------------+
-.mun -> @mun/compiler -> JavaScript -------+-> @mun/core -> @mun/web -> DOM / HTML
+.mun -> @mun-ui/compiler -> JavaScript -------+-> @mun-ui/core -> @mun-ui/web -> DOM / HTML
                                                       -> optional React / Vue / Astro
 ```
 
-`@mun/core` and `@mun/ui` expose the same renderer-independent View authoring
-API. `@mun/core/compat` is a supported alias for earlier renderer imports, not a
+`@mun-ui/core` and `@mun-ui/ui` expose the same renderer-independent View authoring
+API. `@mun-ui/core/compat` is a supported alias for earlier renderer imports, not a
 separate second-class authoring model. Renderers consume View graphs; core does
-not depend on a renderer. `@mun/web` provides mounting, SSR, and hydration.
-`@mun/vite` compiles `.mun` modules for a standard Vite frontend. Direct JS/TS
+not depend on a renderer. `@mun-ui/web` provides mounting, SSR, and hydration.
+`@mun-ui/vite` compiles `.mun` modules for a standard Vite frontend. Direct JS/TS
 builders remain supported for integration and existing consumers.
 
 Both SSR and client compilation use `transformMunSource`: parsed source structs,

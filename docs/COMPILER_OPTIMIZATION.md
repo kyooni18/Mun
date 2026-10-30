@@ -3,7 +3,7 @@
 Mün treats optimization as removal of work whose semantic answer is already
 known, not as a second definition of the UI language. The canonical View graph,
 initializer metadata, State/Binding semantics, identity rules, and renderer
-contracts remain owned by `@mun/core`.
+contracts remain owned by `@mun-ui/core`.
 
 ## Optimization pipeline
 

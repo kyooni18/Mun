@@ -1,7 +1,7 @@
 import * as ts from "typescript"
-import * as Core from "@mun/core/compat"
-import { initializersOf, swiftUIStaticModifierNames, type InitializerParameter } from "@mun/core/compat"
-import { motionPropertyBit, motionPropertyMask } from "@mun/core/internal/motion-abi"
+import * as Core from "@mun-ui/core/compat"
+import { initializersOf, swiftUIStaticModifierNames, type InitializerParameter } from "@mun-ui/core/compat"
+import { motionPropertyBit, motionPropertyMask } from "@mun-ui/core/internal/motion-abi"
 import { lowerImplicitMemberShorthand, lowerShorthand } from "./shorthand.js"
 
 function compilerRootFileName(fileName: string): string {
@@ -76,7 +76,7 @@ function createMunTypeScriptProgram(source: string, fileName: string): MunTypeSc
   let workspaceSelfReference = false
   try {
     const packageSource = ts.sys.readFile(`${currentDirectory.replace(/[\\/]$/, "")}/package.json`)
-    workspaceSelfReference = packageSource ? JSON.parse(packageSource).name === "@mun/ui" : false
+    workspaceSelfReference = packageSource ? JSON.parse(packageSource).name === "@mun-ui/ui" : false
   } catch {
     workspaceSelfReference = false
   }
@@ -89,7 +89,7 @@ function createMunTypeScriptProgram(source: string, fileName: string): MunTypeSc
     target: ts.ScriptTarget.ES2022,
     ...(workspaceSelfReference ? {
       baseUrl: currentDirectory,
-      paths: { "@mun/ui": ["./src/index.ts"] },
+      paths: { "@mun-ui/ui": ["./src/index.ts"] },
     } : {}),
   }
   const host = ts.createCompilerHost(options, true)
@@ -431,7 +431,7 @@ interface ImportedCallCandidate {
   readonly runtimeParameters?: readonly InitializerParameter[]
 }
 
-const canonicalRuntimeModules = new Set(["@mun/core/compat", "@mun/react"])
+const canonicalRuntimeModules = new Set(["@mun-ui/core/compat", "@mun-ui/react"])
 
 function runtimeViewImports(sourceFile: ts.SourceFile): ReadonlyMap<string, string> {
   const result = new Map<string, string>()
@@ -1000,7 +1000,7 @@ function animationBindingsOf(sourceFile: ts.SourceFile): AnimationBindings {
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause || !ts.isStringLiteral(statement.moduleSpecifier)) continue
     const moduleName = statement.moduleSpecifier.text
-    if (!moduleName.startsWith("@mun/")) continue
+    if (!moduleName.startsWith("@mun-ui/")) continue
     const bindings = statement.importClause.namedBindings
     if (bindings && ts.isNamedImports(bindings)) {
       for (const element of bindings.elements) {

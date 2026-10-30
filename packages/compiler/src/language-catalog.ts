@@ -3,7 +3,7 @@
 import {
   nativeViewInitializerSymbols, nativeModifierSymbols, swiftUIApiManifest,
   type SwiftUIOverloadSpec,
-} from "@mun/core/swiftui-manifest"
+} from "@mun-ui/core/swiftui-manifest"
 import { horizontalAlignments, verticalAlignments, overlayAlignments, paddingEdges } from './native-member-contract.js'
 
 export function nativeLanguageCatalog() {

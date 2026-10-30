@@ -7,11 +7,11 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - sass@1.103.1
-  - '@mun/compiler@0.1.1'
-  - '@mun/core@0.1.1'
-  - '@mun/execution@0.1.1'
-  - '@mun/legacy-react@0.1.1'
-  - '@mun/react@0.1.1'
-  - '@mun/vite@0.1.1'
-  - '@mun/vue@0.1.1'
-  - '@mun/web@0.1.1'
+  - '@mun-ui/compiler@0.1.1'
+  - '@mun-ui/core@0.1.1'
+  - '@mun-ui/execution@0.1.1'
+  - '@mun-ui/legacy-react@0.1.1'
+  - '@mun-ui/react@0.1.1'
+  - '@mun-ui/vite@0.1.1'
+  - '@mun-ui/vue@0.1.1'
+  - '@mun-ui/web@0.1.1'

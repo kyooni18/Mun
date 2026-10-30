@@ -10,8 +10,8 @@ import {
   TextField,
   Toggle,
   VStack,
-} from '@mun/core/compat'
-import { view } from '@mun/react'
+} from '@mun-ui/core/compat'
+import { view } from '@mun-ui/react'
 import moduleStyles from './demo.module.css'
 
 const codeSample = `const count = State(0)

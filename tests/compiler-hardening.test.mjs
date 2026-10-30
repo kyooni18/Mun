@@ -78,8 +78,8 @@ test("statement-aware ViewBuilder lowers labeled nested calls before TypeScript 
 })
 
 test("top-level State ownership is per-view and shared State remains module-scoped", () => {
-  const source = `import { State } from "@mun/core/compat"
-import { view } from "@mun/react"
+  const source = `import { State } from "@mun-ui/core/compat"
+import { view } from "@mun-ui/react"
 const first = State(1)
 const second = State(2)
 const shared = State(3)
@@ -98,8 +98,8 @@ export const B = view(() => VStack() { Text(String(second.value)); Text(String(s
 })
 
 test("top-level State skips runtime dependency discovery only for a compiler-proven closed body", () => {
-  const source = `import { State, Text } from "@mun/core"
-import { view } from "@mun/react"
+  const source = `import { State, Text } from "@mun-ui/core"
+import { view } from "@mun-ui/react"
 const count = State(0)
 export default view(() => Text(String(count.value)))`
   const output = transformMunSource(source, "ClosedStateDependencies.mun.ts")
@@ -108,8 +108,8 @@ export default view(() => Text(String(count.value)))`
 })
 
 test("top-level State keeps runtime dependency discovery for unproven member calls", () => {
-  const source = `import { State, Text } from "@mun/core"
-import { view } from "@mun/react"
+  const source = `import { State, Text } from "@mun-ui/core"
+import { view } from "@mun-ui/react"
 const count = State(0)
 const helper = { padding(value: number) { return Text(String(value)) } }
 export default view(() => count.value > 0 ? helper.padding(8) : Text(String(count.value)))`
@@ -120,8 +120,8 @@ export default view(() => count.value > 0 ? helper.padding(8) : Text(String(coun
 })
 
 test("top-level State proof rejects shadowed pure globals", () => {
-  const source = `import { State, Text } from "@mun/core"
-import { view } from "@mun/react"
+  const source = `import { State, Text } from "@mun-ui/core"
+import { view } from "@mun-ui/react"
 const external = State("outside")
 const count = State(0)
 const String = (_value: unknown) => external.value
@@ -134,15 +134,15 @@ export default view(() => Text(String(count.value)))`
 })
 
 test("top-level State ownership respects outer references and lexical shadowing", () => {
-  const outside = `import { State } from "@mun/core/compat"
-import { view } from "@mun/react"
+  const outside = `import { State } from "@mun-ui/core/compat"
+import { view } from "@mun-ui/react"
 const count = State(0)
 export function readCount() { return count.value }
 export default view(() => Text(String(count.value)))`
   assert.match(transformMunSource(outside, "Outside.mun.ts"), /^const count = State\(0\)/m)
 
-  const shadowed = `import { State } from "@mun/core/compat"
-import { view } from "@mun/react"
+  const shadowed = `import { State } from "@mun-ui/core/compat"
+import { view } from "@mun-ui/react"
 const count = State(0)
 function helper(count: number) { return count + 1 }
 export default view(() => Text(String(count.value)))`
@@ -200,7 +200,7 @@ test("qualified nested Mun view calls lower named arguments without losing the q
 
 test("source maps keep moved State declarations and body uses on their original spans", async () => {
   const { compileMunFile, mapGeneratedPosition } = await import("../packages/compiler/dist/index.js")
-  const source = `import { State, Text, view } from "@mun/core/compat"
+  const source = `import { State, Text, view } from "@mun-ui/core/compat"
 const count = State(0)
 const label = "x"
 
@@ -218,7 +218,7 @@ export default view(() =>
 })
 
 test("diagnostics warn when top-level State cannot become instance-local", () => {
-  const source = `import { State as S } from "@mun/core"
+  const source = `import { State as S } from "@mun-ui/core"
 export const exported = S(0)
 let mutable = S(1)
 const local = S(2)`
@@ -280,7 +280,7 @@ test("dynamic Button values defer initializer choice instead of producing a fals
 })
 
 test("SwiftUI labeled calls remain valid TypeScript inside struct View bodies", () => {
-  const source = `import { Button, Text } from "@mun/core/compat"
+  const source = `import { Button, Text } from "@mun-ui/core/compat"
 export struct ToolbarButton: View {
   let action: () => void
   init(action: () => void) { self.action = action }
@@ -295,7 +295,7 @@ export struct ToolbarButton: View {
 })
 
 test("parameterized Swift action closures lower inside struct View bodies", () => {
-  const source = `import { Text } from "@mun/core/compat"
+  const source = `import { Text } from "@mun-ui/core/compat"
 import { save } from "./store.js"
 struct Field: View {
   let onChange: (value: string) => void
@@ -316,7 +316,7 @@ export struct Form: View {
 
 test("aliased dollar imports are never mistaken for Binding shorthand", () => {
   const source = `import { $i as currentUser } from "./identity.js"
-import { Text } from "@mun/core/compat"
+import { Text } from "@mun-ui/core/compat"
 export struct AccountLabel: View {
   var body: some View { Text(currentUser?.username ?? "guest") }
 }`
@@ -328,7 +328,7 @@ export struct AccountLabel: View {
 
 
 test("Grid and LazyGrid static specialization indices match runtime initializer order", () => {
-  const source = `import { Grid, LazyGrid, Text } from "@mun/core/compat"
+  const source = `import { Grid, LazyGrid, Text } from "@mun-ui/core/compat"
 Grid({ columns: 3 }) { Text("A") }
 LazyGrid({ columns: 2, estimatedItemSize: 44 }) { Text("B") }`
   const output = transformMunSource(source, "GridSpecialization.mun.ts")
@@ -338,7 +338,7 @@ LazyGrid({ columns: 2, estimatedItemSize: 44 }) { Text("B") }`
 })
 
 test("Switch static specialization indices match runtime initializer order", () => {
-  const source = `import { Binding, State, Switch } from "@mun/core/compat"
+  const source = `import { Binding, State, Switch } from "@mun-ui/core/compat"
 const isOn = State(false)
 Switch("Switch", Binding(isOn))
 Switch(Binding(isOn))`
@@ -351,7 +351,7 @@ Switch(Binding(isOn))`
 test("implicit member arguments survive static modifier chain specialization", () => {
   // `.red` is not valid TypeScript, so the checker recovers with a zero-width
   // base; the emitted argument must still be the lowered string literal.
-  const source = `import { Text } from "@mun/core/compat"\nconst view = Text("x").foregroundStyle(.red)`
+  const source = `import { Text } from "@mun-ui/core/compat"\nconst view = Text("x").foregroundStyle(.red)`
   const output = transformMunSource(source, "ImplicitMemberModifier.mun.ts")
   assert.match(output, /\[\["foregroundStyle", \["red"\]\]\]/)
   assert.doesNotMatch(output, /\[red\]/)
@@ -384,8 +384,8 @@ test("single-line struct initializer bodies produce valid field assignments", ()
 })
 
 test("mixed State and view declarators hoist without corrupting sibling edits", () => {
-  const source = `import { State } from "@mun/core/compat"
-import { view } from "@mun/react"
+  const source = `import { State } from "@mun-ui/core/compat"
+import { view } from "@mun-ui/react"
 const count = State(0), app = view(() => Text(String(count.value)))`
   const output = transformMunSource(source, "MixedDeclarators.mun.ts")
   // The State declaration is removed and the view call gains its state body
@@ -398,7 +398,7 @@ const count = State(0), app = view(() => Text(String(count.value)))`
 })
 
 test("spread arguments and member access survive static modifier specialization", () => {
-  const source = `import { Text } from "@mun/core/compat"\nconst values = [8]\nconst view = Text("x").padding(...values)`
+  const source = `import { Text } from "@mun-ui/core/compat"\nconst values = [8]\nconst view = Text("x").padding(...values)`
   const output = transformMunSource(source, "SpreadModifier.mun.ts")
   assert.match(output, /\[\["padding", \[\.\.\.values\]\]\]/)
   assert.doesNotMatch(output, /\["values"\]/)
@@ -406,7 +406,7 @@ test("spread arguments and member access survive static modifier specialization"
 })
 
 test("implicit-member lowering never rewrites string or comment content", () => {
-  const source = `import { Text } from "@mun/core/compat"
+  const source = `import { Text } from "@mun-ui/core/compat"
 // return .red inside a comment
 const view = Text("Press return .red to confirm")`
   const output = transformMunSource(source, "ProseMember.mun.ts")
@@ -441,7 +441,7 @@ test("struct field assignments continue across operator-terminated lines", () =>
 
 test("SwiftUI bare trailing closures lower like empty-argument calls", () => {
   const output = transformMunSource(`
-import { Text, VStack } from "@mun/core/compat"
+import { Text, VStack } from "@mun-ui/core/compat"
 class Model { value = 1 }
 struct Row: View {
   var body: some View {

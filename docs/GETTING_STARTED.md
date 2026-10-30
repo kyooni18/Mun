@@ -5,7 +5,7 @@ primary format for UI and application behavior. Start with the web
 renderer, a normal Vite application, and Node.js 20.19 or newer:
 
 ```bash
-npm install -g @mun/ui
+npm install -g @mun-ui/ui
 mun create HelloMun
 cd HelloMun
 npm run dev
@@ -18,8 +18,8 @@ SwiftUI-like syntax; Vite compiles this to JavaScript and renders it to the DOM.
 Run `npm run build` for static deployment and `npm run preview` to preview it.
 No native host or Rust installation is needed.
 
-For direct JS/TS authoring, import View builders from `@mun/core` and `mount`
-from `@mun/web`. React and Vue are optional integrations, not dependencies of
+For direct JS/TS authoring, import View builders from `@mun-ui/core` and `mount`
+from `@mun-ui/web`. React and Vue are optional integrations, not dependencies of
 the web renderer. See the [API reference](./API.md).
 
 For the first complete application slice, run `pnpm demo:language-web` in this

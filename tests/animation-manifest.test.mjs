@@ -34,7 +34,7 @@ async function waitUntil(predicate, timeout = 250) {
   return predicate()
 }
 
-test("Web DOM animation adapter executes @mun/animation timing and spring specs", async () => {
+test("Web DOM animation adapter executes @mun-ui/animation timing and spring specs", async () => {
   const dom = new JSDOM('<div style="opacity:0"></div>')
   const element = dom.window.document.querySelector("div")
   assert.ok(element)
@@ -73,7 +73,7 @@ test("Web motion channels honor delay/repeat and retarget from the live presenta
   dom.window.close()
 })
 
-test("Web mount routes animated State patches through @mun/animation", async () => {
+test("Web mount routes animated State patches through @mun-ui/animation", async () => {
   const dom = new JSDOM('<div id="app"></div>')
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -228,20 +228,20 @@ test("withAnimation lowers Swift-style Animation factories and action closures",
   const source = 'withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { expanded.value = true }'
   assert.equal(
     transformMunSource(source, "Animation.mun.ts"),
-    'import { withAnimation, Animation } from "@mun/core/compat"\nwithAnimation(Animation.spring(0.4, 0.8), () => { expanded.value = true })',
+    'import { withAnimation, Animation } from "@mun-ui/core/compat"\nwithAnimation(Animation.spring(0.4, 0.8), () => { expanded.value = true })',
   )
   assert.deepEqual(diagnoseMunSource(source), [])
 
   const skippedDefault = 'Animation.spring(dampingFraction: 0.7)'
-  assert.equal(transformMunSource(skippedDefault, "Animation.mun.ts"), 'import { Animation } from "@mun/core/compat"\nAnimation.spring(undefined, 0.7)')
+  assert.equal(transformMunSource(skippedDefault, "Animation.mun.ts"), 'import { Animation } from "@mun-ui/core/compat"\nAnimation.spring(undefined, 0.7)')
   assert.deepEqual(diagnoseMunSource(skippedDefault), [])
 
   assert.equal(
     transformMunSource('withAnimation(.default) { expanded.value = false }', "Animation.mun.ts"),
-    'import { withAnimation, Animation } from "@mun/core/compat"\nwithAnimation(Animation.default, () => { expanded.value = false })',
+    'import { withAnimation, Animation } from "@mun-ui/core/compat"\nwithAnimation(Animation.default, () => { expanded.value = false })',
   )
   assert.equal(
     transformMunSource('Text("Hi").animation(.easeInOut, value: active)', "Animation.mun.ts"),
-    'import { Animation } from "@mun/core/compat"\nText("Hi").animation(Animation.easeInOut(), active)',
+    'import { Animation } from "@mun-ui/core/compat"\nText("Hi").animation(Animation.easeInOut(), active)',
   )
 })

@@ -71,7 +71,7 @@ test('unsafeHTML rejects non-string values and invalid element contexts', () => 
 })
 
 test('compiled .mun can render and update an explicit trusted HTML host', async () => {
-  const source = `import { Element } from "@mun/core"
+  const source = `import { Element } from "@mun-ui/core"
 struct App: View {
   @State var content = "<strong>first</strong>"
   var body: some View {
@@ -84,8 +84,8 @@ struct App: View {
 export default App()`
   const { code } = compileMunFile(source, 'UnsafeHtml.mun')
   const js = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
-    .replaceAll('"@mun/core/compat"', JSON.stringify(new URL('../packages/core/dist/compat.js', import.meta.url).href))
-    .replaceAll('"@mun/core"', JSON.stringify(new URL('../packages/core/dist/index.js', import.meta.url).href))
+    .replaceAll('"@mun-ui/core/compat"', JSON.stringify(new URL('../packages/core/dist/compat.js', import.meta.url).href))
+    .replaceAll('"@mun-ui/core"', JSON.stringify(new URL('../packages/core/dist/index.js', import.meta.url).href))
   const { default: app } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
   assert.match(renderToHTML(app), /<div><strong>first<\/strong><\/div>/)
   const dom = new JSDOM('<div id="app"></div>')

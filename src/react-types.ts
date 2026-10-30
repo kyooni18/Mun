@@ -1,1 +1,1 @@
-export * from "@mun/react/legacy/react-types"
+export * from "@mun-ui/react/legacy/react-types"

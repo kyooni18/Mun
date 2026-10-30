@@ -461,30 +461,30 @@ test("blur, push, and scale text replacements use ephemeral accessible overlays 
 test("compiler lowers Swift-style contentTransition and symbol-effect shorthand", () => {
   assert.equal(
     transformMunSource('Text("Saved").contentTransition(.interpolate)', "ContentTransition.mun.ts"),
-    'import { ContentTransition } from "@mun/core/compat"\nText("Saved").contentTransition(ContentTransition.interpolate)',
+    'import { ContentTransition } from "@mun-ui/core/compat"\nText("Saved").contentTransition(ContentTransition.interpolate)',
   )
   assert.equal(
     transformMunSource('Image(icon).contentTransition(.symbolEffect(.magicReplace(fallback: .opacity))).animation()', "SymbolTransition.mun.ts"),
-    'import { ContentTransition, SymbolEffect } from "@mun/core/compat"\nImage(icon).contentTransition(ContentTransition.symbolEffect(SymbolEffect.magicReplace("opacity"))).animation()',
+    'import { ContentTransition, SymbolEffect } from "@mun-ui/core/compat"\nImage(icon).contentTransition(ContentTransition.symbolEffect(SymbolEffect.magicReplace("opacity"))).animation()',
   )
   assert.equal(
     transformMunSource('Text(String(count)).contentTransition(.numericText(value: count)).animation(.easeInOut, value: count)', "NumericTransition.mun.ts"),
-    'import { Animation, ContentTransition } from "@mun/core/compat"\nText(String(count)).contentTransition(ContentTransition.numericText(count)).animation(Animation.easeInOut(), count)',
+    'import { Animation, ContentTransition } from "@mun-ui/core/compat"\nText(String(count)).contentTransition(ContentTransition.numericText(count)).animation(Animation.easeInOut(), count)',
   )
   assert.equal(
     transformMunSource('Text("Saved").contentTransition(.blurReplace(radius: 9))', "BlurTransition.mun.ts"),
-    'import { ContentTransition } from "@mun/core/compat"\nText("Saved").contentTransition(ContentTransition.blurReplace(9))',
+    'import { ContentTransition } from "@mun-ui/core/compat"\nText("Saved").contentTransition(ContentTransition.blurReplace(9))',
   )
   assert.equal(
     transformMunSource('Text("Saved").contentTransition(.push(from: .trailing))', "PushTransition.mun.ts"),
-    'import { ContentTransition } from "@mun/core/compat"\nText("Saved").contentTransition(ContentTransition.push("trailing"))',
+    'import { ContentTransition } from "@mun-ui/core/compat"\nText("Saved").contentTransition(ContentTransition.push("trailing"))',
   )
   assert.equal(
     transformMunSource('Text("Saved").contentTransition(.scale(scale: 0.82))', "ScaleTransition.mun.ts"),
-    'import { ContentTransition } from "@mun/core/compat"\nText("Saved").contentTransition(ContentTransition.scale(0.82))',
+    'import { ContentTransition } from "@mun-ui/core/compat"\nText("Saved").contentTransition(ContentTransition.scale(0.82))',
   )
   const specialized = transformMunSource(
-    'import { ContentTransition, Image, SymbolEffect } from "@mun/core/compat"\nconst value = Image(icon).contentTransition(.symbolEffect(.magicReplace(fallback: .opacity))).animation()',
+    'import { ContentTransition, Image, SymbolEffect } from "@mun-ui/core/compat"\nconst value = Image(icon).contentTransition(.symbolEffect(.magicReplace(fallback: .opacity))).animation()',
     "SpecializedSymbolTransition.mun.ts",
   )
   assert.match(specialized, /modifiedContentCompiled/)

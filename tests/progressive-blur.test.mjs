@@ -55,10 +55,10 @@ test('quality budgets reduce the stack while retaining its radius and profile', 
   assert.equal(layerCount(12, 'none'), 0)
 })
 
-test('@mun/ui exposes the same single progressive-blur implementation', async () => {
-  const canonical = await import('@mun/ui/progressive-blur')
-  const plan = await import('@mun/ui/progressive-blur/plan')
-  const legacy = await import('@mun/progressive-blur')
+test('@mun-ui/ui exposes the same single progressive-blur implementation', async () => {
+  const canonical = await import('@mun-ui/ui/progressive-blur')
+  const plan = await import('@mun-ui/ui/progressive-blur/plan')
+  const legacy = await import('@mun-ui/progressive-blur')
   for (const name of ['ProgressiveBlur', 'progressiveBlur', 'BlurProfile', 'blurFocus', 'focus', 'planBlur']) assert.equal(canonical[name], legacy[name], name)
   assert.equal(plan.planBlur, canonical.planBlur)
   assert.equal(plan.BlurProfile, canonical.BlurProfile)

@@ -30,7 +30,7 @@ test('workspace-internal dependencies never require a published Mun package duri
     const manifest = readJSON(relative)
     for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
       for (const [name, specifier] of Object.entries(manifest[field] ?? {})) {
-        if (name === '@mun/ui' || name.startsWith('@mun/')) {
+        if (name === '@mun-ui/ui' || name.startsWith('@mun-ui/')) {
           assert.equal(specifier, 'workspace:*', `${relative} ${field}.${name}`)
         }
       }
@@ -41,15 +41,15 @@ test('workspace-internal dependencies never require a published Mun package duri
 test('canonical root installs the published Mun packages together', () => {
   const manifest = readJSON('package.json')
   for (const name of [
-    '@mun/animation',
-    '@mun/astro',
-    '@mun/compiler',
-    '@mun/core',
-    '@mun/execution',
-    '@mun/react',
-    '@mun/vite',
-    '@mun/vue',
-    '@mun/web',
+    '@mun-ui/animation',
+    '@mun-ui/astro',
+    '@mun-ui/compiler',
+    '@mun-ui/core',
+    '@mun-ui/execution',
+    '@mun-ui/react',
+    '@mun-ui/vite',
+    '@mun-ui/vue',
+    '@mun-ui/web',
   ]) assert.equal(manifest.dependencies[name], 'workspace:*')
   assert.equal(manifest.peerDependencies, undefined)
   assert.equal(manifest.peerDependenciesMeta, undefined)

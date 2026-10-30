@@ -1,8 +1,8 @@
-# @mun/animation
+# @mun-ui/animation
 
 A renderer-agnostic motion runtime focused on interruptibility, low main-thread cost, smooth retargeting, and scalable execution. Mün can consume it through an adapter, but the core has no Mün, DOM, React, or Vue dependency.
 
-The optional `@mun/animation/rendering-quality` browser adapter owns the shared
+The optional `@mun-ui/animation/rendering-quality` browser adapter owns the shared
 `full`/`reduced`/`none` policy for visual GPU consumers. It combines idle CSS sampling
 about every 30 seconds with passive frame/queue delays. Canvas motion rendering
 subscribes automatically when its canvas has an owner Window. See the
@@ -68,9 +68,9 @@ The gesture package is renderer-agnostic. It turns pointer-like coordinates into
 - The DOM adapter consumes `PointerEvent.getCoalescedEvents()` when available, retaining high-frequency pen/touch samples that browsers may merge into one delivered event.
 
 ```js
-import { motionValue } from '@mun/animation';
-import { createDragController } from '@mun/animation/gesture';
-import { bindMotionStyles, bindPointerDrag } from '@mun/animation/dom';
+import { motionValue } from '@mun-ui/animation';
+import { createDragController } from '@mun-ui/animation/gesture';
+import { bindMotionStyles, bindPointerDrag } from '@mun-ui/animation/dom';
 
 const x = motionValue(0);
 const drag = createDragController({
@@ -87,7 +87,7 @@ const unbind = bindPointerDrag(card, drag);
 The numeric core also exposes release motion directly:
 
 ```js
-import { animateInertia } from '@mun/animation';
+import { animateInertia } from '@mun-ui/animation';
 
 animateInertia(x, {
   velocity: 1450, // units per second
@@ -116,7 +116,7 @@ import {
   curves,
   motionValue,
   timeline,
-} from '@mun/animation';
+} from '@mun-ui/animation';
 
 const engine = new MotionEngine();
 const x = motionValue(0);
@@ -159,7 +159,7 @@ const colorTimeline = timeline().fromTo(
 Named phases are convenient for reusable UI choreography:
 
 ```js
-import { createPhaseTimeline } from '@mun/animation/timeline';
+import { createPhaseTimeline } from '@mun-ui/animation/timeline';
 
 const press = createPhaseTimeline({ scale, opacity }, [
   { name: 'idle', values: { scale: 1, opacity: 1 } },
@@ -177,7 +177,7 @@ press.player({ engine }).play();
 Timeline playback can also be driven by a numeric interaction domain instead of a clock:
 
 ```js
-import { createTimelineScrubber } from '@mun/animation/timeline';
+import { createTimelineScrubber } from '@mun-ui/animation/timeline';
 
 // 0..400 can be drag pixels while the timeline remains normalized internally.
 const scrubber = createTimelineScrubber(player, {
@@ -197,8 +197,8 @@ The scrubber only depends on a `MotionValue`; a `DragController`, gamepad axis, 
 The transition package adds named UI state motion without making the numeric core aware of components or renderers. Numeric `MotionValue` bindings are animated directly, so every property retains its own velocity during interruption. Structured bindings (colors, transforms, materials, paths, or custom interpolators) share one precompiled scalar progress animation per state change.
 
 ```js
-import { motionValue, spring } from '@mun/animation';
-import { createStateTransitionGraph } from '@mun/animation/transition';
+import { motionValue, spring } from '@mun-ui/animation';
+import { createStateTransitionGraph } from '@mun-ui/animation/transition';
 
 const x = motionValue(0);
 const opacity = motionValue(0);
@@ -221,7 +221,7 @@ panel.to('visible');
 `TransitionController` is the two-state enter/exit convenience layer. Reversing an enter while it is still moving retargets the same numeric `MotionValue`s instead of restarting them from rest.
 
 ```js
-import { createPresence, createTransition } from '@mun/animation/transition';
+import { createPresence, createTransition } from '@mun-ui/animation/transition';
 
 const transition = createTransition([
   { key: 'opacity', target: opacity, from: 0, to: 1 },
@@ -260,7 +260,7 @@ Path parsing and topology work happen once. Per-frame numeric sampling only lerp
 Supported input commands include `M/L/H/V/C/S/Q/T/A/Z`, absolute or relative. Lines, quadratics and arcs normalize to cubic segments. Paths with different segment counts are equalized by splitting cubic curves. Closed paths can align starting segments and reverse winding to avoid needlessly long morphs.
 
 ```js
-import { createPathMorpher } from '@mun/animation/path';
+import { createPathMorpher } from '@mun-ui/animation/path';
 
 const morph = createPathMorpher(
   'M0 0 L100 0 L100 100 Z',
@@ -281,7 +281,7 @@ For very large closed paths, alignment uses a bounded set of promising start-ind
 The material model is renderer-agnostic. Presets are only convenient starting values.
 
 ```js
-import { materials, mixMaterial } from '@mun/animation/material';
+import { materials, mixMaterial } from '@mun-ui/animation/material';
 
 const material = mixMaterial(materials.ultraThin, materials.glass, 0.5);
 ```
@@ -289,8 +289,8 @@ const material = mixMaterial(materials.ultraThin, materials.glass, 0.5);
 The DOM adapter maps a resolved material to `backdrop-filter` plus a tint color:
 
 ```js
-import { animateMaterial } from '@mun/animation/dom';
-import { smooth } from '@mun/animation';
+import { animateMaterial } from '@mun-ui/animation/dom';
+import { smooth } from '@mun-ui/animation';
 
 animateMaterial(panel, 'ultraThin', 'glass', smooth());
 ```
@@ -313,7 +313,7 @@ Matched geometry across different element instances uses keyed snapshots:
 import {
   captureSharedLayout,
   createSharedLayoutTransition,
-} from '@mun/animation/layout';
+} from '@mun-ui/animation/layout';
 
 const before = captureSharedLayout(oldTree, {
   key: (element) => element.dataset.motionKey,
@@ -344,7 +344,7 @@ The source element does not have to remain mounted. All matched targets in one s
 - Pointer-drag binding with pointer capture, touch-action management, cancellation handling, and coalesced-event sampling.
 
 ```js
-import { configureDomBatching } from '@mun/animation/dom';
+import { configureDomBatching } from '@mun-ui/animation/dom';
 
 configureDomBatching({ scheduler: 'raf' });
 ```
@@ -352,7 +352,7 @@ configureDomBatching({ scheduler: 'raf' });
 ## Basic numeric API
 
 ```js
-import { motionValue, animate, smooth, spring } from '@mun/animation';
+import { motionValue, animate, smooth, spring } from '@mun-ui/animation';
 
 const x = motionValue(0);
 
@@ -377,7 +377,7 @@ setTimeout(() => {
 For deterministic/manual stepping:
 
 ```js
-import { MotionEngine, motionValue, spring } from '@mun/animation';
+import { MotionEngine, motionValue, spring } from '@mun-ui/animation';
 
 const engine = new MotionEngine({ autoStart: false, wasm: false, worker: false });
 const x = motionValue(0);
@@ -391,7 +391,7 @@ for (let frame = 0; frame < 120; frame += 1) {
 ## Color, transform, path, and material interpolation
 
 ```js
-import { animateInterpolated, smooth } from '@mun/animation';
+import { animateInterpolated, smooth } from '@mun-ui/animation';
 
 animateInterpolated(
   '#ff2d55',
@@ -422,8 +422,8 @@ animateInterpolated('clear', 'glass', smooth(), updateMaterial, {
 ## Layout animation
 
 ```js
-import { smooth } from '@mun/animation';
-import { animateLayout } from '@mun/animation/layout';
+import { smooth } from '@mun-ui/animation';
+import { animateLayout } from '@mun-ui/animation/layout';
 
 const { controls } = animateLayout(
   [sidebar, content],
@@ -490,7 +490,7 @@ If shared memory is unavailable, `worker: 'auto'` keeps the regular JS/WASM exec
 `ScrollTracker` is renderer-independent: it maps an arbitrary scalar offset to a normalized `MotionValue`, while preserving offset and normalized velocity. The DOM/window `ScrollObserver` is a thin adapter that coalesces bursts of scroll events into one metric read per animation frame.
 
 ```js
-import { observeScroll, bindScrollTimeline } from '@mun/animation/scroll';
+import { observeScroll, bindScrollTimeline } from '@mun-ui/animation/scroll';
 
 const scroll = observeScroll(scroller, {
   axis: 'y',
@@ -509,7 +509,7 @@ The range may be dynamic, so resizes/content growth can be reflected on the next
 `ConstraintGraph` evaluates relationships between numeric values after source motion commits. The graph is compiled once into a topological operation order and typed arrays, rather than chaining one subscription callback per relationship.
 
 ```js
-import { createConstraintGraph } from '@mun/animation/constraints';
+import { createConstraintGraph } from '@mun-ui/animation/constraints';
 
 const graph = createConstraintGraph();
 const leader = graph.node(x, { name: 'leader' });
@@ -533,7 +533,7 @@ Renderer adapters remain outside the motion solver. They subscribe through the v
 Canvas keeps one retained `Float64Array` snapshot and invokes one draw callback per dirty frame:
 
 ```js
-import { createCanvasRenderer } from '@mun/animation/canvas';
+import { createCanvasRenderer } from '@mun-ui/animation/canvas';
 
 const renderer = createCanvasRenderer(ctx, [x, y, scale], (ctx, values) => {
   const [x, y, scale] = values;
@@ -544,7 +544,7 @@ const renderer = createCanvasRenderer(ctx, [x, y, scale], (ctx, values) => {
 WebGL resolves uniform locations once and batches dirty uniform uploads:
 
 ```js
-import { createWebGLUniformBinder } from '@mun/animation/webgl';
+import { createWebGLUniformBinder } from '@mun-ui/animation/webgl';
 
 const uniforms = createWebGLUniformBinder(gl, program, [
   { name: 'uProgress', value: progress },
@@ -555,7 +555,7 @@ const uniforms = createWebGLUniformBinder(gl, program, [
 WebGPU packs scalar values into one retained `Float32Array` and emits one `queue.writeBuffer()` per dirty frame:
 
 ```js
-import { createWebGPUBufferBinder } from '@mun/animation/webgpu';
+import { createWebGPUBufferBinder } from '@mun-ui/animation/webgpu';
 
 const gpuValues = createWebGPUBufferBinder(device, uniformBuffer, [
   { value: x, index: 0 },
@@ -567,7 +567,7 @@ const gpuValues = createWebGPUBufferBinder(device, uniformBuffer, [
 `WebGPUSpringBatch` is also available for direct dense spring workloads. It uses one storage buffer, one compute dispatch per bounded solver substep, and one readback per frame. Use it for sufficiently large batches; small interactive animations should stay on JS/WASM to avoid GPU submission and readback overhead.
 
 ```js
-import { MotionEngine, motionValue, spring } from '@mun/animation';
+import { MotionEngine, motionValue, spring } from '@mun-ui/animation';
 
 const engine = new MotionEngine({ gpu: 'auto', gpuThreshold: 4096 });
 const value = motionValue(0);
@@ -579,22 +579,22 @@ console.log(engine.getBackendPlan().gpu);
 ## Package entry points
 
 ```text
-@mun/animation
-@mun/animation/dom
-@mun/animation/interpolate
-@mun/animation/layout
-@mun/animation/gesture
-@mun/animation/timeline
-@mun/animation/transition
-@mun/animation/scroll
-@mun/animation/constraints
-@mun/animation/canvas
-@mun/animation/webgl
-@mun/animation/webgpu
-@mun/animation/material
-@mun/animation/path
-@mun/animation/wasm
-@mun/animation/worker
+@mun-ui/animation
+@mun-ui/animation/dom
+@mun-ui/animation/interpolate
+@mun-ui/animation/layout
+@mun-ui/animation/gesture
+@mun-ui/animation/timeline
+@mun-ui/animation/transition
+@mun-ui/animation/scroll
+@mun-ui/animation/constraints
+@mun-ui/animation/canvas
+@mun-ui/animation/webgl
+@mun-ui/animation/webgpu
+@mun-ui/animation/material
+@mun-ui/animation/path
+@mun-ui/animation/wasm
+@mun-ui/animation/worker
 ```
 
 ## Build / test / benchmark

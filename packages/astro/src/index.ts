@@ -1,4 +1,4 @@
-import { munPlugin } from "@mun/vite"
+import { munPlugin } from "@mun-ui/vite"
 import { createMunAstroSourcePlugin } from "./source.js"
 
 export {
@@ -28,7 +28,7 @@ interface AstroConfigSetupContext {
 }
 
 export interface MunAstroIntegration {
-  readonly name: "@mun/astro"
+  readonly name: "@mun-ui/astro"
   readonly hooks: {
     readonly "astro:config:setup": (context: AstroConfigSetupContext) => void
   }
@@ -36,13 +36,13 @@ export interface MunAstroIntegration {
 
 export function munAstro(options: MunAstroIntegrationOptions = {}): MunAstroIntegration {
   return {
-    name: "@mun/astro",
+    name: "@mun-ui/astro",
     hooks: {
       "astro:config:setup": ({ addRenderer, updateConfig }) => {
         addRenderer({
-          name: "@mun/astro",
-          serverEntrypoint: "@mun/astro/server",
-          clientEntrypoint: "@mun/astro/client",
+          name: "@mun-ui/astro",
+          serverEntrypoint: "@mun-ui/astro/server",
+          clientEntrypoint: "@mun-ui/astro/client",
         })
 
         const plugins: unknown[] = [munPlugin()]

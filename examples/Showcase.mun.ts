@@ -1,5 +1,5 @@
-import { Binding, Button, Element, ForEach, Grid, LazyVStack, ProgressView, State, Text, TextField, Toggle, VStack } from "@mun/core/compat"
-import { view } from "@mun/react"
+import { Binding, Button, Element, ForEach, Grid, LazyVStack, ProgressView, State, Text, TextField, Toggle, VStack } from "@mun-ui/core/compat"
+import { view } from "@mun-ui/react"
 
 type ShowcaseItem = { id: string; title: string; detail: string }
 

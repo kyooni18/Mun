@@ -62,13 +62,13 @@ try {
   run(npm, ['init', '--yes'], consumer)
   run(npm, ['install', '--ignore-scripts', ...tarballs, resolve(stage, packed.filename)], consumer)
   cpSync('examples/NativeProductionSmoke.mun', resolve(consumer, 'App.mun'))
-  run(process.execPath, ['node_modules/@mun/ui/bin/mun.mjs', 'compile', 'App.mun', 'app.json'], consumer)
-  const host = resolve(consumer, 'node_modules/@mun/ui/native/bin', key, name)
+  run(process.execPath, ['node_modules/@mun-ui/ui/bin/mun.mjs', 'compile', 'App.mun', 'app.json'], consumer)
+  const host = resolve(consumer, 'node_modules/@mun-ui/ui/native/bin', key, name)
   assert(existsSync(host), 'installed native host')
   // A real native launch, with no Cargo and no repository fixture dependency.
   run(host, ['--smoke', 'app.json'], consumer)
   for (const file of ['templates/native/App.mun', 'templates/native/mun.toml', 'bin/project.mjs', 'bin/workflow.mjs', 'bin/watch.mjs', 'editors/lsp/mun-lsp.mjs']) assert(packed.files.some(entry => entry.path === file), `${file} must be in tarball`)
-  const publicCli = resolve(consumer, 'node_modules/@mun/ui/bin/mun.mjs')
+  const publicCli = resolve(consumer, 'node_modules/@mun-ui/ui/bin/mun.mjs')
   run(process.execPath, [publicCli, 'new', 'HelloMun'], consumer)
   const nativeProject = resolve(consumer, 'HelloMun')
   assert(!existsSync(resolve(nativeProject, 'package.json')), 'native app must not depend on Web packages')
@@ -104,15 +104,15 @@ try {
 
   // A host assembled for another package version is rejected before launch,
   // and an installed package never falls back to building with Cargo.
-  const cli = resolve(consumer, 'node_modules/@mun/ui/bin/mun.mjs')
-  const metadataPath = resolve(consumer, 'node_modules/@mun/ui/native/bin', key, 'mun-native.json')
+  const cli = resolve(consumer, 'node_modules/@mun-ui/ui/bin/mun.mjs')
+  const metadataPath = resolve(consumer, 'node_modules/@mun-ui/ui/native/bin', key, 'mun-native.json')
   const original = readFileSync(metadataPath, 'utf8')
   writeFileSync(metadataPath, JSON.stringify({ ...JSON.parse(original), packageVersion: '0.0.0-stale' }))
   const env = { ...process.env, MUN_NATIVE_HOST: '', CARGO: resolve(temporary, 'no-cargo') }
   let mismatch = spawnSync(process.execPath, [cli, 'run', 'App.mun'], { cwd: consumer, encoding: 'utf8', env, timeout: 60_000 })
   assert.notEqual(mismatch.status, 0)
   assert.match(mismatch.stderr, /built for packageVersion "0\.0\.0-stale"/)
-  rmSync(resolve(consumer, 'node_modules/@mun/ui/native/bin', key), { recursive: true })
+  rmSync(resolve(consumer, 'node_modules/@mun-ui/ui/native/bin', key), { recursive: true })
   mismatch = spawnSync(process.execPath, [cli, 'run', 'App.mun'], { cwd: consumer, encoding: 'utf8', env, timeout: 60_000 })
   assert.notEqual(mismatch.status, 0)
   assert.match(mismatch.stderr, /No Mün native host is packaged for/)

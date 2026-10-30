@@ -30,7 +30,7 @@ const Text = defineBuiltinView(
   ({ value }) => viewElement("span", null, [value]),
 )
 
-test("@mun/web renders the same core graph without React", () => {
+test("@mun-ui/web renders the same core graph without React", () => {
   assert.equal(renderToHTML(Text("Hello").padding(4)), '<span style="padding:4px">Hello</span>')
   assert.equal(renderToHTML(Text("Styled").className(["card", false, "active"])), '<span class="card active">Styled</span>')
   const independentTransforms = renderToHTML(Text("Motion").scaleEffect(1.2).rotationEffect(15).offset(4, 8))
@@ -40,7 +40,7 @@ test("@mun/web renders the same core graph without React", () => {
   assert.doesNotMatch(independentTransforms, /transform:/)
 })
 
-test("@mun/web materializes compiled templates in SSR and DOM modes", () => {
+test("@mun-ui/web materializes compiled templates in SSR and DOM modes", () => {
   const template = defineCompiledTemplate({
     kind: "element", type: "div", props: { class: "compiled" }, children: [
       { kind: "element", type: "span", props: null, children: ["Static"] },
@@ -59,7 +59,7 @@ test("@mun/web materializes compiled templates in SSR and DOM modes", () => {
   dom.window.close()
 })
 
-test("@mun/web direct-patches compiler-proven text slots without rebuilding static DOM", async () => {
+test("@mun-ui/web direct-patches compiler-proven text slots without rebuilding static DOM", async () => {
   const value = State(0)
   const template = defineCompiledTemplate({
     kind: "element", type: "span", props: { class: "compiled-text" },
@@ -95,7 +95,7 @@ test("@mun/web direct-patches compiler-proven text slots without rebuilding stat
   dom.window.close()
 })
 
-test("@mun/web bypasses exhaustive compiled View bodies on State-only text updates", async () => {
+test("@mun-ui/web bypasses exhaustive compiled View bodies on State-only text updates", async () => {
   let count
   let bodyRuns = 0
   let slotRuns = 0
@@ -151,7 +151,7 @@ test("@mun/web bypasses exhaustive compiled View bodies on State-only text updat
   dom.window.close()
 })
 
-test("@mun/web evaluates only Patch IR slots owned by the invalidated State", async () => {
+test("@mun-ui/web evaluates only Patch IR slots owned by the invalidated State", async () => {
   let left
   let right
   let bodyRuns = 0
@@ -216,7 +216,7 @@ test("@mun/web evaluates only Patch IR slots owned by the invalidated State", as
   dom.window.close()
 })
 
-test("@mun/web applies general compiled Patch IR through a stable host-node table", async () => {
+test("@mun-ui/web applies general compiled Patch IR through a stable host-node table", async () => {
   let value
   let bodyRuns = 0
   const template = defineCompiledTemplate({
@@ -274,7 +274,7 @@ test("@mun/web applies general compiled Patch IR through a stable host-node tabl
   dom.window.close()
 })
 
-test("@mun/web direct-patches compiled State modifiers without rerunning the View body", async () => {
+test("@mun-ui/web direct-patches compiled State modifiers without rerunning the View body", async () => {
   let count
   let bodyRuns = 0
   let planRuns = 0
@@ -341,7 +341,7 @@ test("@mun/web direct-patches compiled State modifiers without rerunning the Vie
   dom.window.close()
 })
 
-test("@mun/web preserves animation transactions on direct compiled modifier patches", async () => {
+test("@mun-ui/web preserves animation transactions on direct compiled modifier patches", async () => {
   let opacity
   const template = defineCompiledTemplate({
     kind: "element", type: "span", props: null, children: ["Motion"],
@@ -377,7 +377,7 @@ test("@mun/web preserves animation transactions on direct compiled modifier patc
   dom.window.close()
 })
 
-test("@mun/web snapshots one animated sibling neighborhood once per animation policy", async () => {
+test("@mun-ui/web snapshots one animated sibling neighborhood once per animation policy", async () => {
   const dom = new JSDOM("<div id=app></div>", { pretendToBeVisual: true })
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -413,7 +413,7 @@ test("@mun/web snapshots one animated sibling neighborhood once per animation po
   dom.window.close()
 })
 
-test("@mun/web host animation suppression bypasses explicit style and lifecycle motion", async () => {
+test("@mun-ui/web host animation suppression bypasses explicit style and lifecycle motion", async () => {
   const dom = new JSDOM("<body><div id=app></div></body>", { pretendToBeVisual: true })
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -447,7 +447,7 @@ test("@mun/web host animation suppression bypasses explicit style and lifecycle 
   dom.window.close()
 })
 
-test("@mun/web keeps property-scoped animation domains independent on the direct compiled path", async () => {
+test("@mun-ui/web keeps property-scoped animation domains independent on the direct compiled path", async () => {
   let opacity
   let scale
   let bodyRuns = 0
@@ -519,7 +519,7 @@ test("@mun/web keeps property-scoped animation domains independent on the direct
   dom.window.close()
 })
 
-test("@mun/web infers intrinsic text-size motion from real geometry changes", async () => {
+test("@mun-ui/web infers intrinsic text-size motion from real geometry changes", async () => {
   let label
   let bodyRuns = 0
   const animation = Animation.easeInOut(0.05)
@@ -572,7 +572,7 @@ test("@mun/web infers intrinsic text-size motion from real geometry changes", as
   dom.window.close()
 })
 
-test("@mun/web direct-patches safe outer modifiers after compiled body modifiers", async () => {
+test("@mun-ui/web direct-patches safe outer modifiers after compiled body modifiers", async () => {
   let count
   let bodyRuns = 0
   const template = defineCompiledTemplate({
@@ -616,7 +616,7 @@ test("@mun/web direct-patches safe outer modifiers after compiled body modifiers
   dom.window.close()
 })
 
-test("@mun/web falls back for effectful outer modifiers on compiled body patches", async () => {
+test("@mun-ui/web falls back for effectful outer modifiers on compiled body patches", async () => {
   let count
   let bodyRuns = 0
   const template = defineCompiledTemplate({
@@ -662,7 +662,7 @@ test("@mun/web falls back for effectful outer modifiers on compiled body patches
   dom.window.close()
 })
 
-test("@mun/web reuses zero-slot compiled DOM roots across dynamic modifier updates", async () => {
+test("@mun-ui/web reuses zero-slot compiled DOM roots across dynamic modifier updates", async () => {
   const opacity = State(0.25)
   const template = defineCompiledTemplate({
     kind: "element", type: "span", props: { class: "compiled-static" }, children: ["Static"],
@@ -698,7 +698,7 @@ test("@mun/web reuses zero-slot compiled DOM roots across dynamic modifier updat
   dom.window.close()
 })
 
-test("@mun/web composes static and dynamic classes without cloning reusable roots", async () => {
+test("@mun-ui/web composes static and dynamic classes without cloning reusable roots", async () => {
   const active = State(false)
   const template = defineCompiledTemplate({
     kind: "element", type: "span", props: { class: "base" }, children: ["Static"],
@@ -731,7 +731,7 @@ test("@mun/web composes static and dynamic classes without cloning reusable root
   dom.window.close()
 })
 
-test("@mun/web clears stale outer modifiers when a zero-slot template is reused", async () => {
+test("@mun-ui/web clears stale outer modifiers when a zero-slot template is reused", async () => {
   const enabled = State(true)
   const template = defineCompiledTemplate({
     kind: "element", type: "span", props: { class: "base" }, children: ["Static"],
@@ -758,7 +758,7 @@ test("@mun/web clears stale outer modifiers when a zero-slot template is reused"
   dom.window.close()
 })
 
-test("@mun/web preserves text-slot patching when reusable roots receive modifiers", async () => {
+test("@mun-ui/web preserves text-slot patching when reusable roots receive modifiers", async () => {
   const value = State("A")
   const opacity = State(0.3)
   const template = defineCompiledTemplate({
@@ -790,7 +790,7 @@ test("@mun/web preserves text-slot patching when reusable roots receive modifier
   dom.window.close()
 })
 
-test("@mun/web preserves raw HTML attributes and object styles", () => {
+test("@mun-ui/web preserves raw HTML attributes and object styles", () => {
   const value = Element("label", {
     class: "card",
     htmlFor: "name",
@@ -808,7 +808,7 @@ test("@mun/web preserves raw HTML attributes and object styles", () => {
   assert.equal(renderToHTML(Element("input", { disabled: true, style: "color: red", "data-field": "name" })), '<input disabled style="color: red" data-field="name">')
 })
 
-test("@mun/web ignores children of void elements in SSR and DOM modes", () => {
+test("@mun-ui/web ignores children of void elements in SSR and DOM modes", () => {
   const value = Element("input", { "data-field": "name" }, "Ignored")
   assert.equal(renderToHTML(value), '<input data-field="name">')
 
@@ -823,7 +823,7 @@ test("@mun/web ignores children of void elements in SSR and DOM modes", () => {
   dom.window.close()
 })
 
-test("@mun/web serializes, hydrates, and patches controlled textarea values as text content", async () => {
+test("@mun-ui/web serializes, hydrates, and patches controlled textarea values as text content", async () => {
   const initial = 'A < B & "quoted"'
   const value = Element("textarea", { value: initial, "aria-label": "Notes" })
   const html = renderToHTML(value)
@@ -873,7 +873,7 @@ test("@mun/web serializes, hydrates, and patches controlled textarea values as t
   dom.window.close()
 })
 
-test("@mun/web applies controlled select values after options exist in SSR, mount, and hydration", async () => {
+test("@mun-ui/web applies controlled select values after options exist in SSR, mount, and hydration", async () => {
   const selection = State("b")
   const Select = () => Element("select", { value: selection.value },
     Element("option", { value: "a", selected: true }, "A"),
@@ -925,7 +925,7 @@ test("@mun/web applies controlled select values after options exist in SSR, moun
   parsed.window.close()
 })
 
-test("@mun/web keeps raw-text SSR parsing aligned with DOM mount and blocks closing-tag escapes", () => {
+test("@mun-ui/web keeps raw-text SSR parsing aligned with DOM mount and blocks closing-tag escapes", () => {
   const values = [
     ["style", '.x::before { content: "<&"; }\r\n.x { color: red; }\0'],
     ["script", 'globalThis.__munText = "<&"\r\n\0'],
@@ -969,7 +969,7 @@ test("@mun/web keeps raw-text SSR parsing aligned with DOM mount and blocks clos
   rejected.window.close()
 })
 
-test("@mun/web mounts, hydrates, patches, and cleans up template content fragments", async () => {
+test("@mun-ui/web mounts, hydrates, patches, and cleans up template content fragments", async () => {
   const current = State("Hello")
   let clicks = 0
   const refs = []
@@ -1024,7 +1024,7 @@ test("@mun/web mounts, hydrates, patches, and cleans up template content fragmen
   mounted.window.close()
 })
 
-test("@mun/web normalizes direct table rows for stable SSR, mount, hydration, and patching", async () => {
+test("@mun-ui/web normalizes direct table rows for stable SSR, mount, hydration, and patching", async () => {
   const current = State("A")
   const App = defineView("ImplicitTableBody", {
     initializers: [initializer("ImplicitTableBody()", args => args.length === 0)],
@@ -1109,7 +1109,7 @@ test("@mun/web normalizes direct table rows for stable SSR, mount, hydration, an
   mounted.window.close()
 })
 
-test("@mun/web merges object styles and classes supplied by withProps", () => {
+test("@mun-ui/web merges object styles and classes supplied by withProps", () => {
   const value = Element("div", { class: "base", style: { color: "red" } }, "Card")
     .className("accent")
     .withProps({ className: "interactive", style: { backgroundColor: "blue" } })
@@ -1118,7 +1118,7 @@ test("@mun/web merges object styles and classes supplied by withProps", () => {
   assert.match(html, /color:red;background-color:blue/)
 })
 
-test("@mun/web omits coercible withProps values in SSR and DOM modes", () => {
+test("@mun-ui/web omits coercible withProps values in SSR and DOM modes", () => {
   let coercionCalls = 0
   const value = Text("Safe").withProps({
     title: { toString() { coercionCalls += 1; return "coerced" } },
@@ -1139,7 +1139,7 @@ test("@mun/web omits coercible withProps values in SSR and DOM modes", () => {
   dom.window.close()
 })
 
-test("@mun/web passes custom element objects as DOM properties without SSR coercion", async () => {
+test("@mun-ui/web passes custom element objects as DOM properties without SSR coercion", async () => {
   let coercionCalls = 0
   const payload = { toString() { coercionCalls += 1; return "coerced" } }
   const value = Element("mun-card", { payload, label: "safe" })
@@ -1176,7 +1176,7 @@ test("@mun/web passes custom element objects as DOM properties without SSR coerc
   dom.window.close()
 })
 
-test("@mun/web normalizes modifier CSS names and omits nullish style values", () => {
+test("@mun-ui/web normalizes modifier CSS names and omits nullish style values", () => {
   const value = Element("div", {
     style: { backgroundColor: "red", color: null },
   }, "Styled").style({ borderTopColor: "blue", outlineColor: undefined })
@@ -1197,7 +1197,7 @@ test("@mun/web normalizes modifier CSS names and omits nullish style values", ()
   dom.window.close()
 })
 
-test("@mun/web safely merges escaped class and style modifier values", () => {
+test("@mun-ui/web safely merges escaped class and style modifier values", () => {
   const value = Element("div", {
     class: "base&one",
     style: { color: "red" },
@@ -1210,7 +1210,7 @@ test("@mun/web safely merges escaped class and style modifier values", () => {
   assert.match(html, /style="color:red;background-image:url\(&quot;quoted\.png\?x=1&amp;y=2&quot;\)"/)
 })
 
-test("@mun/web serializes scroll and safe-area CSS from the core graph", () => {
+test("@mun-ui/web serializes scroll and safe-area CSS from the core graph", () => {
   const value = SafeArea(["top", "bottom"], () => [
     ScrollView("both", () => [Element("div", null, "Content")]),
   ])
@@ -1223,14 +1223,14 @@ test("@mun/web serializes scroll and safe-area CSS from the core graph", () => {
   assert.match(html, /overflow-y:auto/)
 })
 
-test("@mun/web exposes GeometryReader in SSR and DOM modes", () => {
+test("@mun-ui/web exposes GeometryReader in SSR and DOM modes", () => {
   const value = GeometryReader(geometry => Element("span", null, `${geometry.size.width}x${geometry.size.height}`))
   const html = renderToHTML(value)
   assert.match(html, /data-mun="GeometryReader"/)
   assert.match(html, />0x0<\/span>/)
 })
 
-test("@mun/web measures CSS safe-area insets at the DOM boundary", async () => {
+test("@mun-ui/web measures CSS safe-area insets at the DOM boundary", async () => {
   const dom = new JSDOM("<div id=app></div>")
   dom.window.getComputedStyle = () => ({ paddingTop: "12px", paddingRight: "8px", paddingBottom: "4px", paddingLeft: "2px" })
   const container = dom.window.document.querySelector("#app")
@@ -1244,7 +1244,7 @@ test("@mun/web measures CSS safe-area insets at the DOM boundary", async () => {
   dom.window.close()
 })
 
-test("@mun/web GeometryReader survives unavailable CSSOM and cleans its probe", async () => {
+test("@mun-ui/web GeometryReader survives unavailable CSSOM and cleans its probe", async () => {
   const dom = new JSDOM("<div id=app></div>")
   dom.window.getComputedStyle = () => { throw new Error("CSSOM unavailable") }
   const container = dom.window.document.querySelector("#app")
@@ -1259,7 +1259,7 @@ test("@mun/web GeometryReader survives unavailable CSSOM and cleans its probe", 
   dom.window.close()
 })
 
-test("@mun/web resolves renderer-independent View state", () => {
+test("@mun-ui/web resolves renderer-independent View state", () => {
   const Counter = defineView("Counter", {
     initializers: [initializer("Counter()", args => args.length === 0)],
     state: () => ({ count: State(3) }),
@@ -1268,7 +1268,7 @@ test("@mun/web resolves renderer-independent View state", () => {
   assert.equal(renderToHTML(Counter()), "<span>3</span>")
 })
 
-test("@mun/web mount reevaluates State reads and cleans up", async () => {
+test("@mun-ui/web mount reevaluates State reads and cleans up", async () => {
   const state = State(1)
   const Counter = defineView("MountedCounter", {
     initializers: [initializer("MountedCounter()", args => args.length === 0)],
@@ -1286,7 +1286,7 @@ test("@mun/web mount reevaluates State reads and cleans up", async () => {
   assert.equal(container.innerHTML, "")
 })
 
-test("@mun/web DOM mount preserves events, refs, and State invalidation", async () => {
+test("@mun-ui/web DOM mount preserves events, refs, and State invalidation", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1310,7 +1310,7 @@ test("@mun/web DOM mount preserves events, refs, and State invalidation", async 
   assert.equal(container.innerHTML, "")
 })
 
-test("@mun/web patches text, attributes, and events without replacing the DOM node", async () => {
+test("@mun-ui/web patches text, attributes, and events without replacing the DOM node", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1339,7 +1339,7 @@ test("@mun/web patches text, attributes, and events without replacing the DOM no
   dom.window.close()
 })
 
-test("@mun/web removes event listeners when a live prop becomes null", async () => {
+test("@mun-ui/web removes event listeners when a live prop becomes null", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1371,7 +1371,7 @@ test("@mun/web removes event listeners when a live prop becomes null", async () 
   dom.window.close()
 })
 
-test("@mun/web preserves capture phase event semantics and removal", async () => {
+test("@mun-ui/web preserves capture phase event semantics and removal", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1399,7 +1399,7 @@ test("@mun/web preserves capture phase event semantics and removal", async () =>
   dom.window.close()
 })
 
-test("@mun/web preserves pointer-capture event names ending in Capture", () => {
+test("@mun-ui/web preserves pointer-capture event names ending in Capture", () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1418,7 +1418,7 @@ test("@mun/web preserves pointer-capture event names ending in Capture", () => {
   dom.window.close()
 })
 
-test("@mun/web detaches listeners from replaced and unmounted DOM nodes", async () => {
+test("@mun-ui/web detaches listeners from replaced and unmounted DOM nodes", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1452,7 +1452,7 @@ test("@mun/web detaches listeners from replaced and unmounted DOM nodes", async 
   dom.window.close()
 })
 
-test("@mun/web detaches nested listeners when a whole child batch is removed", async () => {
+test("@mun-ui/web detaches nested listeners when a whole child batch is removed", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1485,7 +1485,7 @@ test("@mun/web detaches nested listeners when a whole child batch is removed", a
   dom.window.close()
 })
 
-test("@mun/web windows lazy children and responds to scroll without rebuilding the boundary", async () => {
+test("@mun-ui/web windows lazy children and responds to scroll without rebuilding the boundary", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1515,7 +1515,7 @@ test("@mun/web windows lazy children and responds to scroll without rebuilding t
   dom.window.close()
 })
 
-test("@mun/web keeps LazyVStack usable when CSSOM and layout measurement are unavailable", async () => {
+test("@mun-ui/web keeps LazyVStack usable when CSSOM and layout measurement are unavailable", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1548,7 +1548,7 @@ test("@mun/web keeps LazyVStack usable when CSSOM and layout measurement are una
   }
 })
 
-test("@mun/web refines lazy ranges from measured child sizes", async () => {
+test("@mun-ui/web refines lazy ranges from measured child sizes", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1575,7 +1575,7 @@ test("@mun/web refines lazy ranges from measured child sizes", async () => {
   dom.window.close()
 })
 
-test("@mun/web preserves keyed child State across reorder and resets it after remount", async () => {
+test("@mun-ui/web preserves keyed child State across reorder and resets it after remount", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1608,7 +1608,7 @@ test("@mun/web preserves keyed child State across reorder and resets it after re
   dom.window.close()
 })
 
-test("@mun/web batches synchronous State writes into one View reevaluation", async () => {
+test("@mun-ui/web batches synchronous State writes into one View reevaluation", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1634,7 +1634,7 @@ test("@mun/web batches synchronous State writes into one View reevaluation", asy
   dom.window.close()
 })
 
-test("@mun/web patches wide flat host rows without materializing candidate DOM", async () => {
+test("@mun-ui/web patches wide flat host rows without materializing candidate DOM", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1682,7 +1682,7 @@ test("@mun/web patches wide flat host rows without materializing candidate DOM",
   dom.window.close()
 })
 
-test("@mun/web isolates row-local invalidation and reuses unchanged keyed View bodies", async () => {
+test("@mun-ui/web isolates row-local invalidation and reuses unchanged keyed View bodies", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1749,7 +1749,7 @@ test("@mun/web isolates row-local invalidation and reuses unchanged keyed View b
   dom.window.close()
 })
 
-test("@mun/web patches flat keyed host rows in place including events and refs", async () => {
+test("@mun-ui/web patches flat keyed host rows in place including events and refs", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1836,7 +1836,7 @@ test("@mun/web patches flat keyed host rows in place including events and refs",
   dom.window.close()
 })
 
-test("@mun/web executes ForEach host rows persistently and invalidates only changed entries", async () => {
+test("@mun-ui/web executes ForEach host rows persistently and invalidates only changed entries", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1914,7 +1914,7 @@ test("@mun/web executes ForEach host rows persistently and invalidates only chan
   dom.window.close()
 })
 
-test("@mun/web reevaluates moved generic ForEach rows when content observes the index", async () => {
+test("@mun-ui/web reevaluates moved generic ForEach rows when content observes the index", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1939,7 +1939,7 @@ test("@mun/web reevaluates moved generic ForEach rows when content observes the 
   dom.window.close()
 })
 
-test("@mun/web batches in-place ForEach mutations and preserves keyed row identity", async () => {
+test("@mun-ui/web batches in-place ForEach mutations and preserves keyed row identity", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -1995,7 +1995,7 @@ test("@mun/web batches in-place ForEach mutations and preserves keyed row identi
   dom.window.close()
 })
 
-test("@mun/web wakes nested empty View boundaries in one scheduler turn", async () => {
+test("@mun-ui/web wakes nested empty View boundaries in one scheduler turn", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2040,7 +2040,7 @@ test("@mun/web wakes nested empty View boundaries in one scheduler turn", async 
   dom.window.close()
 })
 
-test("@mun/web flushes dirty boundaries parent-first with stable updates", async () => {
+test("@mun-ui/web flushes dirty boundaries parent-first with stable updates", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2086,7 +2086,7 @@ test("@mun/web flushes dirty boundaries parent-first with stable updates", async
   dom.window.close()
 })
 
-test("@mun/web reuses live View subtrees across ancestor replacement and outer modifier changes", async () => {
+test("@mun-ui/web reuses live View subtrees across ancestor replacement and outer modifier changes", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2134,7 +2134,7 @@ test("@mun/web reuses live View subtrees across ancestor replacement and outer m
   dom.window.close()
 })
 
-test("@mun/web hydrates existing SSR markup and wires the live DOM boundary", async () => {
+test("@mun-ui/web hydrates existing SSR markup and wires the live DOM boundary", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2155,7 +2155,7 @@ test("@mun/web hydrates existing SSR markup and wires the live DOM boundary", as
   dom.window.close()
 })
 
-test("@mun/web keeps explicit ForEach identity through SSR hydration and reorder", async () => {
+test("@mun-ui/web keeps explicit ForEach identity through SSR hydration and reorder", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2184,7 +2184,7 @@ test("@mun/web keeps explicit ForEach identity through SSR hydration and reorder
   dom.window.close()
 })
 
-test("@mun/web hydrates the frame host without replacing its child", async () => {
+test("@mun-ui/web hydrates the frame host without replacing its child", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2211,7 +2211,7 @@ test("@mun/web hydrates the frame host without replacing its child", async () =>
   dom.window.close()
 })
 
-test("@mun/web falls back to a fresh client tree when hydration structure mismatches", async () => {
+test("@mun-ui/web falls back to a fresh client tree when hydration structure mismatches", async () => {
   const dom = new JSDOM("<div id=app><div data-stale>stale</div></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2236,7 +2236,7 @@ test("@mun/web falls back to a fresh client tree when hydration structure mismat
   dom.window.close()
 })
 
-test("@mun/web commits refs only after live DOM reconciliation and keeps stable refs stable", async () => {
+test("@mun-ui/web commits refs only after live DOM reconciliation and keeps stable refs stable", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2260,7 +2260,7 @@ test("@mun/web commits refs only after live DOM reconciliation and keeps stable 
   dom.window.close()
 })
 
-test("@mun/web unmount finishes cleanup when one ref callback throws", () => {
+test("@mun-ui/web unmount finishes cleanup when one ref callback throws", () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2278,7 +2278,7 @@ test("@mun/web unmount finishes cleanup when one ref callback throws", () => {
   dom.window.close()
 })
 
-test("@mun/web object refs do not execute has or accessor traps", () => {
+test("@mun-ui/web object refs do not execute has or accessor traps", () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2312,7 +2312,7 @@ test("@mun/web object refs do not execute has or accessor traps", () => {
   dom.window.close()
 })
 
-test("@mun/web normalizes DOM event names and boolean, ARIA, and enumerated attributes", () => {
+test("@mun-ui/web normalizes DOM event names and boolean, ARIA, and enumerated attributes", () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2342,7 +2342,7 @@ test("@mun/web normalizes DOM event names and boolean, ARIA, and enumerated attr
   dom.window.close()
 })
 
-test("@mun/web never serializes non-function event props into SSR HTML", () => {
+test("@mun-ui/web never serializes non-function event props into SSR HTML", () => {
   const value = Element("button", {
     onclick: "globalThis.__unexpectedInlineEvent = true",
     onClickCapture: false,
@@ -2353,7 +2353,7 @@ test("@mun/web never serializes non-function event props into SSR HTML", () => {
   assert.match(html, /aria-pressed="false"/)
 })
 
-test("@mun/web rejects invalid programmatic HTML names during SSR", () => {
+test("@mun-ui/web rejects invalid programmatic HTML names during SSR", () => {
   assert.throws(
     () => renderToHTML(Element('div><script data-owned="yes"', null, "Safe")),
     /Invalid HTML tag name/,
@@ -2372,7 +2372,7 @@ test("@mun/web rejects invalid programmatic HTML names during SSR", () => {
   )
 })
 
-test("@mun/web replaces every unkeyed sibling when multiple node types change together", async () => {
+test("@mun-ui/web replaces every unkeyed sibling when multiple node types change together", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2394,7 +2394,7 @@ test("@mun/web replaces every unkeyed sibling when multiple node types change to
   dom.window.close()
 })
 
-test("@mun/web hydration fallback drops unvisited stale descendants and attributes", async () => {
+test("@mun-ui/web hydration fallback drops unvisited stale descendants and attributes", async () => {
   const value = Element("strong", { class: "root" }, "lead", Element("span", { class: "tail" }, "tail"))
   const dom = new JSDOM('<div id=app><strong class="root"><span class="tail">tail</span><i data-stale="true">bogus</i></strong></div>')
   const container = dom.window.document.querySelector("#app")
@@ -2409,7 +2409,7 @@ test("@mun/web hydration fallback drops unvisited stale descendants and attribut
   dom.window.close()
 })
 
-test("@mun/web hydration fallback detaches listeners from partially hydrated server nodes", () => {
+test("@mun-ui/web hydration fallback detaches listeners from partially hydrated server nodes", () => {
   const dom = new JSDOM('<div id=app><section><button>go</button><i>stale</i></section></div>')
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2436,7 +2436,7 @@ test("@mun/web hydration fallback detaches listeners from partially hydrated ser
   dom.window.close()
 })
 
-test("@mun/web hydration reconciles stale server attributes without replacing matching nodes", () => {
+test("@mun-ui/web hydration reconciles stale server attributes without replacing matching nodes", () => {
   const dom = new JSDOM('<div id=app><div class="server" title="old" style="width:10px" data-stale="yes">server</div></div>')
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2453,7 +2453,7 @@ test("@mun/web hydration reconciles stale server attributes without replacing ma
   dom.window.close()
 })
 
-test("@mun/web creates contextual SVG namespaces and returns to HTML inside foreignObject", () => {
+test("@mun-ui/web creates contextual SVG namespaces and returns to HTML inside foreignObject", () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2484,7 +2484,7 @@ test("@mun/web creates contextual SVG namespaces and returns to HTML inside fore
   dom.window.close()
 })
 
-test("@mun/web preserves State for logically present offscreen lazy rows and drops removed rows", async () => {
+test("@mun-ui/web preserves State for logically present offscreen lazy rows and drops removed rows", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2536,7 +2536,7 @@ test("@mun/web preserves State for logically present offscreen lazy rows and dro
 })
 
 
-test("@mun/web lets a compiled keyed collection own its State subscription", async () => {
+test("@mun-ui/web lets a compiled keyed collection own its State subscription", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2620,7 +2620,7 @@ test("@mun/web lets a compiled keyed collection own its State subscription", asy
   dom.window.close()
 })
 
-test("@mun/web lets compiled collections override conservative declared struct dependencies", async () => {
+test("@mun-ui/web lets compiled collections override conservative declared struct dependencies", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2655,7 +2655,7 @@ test("@mun/web lets compiled collections override conservative declared struct d
   dom.window.close()
 })
 
-test("@mun/web retains a declared State dependency when the parent body also reads it", async () => {
+test("@mun-ui/web retains a declared State dependency when the parent body also reads it", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2688,7 +2688,7 @@ test("@mun/web retains a declared State dependency when the parent body also rea
   dom.window.close()
 })
 
-test("@mun/web keeps eventful compiled collection rows on the generic renderer path", async () => {
+test("@mun-ui/web keeps eventful compiled collection rows on the generic renderer path", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2726,7 +2726,7 @@ test("@mun/web keeps eventful compiled collection rows on the generic renderer p
 })
 
 
-test("@mun/web executes push pop and reverse without reevaluating stable compiled rows", async () => {
+test("@mun-ui/web executes push pop and reverse without reevaluating stable compiled rows", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2785,7 +2785,7 @@ test("@mun/web executes push pop and reverse without reevaluating stable compile
   dom.window.close()
 })
 
-test("@mun/web preserves duplicate occurrence identity after append falls back to generic reconcile", async () => {
+test("@mun-ui/web preserves duplicate occurrence identity after append falls back to generic reconcile", async () => {
   const dom = new JSDOM("<div id=app></div>")
   const container = dom.window.document.querySelector("#app")
   assert.ok(container)
@@ -2855,7 +2855,7 @@ test('public JavaScript authoring mounts a reactive SwiftUI-like counter without
   }
 })
 
-test("@mun/web hydration keeps refs and events applied before a later modifier chunk", async () => {
+test("@mun-ui/web hydration keeps refs and events applied before a later modifier chunk", async () => {
   const { RoundedRectangle, Text, VStack } = await import("../packages/core/dist/index.js")
   let clicks = 0
   const refs = []

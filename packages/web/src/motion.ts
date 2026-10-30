@@ -10,9 +10,9 @@ import {
   type InterpolatorOptions,
   type MotionSpec,
   type MotionValue,
-} from "@mun/animation"
-import type { Animation } from "@mun/core/compat"
-import { compositorMotionPropertyMask, layoutMotionPropertyMask, motionPropertyBit, paintMotionPropertyMask } from "@mun/core/internal/motion-abi"
+} from "@mun-ui/animation"
+import type { Animation } from "@mun-ui/core/compat"
+import { compositorMotionPropertyMask, layoutMotionPropertyMask, motionPropertyBit, paintMotionPropertyMask } from "@mun-ui/core/internal/motion-abi"
 import { svgPathInterpolatorOptions } from "./path-interpolation.js"
 
 export type StyleValue = unknown
@@ -211,7 +211,7 @@ function compileMotionPlan(animation: Animation): CompiledMotionPlan {
   return plan
 }
 
-/** Convert and memoize Mun's SwiftUI-shaped value into a public @mun/animation spec. */
+/** Convert and memoize Mun's SwiftUI-shaped value into a public @mun-ui/animation spec. */
 export function motionSpecForAnimation(animation: Animation): MunMotionSpec {
   return compileMotionPlan(animation).spec
 }
@@ -344,7 +344,7 @@ class ScalarMotionChannel implements MotionChannel {
         while (generation === this.#generation && (plan.repeatCount === Number.POSITIVE_INFINITY || cycle < plan.repeatCount)) {
           const reverse = plan.autoreverses && cycle % 2 === 1
           // Calling animate() on the same MotionValue deliberately avoids a
-          // pre-cancel here: @mun/animation retargets a live spring in-place and carries
+          // pre-cancel here: @mun-ui/animation retargets a live spring in-place and carries
           // its velocity into the new target.
           this.#control = animate(this.#value, reverse ? origin : target.value, plan.spec)
           const result = await this.#control.finished
@@ -592,7 +592,7 @@ export function cancelDomAttributeAnimation(element: Element, name: string): voi
 
 /**
  * Animate a DOM attribute through the same Mun animation clock as style motion.
- * SVG path data uses @mun/animation's cubic-normalizing path interpolator and keeps its
+ * SVG path data uses @mun-ui/animation's cubic-normalizing path interpolator and keeps its
  * current presentation value when interrupted and retargeted.
  */
 export function animateDomAttribute(
@@ -711,7 +711,7 @@ export function animateDomStyle(
 
 /**
  * Launch a whole style diff as one motion batch. Every property keeps its own
- * persistent channel and execution plan, while @mun/animation shares the frame loop and
+ * persistent channel and execution plan, while @mun-ui/animation shares the frame loop and
  * Mun coalesces the resulting DOM writes into one commit batch.
  */
 export function animateDomStyles(element: Element, changes: readonly DomStyleMotionChange[]): ReadonlySet<string> {

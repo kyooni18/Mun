@@ -1,7 +1,7 @@
 import { Fragment, cloneElement, createElement, isValidElement, type ReactElement, type ReactNode } from 'react'
 import { isViewNode, markViewNode, viewGraphChild, type ViewGraphValue, type ViewHostNode, type ViewModifierNode, type ViewNode } from './view-graph.js'
-import type { CompiledTemplateValue } from '@mun/core/compat'
-import { zeroGeometry } from '@mun/core/compat'
+import type { CompiledTemplateValue } from '@mun-ui/core/compat'
+import { zeroGeometry } from '@mun-ui/core/compat'
 import { arrayCheck, snapshotArrayValues } from './arrays.js'
 
 export type RendererChild<Output> = Output | readonly RendererChild<Output>[]

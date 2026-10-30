@@ -36,7 +36,7 @@ test("the mun language subpath adds compiler entry points with View graph APIs",
   assert.equal(mun.Text, core.Text)
 })
 
-test("@mun/core/compat retains the historical View graph explicitly", () => {
+test("@mun-ui/core/compat retains the historical View graph explicitly", () => {
   assert.equal(typeof compat.Text, "function")
   assert.equal(typeof compat.VStack, "function")
   assert.equal(typeof compat.Element, "function")

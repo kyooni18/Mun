@@ -3,7 +3,7 @@ import {
   type SemanticArgument,
   type SemanticInitializerParameter,
   type SemanticInitializerSymbol,
-} from "@mun/core"
+} from "@mun-ui/core"
 
 /**
  * Resolution of canonical SwiftUI-shaped calls against the parity manifest,

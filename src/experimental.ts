@@ -1,1 +1,1 @@
-export * from "@mun/react/legacy/experimental"
+export * from "@mun-ui/react/legacy/experimental"

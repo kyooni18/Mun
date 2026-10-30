@@ -1,5 +1,5 @@
 /** SwiftUI-inspired JavaScript View graphs, state, layout, and modifiers.
- * Render with @mun/web; native Semantic UI IR consumers are experimental.
+ * Render with @mun-ui/web; native Semantic UI IR consumers are experimental.
  */
 export * from "./animation.js"
 export * from "./api-manifest.js"

@@ -1,4 +1,4 @@
-import { renderToHTML } from "@mun/web"
+import { renderToHTML } from "@mun-ui/web"
 import {
   instantiateMunAstroComponent,
   isMunAstroComponent,
@@ -10,7 +10,7 @@ function hasSlots(slots: Record<string, unknown>): boolean {
 }
 
 const renderer = {
-  name: "@mun/astro",
+  name: "@mun-ui/astro",
 
   async check(Component: unknown): Promise<boolean> {
     return isMunAstroComponent(Component)

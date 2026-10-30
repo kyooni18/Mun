@@ -1,5 +1,5 @@
 import * as ts from "typescript"
-import * as Core from "@mun/core/compat"
+import * as Core from "@mun-ui/core/compat"
 import {
   analyzeMunSource,
   assertCanonicalMunSource,
@@ -7,7 +7,7 @@ import {
   parseMunBuilder,
   transformMunSource,
   type MunSourceMap,
-} from "@mun/compiler"
+} from "@mun-ui/compiler"
 
 const PUBLIC_VIRTUAL_PREFIX = "virtual:mun-astro:"
 const RESOLVED_VIRTUAL_PREFIX = "\0virtual:mun-astro:"
@@ -337,7 +337,7 @@ function parseHydrationOptions(source: string, fileName: string, offset: number)
 function hydrationAttribute(policy: HydrationPolicy): string {
   if (!policy.directive) return ""
   if (policy.directive === "media") return ` client:media=${JSON.stringify(policy.media ?? "")}`
-  if (policy.directive === "only") return ' client:only="@mun/astro"'
+  if (policy.directive === "only") return ' client:only="@mun-ui/astro"'
   return ` client:${policy.directive}`
 }
 
@@ -592,7 +592,7 @@ function importStatement(binding: ImportBinding): string {
 export function generateVirtualMunModule(block: MunAstroEmbeddedBlock): string {
   const lines: string[] = []
   if (block.builtins.length > 0) {
-    lines.push("import { " + block.builtins.join(", ") + ' } from "@mun/core/compat";')
+    lines.push("import { " + block.builtins.join(", ") + ' } from "@mun-ui/core/compat";')
   }
   for (const binding of block.imports) lines.push(importStatement(binding))
   lines.push("const __MunAstroComponent = (__props) => {")

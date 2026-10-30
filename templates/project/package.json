@@ -9,12 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mun/core": "^__MUN_VERSION__",
-    "@mun/ui": "^__MUN_VERSION__",
-    "@mun/web": "^__MUN_VERSION__"
+    "@mun-ui/core": "^__MUN_VERSION__",
+    "@mun-ui/ui": "^__MUN_VERSION__",
+    "@mun-ui/web": "^__MUN_VERSION__"
   },
   "devDependencies": {
-    "@mun/vite": "^__MUN_VERSION__",
+    "@mun-ui/vite": "^__MUN_VERSION__",
     "typescript": "^5.8.0",
     "vite": "^8.0.0"
   }

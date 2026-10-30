@@ -24,7 +24,7 @@ function importedBindings(sourceFile: ts.SourceFile, importedName: string): Impo
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
     const moduleName = statement.moduleSpecifier.text
-    if (!moduleName.startsWith("@mun/")) continue
+    if (!moduleName.startsWith("@mun-ui/")) continue
     const bindings = statement.importClause?.namedBindings
     if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text)
     if (bindings && ts.isNamedImports(bindings)) {

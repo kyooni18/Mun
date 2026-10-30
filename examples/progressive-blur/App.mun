@@ -1,7 +1,7 @@
-// Opt-in feature: progressive blur ships inside @mun/ui and is imported
+// Opt-in feature: progressive blur ships inside @mun-ui/ui and is imported
 // explicitly. Built-in Views (VStack, Text, Button, RoundedRectangle, …)
 // still resolve without any import.
-import { BlurProfile, ProgressiveBlur, blurFocus, focus, progressiveBlur } from "@mun/ui/progressive-blur"
+import { BlurProfile, ProgressiveBlur, blurFocus, focus, progressiveBlur } from "@mun-ui/ui/progressive-blur"
 
 struct Sample: View {
   var title: String

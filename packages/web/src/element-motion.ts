@@ -1,4 +1,4 @@
-import { Animation } from "@mun/core/compat"
+import { Animation } from "@mun-ui/core/compat"
 import {
   MotionEngine,
   createInterpolator,
@@ -6,7 +6,7 @@ import {
   motionValue,
   type AnimationControls,
   type InterpolatorOptions,
-} from "@mun/animation"
+} from "@mun-ui/animation"
 import { motionSpecForAnimation } from "./motion.js"
 
 export type MotionStatus = "finished" | "cancelled"

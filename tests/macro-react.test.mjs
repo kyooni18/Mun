@@ -6,7 +6,7 @@ import { State, Text, view } from '../dist/legacy.js'
 
 test('moves State declarations into per-view state and defers Action expressions', () => {
   const source = `
-import { Action, Button, State, Text, VStack, view } from '@mun/ui/legacy'
+import { Action, Button, State, Text, VStack, view } from '@mun-ui/ui/legacy'
 const count = State(0)
 export default view(
   VStack(
@@ -27,7 +27,7 @@ export default view(
 
 test('preserves State declaration order inside the per-view factory', () => {
   const source = `
-import { State, Text, VStack, view } from '@mun/ui/legacy'
+import { State, Text, VStack, view } from '@mun-ui/ui/legacy'
 const count = State(2)
 const doubled = State(count.value * 2)
 export default view(
@@ -45,7 +45,7 @@ export default view(
 
 test('hoists only the State graph used by each view when a module has multiple views', () => {
   const source = `
-import { State, Text, view } from '@mun/ui/legacy'
+import { State, Text, view } from '@mun-ui/ui/legacy'
 const firstOnly = State(1)
 const secondOnly = State(2)
 export const First = view(() => Text(String(firstOnly.value)))
@@ -65,7 +65,7 @@ export default view(() => Text(String(secondOnly.value)))
 
 test('multiple transformed views receive distinct State instances at runtime', () => {
   const source = `
-import { State, Text, view } from '@mun/ui/legacy'
+import { State, Text, view } from '@mun-ui/ui/legacy'
 const firstOnly = State(1)
 const secondOnly = State(2)
 export const First = view(() => Text(String(firstOnly.value)))
@@ -106,7 +106,7 @@ export default view(
 })
 
 test('wraps a plain view expression in a render function', () => {
-  const source = `import { Text, view } from '@mun/ui/legacy'\nexport default view(Text('Hello'))`
+  const source = `import { Text, view } from '@mun-ui/ui/legacy'\nexport default view(Text('Hello'))`
   const output = transformMunMacros(source, '/src/App.ts')
   assert.ok(output)
   assert.match(output, /view\(\(\) => \(Text\('Hello'\)\)\)/)
@@ -118,7 +118,7 @@ test('does not lower ordinary renderer member calls as Mun syntax', () => {
 })
 
 test('transforms the complete example, including top-level State declarations', () => {
-  const source = `import { State, Text, VStack, view } from '@mun/ui/legacy'
+  const source = `import { State, Text, VStack, view } from '@mun-ui/ui/legacy'
 const text = State('Mun')
 const value = State(60)
 const checked = State(true)
@@ -241,7 +241,7 @@ export default view(
 
 test('munMacro lowers Binding shorthand and merges the runtime import', () => {
   const source = `
-import { State, Toggle, view } from '@mun/ui/legacy'
+import { State, Toggle, view } from '@mun-ui/ui/legacy'
 const wifi = State(false)
 export default view(Toggle('Wi-Fi', isOn: $wifi))
 `

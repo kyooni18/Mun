@@ -25,7 +25,7 @@ those regions even when their scalar expressions are portable.
 ## Milestone 1: packed JavaScript baseline
 
 The first implementation contains no WASM, Worker, or WebGPU execution.
-`@mun/core/internal/execution` defines column layouts, packed storage,
+`@mun-ui/core/internal/execution` defines column layouts, packed storage,
 Kernel IR, and `ResidentRegionIR`. A valid initial region must be packed at both
 ends, use matching stable layouts, and contain map kernels whose fields have
 already passed type/layout proof.
@@ -120,7 +120,7 @@ host-prop/style/event Patch IR generation, and GPU renderer sinks that can
 consume the generic WGSL region without any CPU readback.
 
 Animation remains the existing proof point for dense resident memory. Its
-solver stays animation-owned. The small `@mun/execution` substrate
+solver stays animation-owned. The small `@mun-ui/execution` substrate
 shares buffer layout, scheduling capability, telemetry, and frame-budget
 signals without merging compiler compute and animation semantics.
 

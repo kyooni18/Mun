@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // SwiftUI parity contract ⇄ implementation consistency.
 //
-// The manifest (`swiftUIApiManifest`, @mun/core/swiftui-manifest) describes the
+// The manifest (`swiftUIApiManifest`, @mun-ui/core/swiftui-manifest) describes the
 // SwiftUI-derived source surface. This check proves each claim has an
 // implementation and each implementation is claimed:
 //
-// - native claims ⇄ `nativeLoweringMetadata()` of @mun/compiler (the keys of
+// - native claims ⇄ `nativeLoweringMetadata()` of @mun-ui/compiler (the keys of
 //   the native lowering tables themselves);
-// - compatibility-graph claims ⇄ the legacy View graph in @mun/core/compat;
+// - compatibility-graph claims ⇄ the legacy View graph in @mun-ui/core/compat;
 // - compatibility-only Mün spellings are rejected by the canonical compiler.
 import * as Core from "../packages/core/dist/api-manifest.js"
 import * as Compat from "../packages/core/dist/compat.js"
@@ -150,7 +150,7 @@ for (const [name, spec] of Object.entries(manifest.views)) {
   if (!spec.compat) continue
   const runtime = Compat[name]
   if (typeof runtime !== "function") {
-    failures.push(`View ${name} claims a compatibility-graph implementation but @mun/core/compat does not export it.`)
+    failures.push(`View ${name} claims a compatibility-graph implementation but @mun-ui/core/compat does not export it.`)
     continue
   }
   const runtimeInitializers = Compat.initializersOf(runtime)

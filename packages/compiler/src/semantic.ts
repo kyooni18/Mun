@@ -1,5 +1,5 @@
 import * as ts from "typescript"
-import * as Core from "@mun/core/compat"
+import * as Core from "@mun-ui/core/compat"
 import {
   SemanticModel,
   resolveSemanticCall,
@@ -12,7 +12,7 @@ import {
   type SemanticStateSymbol,
   type SemanticSymbol,
   type SemanticViewTypeSymbol,
-} from "@mun/core/compat"
+} from "@mun-ui/core/compat"
 import {
   parseMunBuilder,
   parseMunStructs,
@@ -370,7 +370,7 @@ function runtimeViewSymbols(): Map<string, SemanticViewTypeSymbol> {
 
 export function canonicalViewSymbols(): Map<string, SemanticViewTypeSymbol> {
   const result = runtimeViewSymbols()
-  // The canonical language manifest must be sufficient on its own. @mun/core
+  // The canonical language manifest must be sufficient on its own. @mun-ui/core
   // intentionally excludes legacy runtime View constructors, so runtime metadata
   // can enrich a symbol when present but can never be required for source semantics.
   for (const name of Core.swiftUIViewNames()) {
@@ -641,7 +641,7 @@ function typescriptGraphSymbols(
               kind: "foreign-component",
               localName: node.name.text,
               module,
-              rendererAdapter: isReact ? "@mun/react" : "@mun/vue",
+              rendererAdapter: isReact ? "@mun-ui/react" : "@mun-ui/vue",
             },
           })
         }

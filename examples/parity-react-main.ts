@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { createRoot } from "react-dom/client"
-import { view } from "@mun/react"
+import { view } from "@mun-ui/react"
 import graph from "./ParityGraph.mun"
 import "./parity.css"
 

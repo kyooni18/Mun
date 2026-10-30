@@ -1,4 +1,4 @@
-import { Binding, Button, Element, ForEach, GeometryReader, LazyVStack, State, Text, TextField, Toggle, VStack, defineView, initializer } from "@mun/core/compat"
+import { Binding, Button, Element, ForEach, GeometryReader, LazyVStack, State, Text, TextField, Toggle, VStack, defineView, initializer } from "@mun-ui/core/compat"
 
 const count = State(0)
 const name = State("Mun")

@@ -130,23 +130,23 @@ for (const target of releaseTargets) {
   assert.equal(packedManifest.name, manifest.name)
   assert.equal(packedManifest.version, manifest.version)
   assert.doesNotMatch(JSON.stringify(packedManifest), /workspace:/, `${manifest.name} published manifest leaked a workspace: dependency`)
-  if (manifest.name === '@mun/ui') {
+  if (manifest.name === '@mun-ui/ui') {
     for (const name of [
-      '@mun/animation',
-      '@mun/astro',
-      '@mun/compiler',
-      '@mun/core',
-      '@mun/execution',
-      '@mun/progressive-blur',
-      '@mun/react',
-      '@mun/vite',
-      '@mun/vue',
-      '@mun/web',
-    ]) assert.equal(packedManifest.dependencies?.[name], manifest.version, `canonical @mun/ui must install ${name}`)
-    assert.equal(packedManifest.peerDependencies, undefined, 'canonical @mun/ui should not keep optional renderer peers')
+      '@mun-ui/animation',
+      '@mun-ui/astro',
+      '@mun-ui/compiler',
+      '@mun-ui/core',
+      '@mun-ui/execution',
+      '@mun-ui/progressive-blur',
+      '@mun-ui/react',
+      '@mun-ui/vite',
+      '@mun-ui/vue',
+      '@mun-ui/web',
+    ]) assert.equal(packedManifest.dependencies?.[name], manifest.version, `canonical @mun-ui/ui must install ${name}`)
+    assert.equal(packedManifest.peerDependencies, undefined, 'canonical @mun-ui/ui should not keep optional renderer peers')
 
-    assert.ok(files.has("schemas/semantic-ui-ir-v1.schema.json"), "canonical @mun/ui pack must contain the Semantic UI IR v1 schema")
-    assert.ok(files.has("schemas/README.md"), "canonical @mun/ui pack must contain Semantic UI IR compatibility guidance")
+    assert.ok(files.has("schemas/semantic-ui-ir-v1.schema.json"), "canonical @mun-ui/ui pack must contain the Semantic UI IR v1 schema")
+    assert.ok(files.has("schemas/README.md"), "canonical @mun-ui/ui pack must contain Semantic UI IR compatibility guidance")
     for (const path of [
       "bin/native.mjs",
       "native/Cargo.toml",
@@ -155,7 +155,7 @@ for (const target of releaseTargets) {
       "native/mun-runtime/src/lib.rs",
       "native/mun-native/Cargo.toml",
       "native/mun-native/src/main.rs",
-    ]) assert.ok(files.has(path), `canonical @mun/ui pack must contain native runtime fallback file ${path}`)
+    ]) assert.ok(files.has(path), `canonical @mun-ui/ui pack must contain native runtime fallback file ${path}`)
   }
 
   console.log(`${manifest.name}@${manifest.version}: ${files.size} files, ${(report.unpackedSize / 1024).toFixed(1)} KiB unpacked`)
@@ -170,14 +170,14 @@ try {
   // making the release check independent of the machine's npm cache.
   const canonicalDependencyTarballs = canonicalPackages
     .filter(packageName => packageName !== "core")
-    .map(packageName => packedTarballs.get(`@mun/${packageName}`))
+    .map(packageName => packedTarballs.get(`@mun-ui/${packageName}`))
   writeFileSync(resolve(canonicalOnlyDir, "package.json"), JSON.stringify({
     private: true,
     type: "module",
     dependencies: {
-      "@mun/ui": `file:${packedTarballs.get("@mun/ui")}`,
-      "@mun/core": `file:${packedTarballs.get("@mun/core")}`,
-      "@mun/execution": `file:${packedTarballs.get("@mun/execution")}`,
+      "@mun-ui/ui": `file:${packedTarballs.get("@mun-ui/ui")}`,
+      "@mun-ui/core": `file:${packedTarballs.get("@mun-ui/core")}`,
+      "@mun-ui/execution": `file:${packedTarballs.get("@mun-ui/execution")}`,
       // Satisfy external dependencies/peers from this workspace so the
       // canonical packed-install smoke test is genuinely cache-independent.
       react: localDependency("react"),
@@ -198,26 +198,26 @@ try {
   ], { cwd: canonicalOnlyDir, encoding: "utf8" })
   assert.equal(install.status, 0, `canonical-only packed install failed:\n${install.stdout}\n${install.stderr}`)
   for (const packageName of ["animation", "astro", "compiler", "core", "progressive-blur", "react", "vite", "vue", "web"]) {
-    assert.equal(existsSync(resolve(canonicalOnlyDir, `node_modules/@mun/${packageName}`)), true, `canonical @mun/ui did not install @mun/${packageName}`)
+    assert.equal(existsSync(resolve(canonicalOnlyDir, `node_modules/@mun-ui/${packageName}`)), true, `canonical @mun-ui/ui did not install @mun-ui/${packageName}`)
   }
   const smoke = spawnSync(process.execPath, ["--input-type=module", "-e", `
-    import { Animation } from "@mun/ui";
-    import { BlurProfile, ProgressiveBlur, progressiveBlur } from "@mun/ui/progressive-blur";
-    import { planBlur } from "@mun/ui/progressive-blur/plan";
+    import { Animation } from "@mun-ui/ui";
+    import { BlurProfile, ProgressiveBlur, progressiveBlur } from "@mun-ui/ui/progressive-blur";
+    import { planBlur } from "@mun-ui/ui/progressive-blur/plan";
     if (typeof Animation !== "function") throw new Error("canonical semantic import failed");
-    if (typeof ProgressiveBlur !== "function" || typeof progressiveBlur !== "function") throw new Error("opt-in @mun/ui/progressive-blur import failed");
-    if (planBlur(BlurProfile.edge("bottom", 40), { radius: 8 }).length === 0) throw new Error("opt-in @mun/ui/progressive-blur/plan import failed");
+    if (typeof ProgressiveBlur !== "function" || typeof progressiveBlur !== "function") throw new Error("opt-in @mun-ui/ui/progressive-blur import failed");
+    if (planBlur(BlurProfile.edge("bottom", 40), { radius: 8 }).length === 0) throw new Error("opt-in @mun-ui/ui/progressive-blur/plan import failed");
   `], { cwd: canonicalOnlyDir, encoding: "utf8" })
   assert.equal(smoke.status, 0, `canonical-only smoke test failed:\n${smoke.stdout}\n${smoke.stderr}`)
   // Opt-in subpaths publish their declarations next to the ESM entry points.
   for (const path of ["dist/progressive-blur/index.d.ts", "dist/progressive-blur/plan.d.ts"]) {
-    assert.equal(existsSync(resolve(canonicalOnlyDir, "node_modules/@mun/ui", path)), true, `@mun/ui must publish ${path}`)
+    assert.equal(existsSync(resolve(canonicalOnlyDir, "node_modules/@mun-ui/ui", path)), true, `@mun-ui/ui must publish ${path}`)
   }
   for (const peer of ["react", "react-dom", "vue"]) {
-    const manifest = readJSON(resolve(canonicalOnlyDir, `node_modules/@mun/${peer === "vue" ? "vue" : "react"}/package.json`))
+    const manifest = readJSON(resolve(canonicalOnlyDir, `node_modules/@mun-ui/${peer === "vue" ? "vue" : "react"}/package.json`))
     assert.equal(manifest.peerDependenciesMeta?.[peer]?.optional, true, `${peer} must stay an optional peer of its Mün adapter`)
   }
-  console.log("Canonical @mun/ui installs the Mün compiler, web renderer, optional adapters, and Vite integration")
+  console.log("Canonical @mun-ui/ui installs the Mün compiler, web renderer, optional adapters, and Vite integration")
 } finally {
   rmSync(canonicalOnlyDir, { recursive: true, force: true })
 }
@@ -229,19 +229,19 @@ try {
     private: true,
     type: "module",
     dependencies: {
-      "@mun/ui": dependency("@mun/ui"),
+      "@mun-ui/ui": dependency("@mun-ui/ui"),
       "create-mun": dependency("create-mun"),
-      "@mun/animation": dependency("@mun/animation"),
-      "@mun/astro": dependency("@mun/astro"),
-      "@mun/core": dependency("@mun/core"),
-      "@mun/compiler": dependency("@mun/compiler"),
-      "@mun/execution": dependency("@mun/execution"),
-      "@mun/legacy-react": dependency("@mun/legacy-react"),
-      "@mun/progressive-blur": dependency("@mun/progressive-blur"),
-      "@mun/react": dependency("@mun/react"),
-      "@mun/vue": dependency("@mun/vue"),
-      "@mun/web": dependency("@mun/web"),
-      "@mun/vite": dependency("@mun/vite"),
+      "@mun-ui/animation": dependency("@mun-ui/animation"),
+      "@mun-ui/astro": dependency("@mun-ui/astro"),
+      "@mun-ui/core": dependency("@mun-ui/core"),
+      "@mun-ui/compiler": dependency("@mun-ui/compiler"),
+      "@mun-ui/execution": dependency("@mun-ui/execution"),
+      "@mun-ui/legacy-react": dependency("@mun-ui/legacy-react"),
+      "@mun-ui/progressive-blur": dependency("@mun-ui/progressive-blur"),
+      "@mun-ui/react": dependency("@mun-ui/react"),
+      "@mun-ui/vue": dependency("@mun-ui/vue"),
+      "@mun-ui/web": dependency("@mun-ui/web"),
+      "@mun-ui/vite": dependency("@mun-ui/vite"),
       react: localDependency("react"),
       "react-dom": localDependency("react-dom"),
       vue: localDependency("vue"),
@@ -252,23 +252,23 @@ try {
   const install = spawnSync("npm", ["install", "--offline", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock"], { cwd: installDir, encoding: "utf8" })
   assert.equal(install.status, 0, `clean packed install failed:\n${install.stdout}\n${install.stderr}`)
   const smoke = spawnSync(process.execPath, ["--input-type=module", "-e", `
-    import * as canonical from "@mun/ui";
-    import { spring } from "@mun/animation";
-    import { FrameBudgetSignal } from "@mun/execution";
-    import { Text } from "@mun/core";
+    import * as canonical from "@mun-ui/ui";
+    import { spring } from "@mun-ui/animation";
+    import { FrameBudgetSignal } from "@mun-ui/execution";
+    import { Text } from "@mun-ui/core";
     import { renderToStaticMarkup } from "react-dom/server";
-    import { render as renderReact } from "@mun/react";
-    import { render as renderVue } from "@mun/vue";
-    import { renderToHTML } from "@mun/web";
-    import { compileMunFile } from "@mun/compiler";
-    import { munPlugin } from "@mun/vite";
+    import { render as renderReact } from "@mun-ui/react";
+    import { render as renderVue } from "@mun-ui/vue";
+    import { renderToHTML } from "@mun-ui/web";
+    import { compileMunFile } from "@mun-ui/compiler";
+    import { munPlugin } from "@mun-ui/vite";
     if (typeof canonical.Animation !== "function" || canonical.Text !== Text) throw new Error("packed canonical entry boundary failed");
     if (spring().kind !== "spring") throw new Error("packed animation runtime failed");
     if (new FrameBudgetSignal().snapshot().level !== "idle") throw new Error("packed execution runtime failed");
     if (renderToStaticMarkup(renderReact(Text("react"))) !== "<span>react</span>") throw new Error("packed React render failed");
     if (!renderVue(Text("vue"))) throw new Error("packed Vue render failed");
     if (renderToHTML(Text("packed")) !== "<span>packed</span>") throw new Error("packed Web render failed");
-    const compiled = compileMunFile('import { Text } from "@mun/core/compat"\\nexport const value = Text("ok")', "packed.mun.ts");
+    const compiled = compileMunFile('import { Text } from "@mun-ui/core/compat"\\nexport const value = Text("ok")', "packed.mun.ts");
     if (!compiled.code.includes('export const value')) throw new Error("packed compiler failed");
     if (munPlugin().name !== "mun-compiler") throw new Error("packed Vite plugin failed");
   `], { cwd: installDir, encoding: "utf8" })
@@ -283,7 +283,7 @@ try {
   const generatedSource = readFileSync(resolve(generated, 'Sources/App.mun'), 'utf8')
   assert.match(generatedSource, /@main/u)
   assert.doesNotMatch(generatedSource, /State\(|\.value|\$\{|export default|import /u)
-  const cli = resolve(installDir, 'node_modules/@mun/ui/bin/mun.mjs')
+  const cli = resolve(installDir, 'node_modules/@mun-ui/ui/bin/mun.mjs')
   for (const args of [['check'], ['fmt', '--check'], ['compile', 'Sources/App.mun', 'app.json']]) {
     const result = spawnSync(process.execPath, [cli, ...args], { cwd: generated, encoding: 'utf8', timeout: 15000 })
     assert.equal(result.status, 0, result.stderr)
@@ -296,10 +296,10 @@ try {
   assert.match(readFileSync(resolve(webGenerated, 'src/main.ts'), 'utf8'), /import .*mount.* from ['"]@mun\/web['"]/u)
   assert.match(readFileSync(resolve(webGenerated, 'src/App.mun'), 'utf8'), /VStack/u)
   const generatedManifest = readJSON(resolve(webGenerated, 'package.json'))
-  assert.equal(generatedManifest.dependencies['@mun/core'], `^${releaseVersion}`)
-  assert.equal(generatedManifest.dependencies['@mun/web'], `^${releaseVersion}`)
-  assert.equal(generatedManifest.devDependencies['@mun/vite'], `^${releaseVersion}`)
-  assert.equal(generatedManifest.dependencies['@mun/ui'], `^${releaseVersion}`, 'opt-in @mun/ui features need no extra install')
+  assert.equal(generatedManifest.dependencies['@mun-ui/core'], `^${releaseVersion}`)
+  assert.equal(generatedManifest.dependencies['@mun-ui/web'], `^${releaseVersion}`)
+  assert.equal(generatedManifest.devDependencies['@mun-ui/vite'], `^${releaseVersion}`)
+  assert.equal(generatedManifest.dependencies['@mun-ui/ui'], `^${releaseVersion}`, 'opt-in @mun-ui/ui features need no extra install')
   assert.equal(generatedManifest.dependencies.react, undefined)
   assert.equal(generatedManifest.dependencies.vue, undefined)
   console.log("Clean offline install and create-mun smoke tests passed")

@@ -1,1 +1,1 @@
-export * from "@mun/react/legacy/compiler"
+export * from "@mun-ui/react/legacy/compiler"

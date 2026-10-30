@@ -51,11 +51,11 @@ The contract has three parts, and checks keep them consistent:
 | Part | Where | What it holds |
 | --- | --- | --- |
 | SDK snapshot | `api/swiftui-symbols.snapshot.json` | Public SwiftUI + SwiftUICore declarations from the installed Xcode SDK |
-| Parity manifest | `packages/core/src/api-manifest.ts` (`@mun/core/swiftui-manifest`) | Claimed overloads, their parameters and the three facts above; Mün extensions; compatibility-only spellings; unsupported APIs |
+| Parity manifest | `packages/core/src/api-manifest.ts` (`@mun-ui/core/swiftui-manifest`) | Claimed overloads, their parameters and the three facts above; Mün extensions; compatibility-only spellings; unsupported APIs |
 | Native lowering | `nativeViews`, `nativeModifiers` and the value tables in `packages/compiler/src` | One implementation per claimed native signature |
 
 The manifest is not a runtime API. It lives on its own subpath, so canonical
-`@mun/core` exports stay backend-neutral.
+`@mun-ui/core` exports stay backend-neutral.
 
 ### The SDK snapshot
 
@@ -152,7 +152,7 @@ Canonical `.mun` is Swift-derived. The table classifies every construct.
 | `export default App()` | TS/JS compatibility syntax (prefer `@main`) |
 | Top-level `const flag = State(false)` with `flag.value` | TS/JS compatibility syntax (prefer `@State`) |
 | `string`, `number`, `boolean`, `T[]`, `Array<T>`, `Record<K, V>`, `T \| null` | TS compatibility spellings: a diagnostic in canonical `.mun`, accepted by the legacy `.mun.ts`/React/Vue pipelines |
-| `.mun.ts` files, `@mun/core/compat` | Legacy compatibility; never needed for canonical `.mun` |
+| `.mun.ts` files, `@mun-ui/core/compat` | Legacy compatibility; never needed for canonical `.mun` |
 
 Rules with defined meanings:
 
@@ -226,7 +226,7 @@ To promote another SwiftUI API:
 
 ## Compatibility backends and animation
 
-The legacy View graph (`@mun/core/compat`) serves `.mun.ts`, React, Vue and the
+The legacy View graph (`@mun-ui/core/compat`) serves `.mun.ts`, React, Vue and the
 DOM renderer. Its modifiers are listed in the report as compatibility-only, and
 Mün-only legacy modifiers are listed too: `margin`, `gap`, `className`,
 `withProps`, a parameterless `.animation()` and others.
@@ -235,6 +235,6 @@ For these backends, `Animation`, `Transaction`, `withAnimation` and
 `withTransaction` live in core. A state write snapshots the active transaction,
 so asynchronous renderer updates keep the animation chosen at mutation time.
 The DOM renderer interpolates numeric, color and transform values with
-`@mun/animation`, retargeting live springs. React and Vue use a style-transition
+`@mun-ui/animation`, retargeting live springs. React and Vue use a style-transition
 fallback. These are web approximations. Native motion is implemented in
 `mun-runtime` from the Semantic UI IR's motion plans.

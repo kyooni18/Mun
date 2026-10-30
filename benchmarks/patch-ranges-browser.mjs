@@ -1,5 +1,5 @@
 // Isolated DOM patch benchmark: excludes application rendering, layout and paint.
-// Build @mun/web first. Optional paired source comparison:
+// Build @mun-ui/web first. Optional paired source comparison:
 // MUN_PATCH_BASE_REF=730348c node benchmarks/patch-ranges-browser.mjs
 import { readFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"

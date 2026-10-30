@@ -25,7 +25,7 @@ function runInitializer(args, cwd) {
 
 test('mun compile lowers canonical .mun source to shared semantic UI IR', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-compile-'))
-  writeFileSync(resolve(workspace, 'App.mun'), `import { Text, VStack } from "@mun/core"
+  writeFileSync(resolve(workspace, 'App.mun'), `import { Text, VStack } from "@mun-ui/core"
 
 struct App: View {
   var body: some View {
@@ -53,7 +53,7 @@ export default App()
 
 test('mun compile defaults to a .mun.ir.json artifact and rejects non-canonical source extensions', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-compile-default-'))
-  const source = `import { Text } from "@mun/core"
+  const source = `import { Text } from "@mun-ui/core"
 struct App: View {
   var body: some View {
     Text("Hello")
@@ -79,7 +79,7 @@ test('mun run compiles canonical .mun source and launches the native host with s
   const host = resolve(workspace, 'fake-mun-native')
   const capture = resolve(workspace, 'captured-ir.json')
 
-  writeFileSync(input, `import { Text, VStack } from "@mun/core"
+  writeFileSync(input, `import { Text, VStack } from "@mun-ui/core"
 
 struct App: View {
   var body: some View {
@@ -122,7 +122,7 @@ test('the published package carries the locked native Rust fallback used by mun 
   ]) assert.equal(publishFiles.includes(path), true, path)
 })
 
-test('canonical @mun/ui create scaffolds a Web project without React or Vue', () => {
+test('canonical @mun-ui/ui create scaffolds a Web project without React or Vue', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-cli-'))
   const result = run(['create', 'hello-mun', '--no-install'], workspace)
   const project = resolve(workspace, 'hello-mun')
@@ -141,14 +141,14 @@ test('canonical @mun/ui create scaffolds a Web project without React or Vue', ()
 
   const manifest = JSON.parse(readFileSync(resolve(project, 'package.json'), 'utf8'))
   assert.equal(manifest.name, 'hello-mun')
-  assert.equal(manifest.dependencies['@mun/core'], `^${currentVersion}`)
-  assert.equal(manifest.dependencies['@mun/web'], `^${currentVersion}`)
-  // Opt-in features (@mun/ui/progressive-blur) need no extra install; React/Vue stay absent.
-  assert.equal(manifest.dependencies['@mun/ui'], `^${currentVersion}`)
+  assert.equal(manifest.dependencies['@mun-ui/core'], `^${currentVersion}`)
+  assert.equal(manifest.dependencies['@mun-ui/web'], `^${currentVersion}`)
+  // Opt-in features (@mun-ui/ui/progressive-blur) need no extra install; React/Vue stay absent.
+  assert.equal(manifest.dependencies['@mun-ui/ui'], `^${currentVersion}`)
   assert.equal(manifest.dependencies.react, undefined)
   assert.equal(manifest.dependencies['react-dom'], undefined)
   assert.equal(manifest.dependencies.vue, undefined)
-  assert.equal(manifest.devDependencies['@mun/vite'], `^${currentVersion}`)
+  assert.equal(manifest.devDependencies['@mun-ui/vite'], `^${currentVersion}`)
   assert.equal(manifest.devDependencies['@vitejs/plugin-react'], undefined)
   assert.equal(manifest.devDependencies['@types/react'], undefined)
   assert.equal(manifest.devDependencies['@types/react-dom'], undefined)
@@ -177,7 +177,7 @@ test('init prints current-directory next steps without a redundant cd command', 
   assert.doesNotMatch(result.stdout, /Next steps:\n  cd /u)
 })
 
-test('canonical @mun/ui create protects a non-empty target unless forced', () => {
+test('canonical @mun-ui/ui create protects a non-empty target unless forced', () => {
   const workspace = mkdtempSync(resolve(tmpdir(), 'mun-cli-'))
   const project = resolve(workspace, 'existing')
   const manifest = resolve(project, 'package.json')
@@ -215,18 +215,18 @@ test('local create mode wires a separate app to the source checkout without npm 
 
   assert.equal(result.status, 0, result.stderr)
   const manifest = JSON.parse(readFileSync(resolve(project, 'package.json'), 'utf8'))
-  assert.match(manifest.dependencies['@mun/ui'], /^link:/u)
-  assert.match(manifest.devDependencies['@mun/progressive-blur'], /^link:/u)
-  assert.match(manifest.dependencies['@mun/web'], /^link:/u)
-  assert.equal(manifest.dependencies['@mun/react'], undefined)
-  assert.equal(manifest.dependencies['@mun/vue'], undefined)
+  assert.match(manifest.dependencies['@mun-ui/ui'], /^link:/u)
+  assert.match(manifest.devDependencies['@mun-ui/progressive-blur'], /^link:/u)
+  assert.match(manifest.dependencies['@mun-ui/web'], /^link:/u)
+  assert.equal(manifest.dependencies['@mun-ui/react'], undefined)
+  assert.equal(manifest.dependencies['@mun-ui/vue'], undefined)
   assert.equal(manifest.dependencies.react, undefined)
   assert.equal(manifest.dependencies.vue, undefined)
-  assert.match(manifest.devDependencies['@mun/vite'], /^link:/u)
-  assert.match(manifest.devDependencies['@mun/core'], /^link:/u)
-  assert.match(manifest.devDependencies['@mun/compiler'], /^link:/u)
-  assert.match(manifest.devDependencies['@mun/execution'], /^link:/u)
-  assert.equal(manifest.devDependencies['@mun/legacy-react'], undefined)
+  assert.match(manifest.devDependencies['@mun-ui/vite'], /^link:/u)
+  assert.match(manifest.devDependencies['@mun-ui/core'], /^link:/u)
+  assert.match(manifest.devDependencies['@mun-ui/compiler'], /^link:/u)
+  assert.match(manifest.devDependencies['@mun-ui/execution'], /^link:/u)
+  assert.equal(manifest.devDependencies['@mun-ui/legacy-react'], undefined)
   assert.equal(manifest.pnpm?.overrides, undefined)
   const workspaceConfig = readFileSync(resolve(project, 'pnpm-workspace.yaml'), 'utf8')
   assert.match(workspaceConfig, /"@mun\/core": "link:/u)
@@ -306,27 +306,27 @@ test('mun link upgrades an existing project to robust local source links', () =>
   assert.equal(result.status, 0, result.stderr)
   const manifest = JSON.parse(readFileSync(resolve(project, 'package.json'), 'utf8'))
   assert.equal(manifest.dependencies.react, '^19.0.0')
-  assert.match(manifest.dependencies['@mun/ui'], /^link:/u)
-  assert.match(manifest.dependencies['@mun/react'], /^link:/u)
-  assert.match(manifest.devDependencies['@mun/vite'], /^link:/u)
-  assert.match(manifest.devDependencies['@mun/core'], /^link:/u)
-  assert.match(manifest.devDependencies['@mun/compiler'], /^link:/u)
-  assert.match(manifest.devDependencies['@mun/execution'], /^link:/u)
-  assert.equal(manifest.devDependencies['@mun/legacy-react'], undefined)
+  assert.match(manifest.dependencies['@mun-ui/ui'], /^link:/u)
+  assert.match(manifest.dependencies['@mun-ui/react'], /^link:/u)
+  assert.match(manifest.devDependencies['@mun-ui/vite'], /^link:/u)
+  assert.match(manifest.devDependencies['@mun-ui/core'], /^link:/u)
+  assert.match(manifest.devDependencies['@mun-ui/compiler'], /^link:/u)
+  assert.match(manifest.devDependencies['@mun-ui/execution'], /^link:/u)
+  assert.equal(manifest.devDependencies['@mun-ui/legacy-react'], undefined)
   assert.equal(manifest.pnpm?.overrides, undefined)
   const workspaceConfig = readFileSync(resolve(project, 'pnpm-workspace.yaml'), 'utf8')
   for (const name of [
-    '@mun/ui',
-    '@mun/animation',
-    '@mun/astro',
-    '@mun/core',
-    '@mun/compiler',
-    '@mun/execution',
-    '@mun/legacy-react',
-    '@mun/react',
-    '@mun/vue',
-    '@mun/web',
-    '@mun/vite',
+    '@mun-ui/ui',
+    '@mun-ui/animation',
+    '@mun-ui/astro',
+    '@mun-ui/core',
+    '@mun-ui/compiler',
+    '@mun-ui/execution',
+    '@mun-ui/legacy-react',
+    '@mun-ui/react',
+    '@mun-ui/vue',
+    '@mun-ui/web',
+    '@mun-ui/vite',
   ]) assert.match(workspaceConfig, new RegExp(`${name.replace('/', '\\/').replace('@', '\\@')}\\": \"link:`), name)
 })
 
@@ -345,7 +345,7 @@ test('mun link auto-detects Astro, React, Vue, or Web targets', () => {
 
     assert.equal(result.status, 0, result.stderr)
     const manifest = JSON.parse(readFileSync(resolve(project, 'package.json'), 'utf8'))
-    assert.match(manifest.dependencies[`@mun/${renderer}`], /^link:/u)
+    assert.match(manifest.dependencies[`@mun-ui/${renderer}`], /^link:/u)
     assert.match(result.stdout, new RegExp(`Linked Mün .* \\(${renderer}\\)`, 'u'))
   }
 })
@@ -371,8 +371,8 @@ test('mun link can select Astro, Vue, or Web without forcing React renderer depe
     const result = run(['link', project, '--renderer', renderer, '--no-install'], root)
     assert.equal(result.status, 0, result.stderr)
     const manifest = JSON.parse(readFileSync(resolve(project, 'package.json'), 'utf8'))
-    assert.match(manifest.dependencies[`@mun/${renderer}`], /^link:/u)
-    assert.equal(manifest.dependencies['@mun/react'], undefined)
+    assert.match(manifest.dependencies[`@mun-ui/${renderer}`], /^link:/u)
+    assert.equal(manifest.dependencies['@mun-ui/react'], undefined)
   }
 })
 

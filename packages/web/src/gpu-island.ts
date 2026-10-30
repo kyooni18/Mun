@@ -1,4 +1,4 @@
-import { getRenderingQuality, prepareRenderingQuality, type RenderingQuality } from "@mun/animation/rendering-quality"
+import { getRenderingQuality, prepareRenderingQuality, type RenderingQuality } from "@mun-ui/animation/rendering-quality"
 
 const WORKGROUP_SIZE = 64
 const FLOATS_PER_PARTICLE = 8
@@ -1169,4 +1169,4 @@ export function mountParticleFieldGPUIslandCanvas(
 export function disposeParticleFieldGPUIslandCanvas(canvas: HTMLCanvasElement): void {
   mountedParticleFields.get(canvas)?.()
 }
-import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
+import type { GPUIslandViewNode } from "@mun-ui/core/internal/runtime"

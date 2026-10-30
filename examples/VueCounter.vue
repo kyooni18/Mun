@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Button, State, Text, VStack } from "@mun/core/compat"
-import { MunView } from "@mun/vue"
+import { Button, State, Text, VStack } from "@mun-ui/core/compat"
+import { MunView } from "@mun-ui/vue"
 
 const count = State(0)
 

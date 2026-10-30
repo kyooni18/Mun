@@ -1,4 +1,4 @@
-import { mount } from "@mun/web"
+import { mount } from "@mun-ui/web"
 import App from "./WebCounter.mun"
 import "./styles.css"
 

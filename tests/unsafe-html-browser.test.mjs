@@ -10,7 +10,7 @@ test('compiled trusted markup hydrates, updates and unmounts in Chromium', async
   const dir = await mkdtemp(new URL('.unsafe-html-browser-', root).pathname)
   let server, browser
   try {
-    await writeFile(`${dir}/App.mun`, `import { Element } from "@mun/core"
+    await writeFile(`${dir}/App.mun`, `import { Element } from "@mun-ui/core"
 struct App: View {
   @State var html = "<strong>first</strong>"
   var body: some View {
@@ -21,7 +21,7 @@ struct App: View {
   }
 }
 export default App()`)
-    await writeFile(`${dir}/client.js`, `import {mount} from '@mun/web'; import App from './App.mun';
+    await writeFile(`${dir}/client.js`, `import {mount} from '@mun-ui/web'; import App from './App.mun';
 const root=document.querySelector('#app'); const original=root.querySelector('strong');
 const stop=mount(App,root,{hydrate:true}); window.fixture={original,stop};`)
     await writeFile(`${dir}/index.html`, '<div id="app"><main><div><strong>first</strong></div><button><span>Change</span></button></main></div><script type="module" src="/client.js"></script>')

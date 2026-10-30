@@ -7,17 +7,17 @@
   built-ins are imported, and unknown, native-only or un-imported opt-in names are
   reported at their source position (any name, including lowercase typos). `Color.red` and similar value types used to lower
   to an unimported identifier.
-- Progressive blur is the first opt-in feature of `@mun/ui`: `@mun/ui/progressive-blur`
-  and `@mun/ui/progressive-blur/plan`. `@mun/progressive-blur` keeps working and is the
+- Progressive blur is the first opt-in feature of `@mun-ui/ui`: `@mun-ui/ui/progressive-blur`
+  and `@mun-ui/ui/progressive-blur/plan`. `@mun-ui/progressive-blur` keeps working and is the
   same module instance.
-- `@mun/web` hydration keeps a `ref` and event handlers when a later modifier (for example
+- `@mun-ui/web` hydration keeps a `ref` and event handlers when a later modifier (for example
   `clipShape`) adds props to the same element during candidate hydration.
-- `@mun/web` keeps listeners, refs and animations of a live View that is carried into a
+- `@mun-ui/web` keeps listeners, refs and animations of a live View that is carried into a
   replacement ancestor element (regressed with the unchanged-style no-op path).
 - Struct fields typed `String`/`Int`/`Bool` satisfy TypeScript-typed initializer
   parameters (`Text(title)` no longer reports "No matching initializer").
 - `react`, `react-dom` and `vue` are optional peers of their adapters; new projects
-  depend on `@mun/ui`.
+  depend on `@mun-ui/ui`.
 
 - Added the first renderer-neutral compiled template/slot IR. Proven intrinsic
   host structure is frozen once at module evaluation, dynamic children retain
@@ -53,7 +53,7 @@
 - Added State owner reconciliation and cleanup for replacement, nested, shared, circular, and unsubscribed object graphs; split mixed macro declarations and added column-level source-map anchors plus diagnostics.
 - Added unique Alert IDs, stacked-presentation hydration tests, expanded Menu keyboard behavior, repeated dynamic-dependency tests, fragment stress cases, and SSR hydration coverage.
 - Unified experimental geometry naming around `CoordinateNode` and measured `LayoutNode`; expanded the modifier benchmark matrix and added a CI benchmark guard.
-- Moved layout experiments, coordinate/observer infrastructure, plugin metadata, and the block-builder transform behind `@mun/ui/experimental`.
+- Moved layout experiments, coordinate/observer infrastructure, plugin metadata, and the block-builder transform behind `@mun-ui/ui/experimental`.
 - Standardized repository commands on pnpm and added React 18/19 CI coverage plus an opt-in Playwright browser suite.
 
 ## 0.1.0

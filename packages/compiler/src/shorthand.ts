@@ -1,5 +1,5 @@
 import * as ts from "typescript"
-import { swiftUIAnimationFactoryArgumentLabels } from "@mun/core"
+import { swiftUIAnimationFactoryArgumentLabels } from "@mun-ui/core"
 import { identifierAt, matching, skipComment, skipString, skipTrivia, splitTopLevel, syntaxError, topLevelColon } from "./scanner.js"
 
 function isIdentifierDeclaration(node: ts.Identifier): boolean {

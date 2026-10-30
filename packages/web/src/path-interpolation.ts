@@ -1,5 +1,5 @@
-import type { InterpolatorOptions } from "@mun/animation"
-import { createPathMorpher, parsePath, type ParsedPathSegment } from "@mun/animation/path"
+import type { InterpolatorOptions } from "@mun-ui/animation"
+import { createPathMorpher, parsePath, type ParsedPathSegment } from "@mun-ui/animation/path"
 
 interface PathGeometry {
   readonly centroidX: number
@@ -306,7 +306,7 @@ export function createSvgPathInterpolator(from: string, to: string): (progress: 
   }
 }
 
-/** @mun/animation custom interpolation option that retains exact authored endpoints. */
+/** @mun-ui/animation custom interpolation option that retains exact authored endpoints. */
 export function svgPathInterpolatorOptions(from: string, to: string): InterpolatorOptions {
   const interpolate = createSvgPathInterpolator(from, to)
   return { interpolate: (_from, _to, progress) => interpolate(progress) }

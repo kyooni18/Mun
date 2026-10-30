@@ -1,1 +1,1 @@
-export * from "@mun/react/legacy/vite"
+export * from "@mun-ui/react/legacy/vite"

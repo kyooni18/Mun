@@ -19,8 +19,8 @@ import {
   topLevelColon,
   type BuilderCall,
 } from "./scanner.js"
-import * as Core from "@mun/core/compat"
-import { resolveSemanticCall, swiftUIModifierLowering, type SemanticArgument, type SemanticCallResolution, type SemanticInitializerSymbol, type SemanticViewTypeSymbol } from "@mun/core/compat"
+import * as Core from "@mun-ui/core/compat"
+import { resolveSemanticCall, swiftUIModifierLowering, type SemanticArgument, type SemanticCallResolution, type SemanticInitializerSymbol, type SemanticViewTypeSymbol } from "@mun-ui/core/compat"
 import { lowerImplicitMemberShorthand, lowerNamedAnimationFactoryCalls, lowerShorthand } from "./shorthand.js"
 import { foldStaticResults, hoistStaticViewSubtrees, lowerCompiledViewTemplates, lowerContentTransitionArgument, lowerStaticSemanticSpecializations, staticModifierNames } from "./specialization.js"
 import { lowerCompiledCollections } from "./collection-specialization.js"
@@ -763,8 +763,8 @@ function canonicalRuntimeBindings(file: ts.SourceFile): CanonicalRuntimeBindings
   const namespaces = new Set<string>()
   for (const statement of file.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
-    if (statement.moduleSpecifier.text !== "@mun/core/compat"
-      && statement.moduleSpecifier.text !== "@mun/react") continue
+    if (statement.moduleSpecifier.text !== "@mun-ui/core/compat"
+      && statement.moduleSpecifier.text !== "@mun-ui/react") continue
     const clause = statement.importClause
     if (!clause || clause.isTypeOnly) continue
     const bindings = clause.namedBindings
@@ -1175,7 +1175,7 @@ interface MunApiBindings {
 }
 
 function isMunPackage(moduleName: string): boolean {
-  return moduleName.startsWith("@mun/")
+  return moduleName.startsWith("@mun-ui/")
 }
 
 function bindingNames(name: ts.BindingName): string[] {
@@ -1702,29 +1702,29 @@ function ensureImports(source: string, includeViewBuiltins = false): string {
   const internalRequired = ["compiledCollectionContent", "mapStateArrayData"].filter(name => new RegExp(`\\b${name}\\s*\\(`).test(source))
   if (required.length === 0 && internalRequired.length === 0) return result
   const imports = [...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*(["'])(@mun\/core\/compat|@mun\/react)\2[\t ]*;?/g)]
-  // Respect local named bindings from every entrypoint, including @mun/core
-  // and @mun/ui, so adding implicit helpers cannot duplicate explicit imports.
+  // Respect local named bindings from every entrypoint, including @mun-ui/core
+  // and @mun-ui/ui, so adding implicit helpers cannot duplicate explicit imports.
   const imported = new Set([...result.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'][^"']+["']/g)]
     .flatMap(match => match[1].split(",").map(value => value.trim()).filter(value => value && !/^type\s/.test(value))
       .map(value => value.split(/\s+as\s+/).at(-1)!)))
   const missing = required.filter(name => !imported.has(name))
   if (missing.length > 0) {
-    const existingCore = imports.find(match => match[3] === "@mun/core/compat")
-    if (!existingCore) result = `import { ${missing.join(", ")} } from "@mun/core/compat"\n${result}`
+    const existingCore = imports.find(match => match[3] === "@mun-ui/core/compat")
+    if (!existingCore) result = `import { ${missing.join(", ")} } from "@mun-ui/core/compat"\n${result}`
     else {
       const names = existingCore[1].split(",").map(value => value.trim()).filter(Boolean)
       for (const name of missing) if (!names.includes(name)) names.push(name)
-      const replacement = `import { ${names.join(", ")} } from ${existingCore[2]}@mun/core/compat${existingCore[2]}`
+      const replacement = `import { ${names.join(", ")} } from ${existingCore[2]}@mun-ui/core/compat${existingCore[2]}`
       result = result.slice(0, existingCore.index) + replacement + result.slice(existingCore.index + existingCore[0].length)
     }
   }
   if (internalRequired.length > 0) {
     const internalImport = /import\s*\{([^}]*)\}\s*from\s*(["'])@mun\/core\/internal\/runtime\2[\t ]*;?/.exec(result)
-    if (!internalImport) result = `import { ${internalRequired.join(", ")} } from "@mun/core/internal/runtime"\n${result}`
+    if (!internalImport) result = `import { ${internalRequired.join(", ")} } from "@mun-ui/core/internal/runtime"\n${result}`
     else {
       const names = internalImport[1].split(",").map(value => value.trim()).filter(Boolean)
       for (const name of internalRequired) if (!names.includes(name)) names.push(name)
-      const replacement = `import { ${names.join(", ")} } from ${internalImport[2]}@mun/core/internal/runtime${internalImport[2]}`
+      const replacement = `import { ${names.join(", ")} } from ${internalImport[2]}@mun-ui/core/internal/runtime${internalImport[2]}`
       result = result.slice(0, internalImport.index) + replacement + result.slice(internalImport.index + internalImport[0].length)
     }
   }
@@ -1950,7 +1950,7 @@ function lowerVueComponentImports(source: string): string {
   if (replacements.length === 0) return source
   let result = source
   for (const replacement of replacements.reverse()) result = result.slice(0, replacement.start) + replacement.value + result.slice(replacement.end)
-  return `import { foreignComponent as __munForeignComponent } from "@mun/vue"\n${result}`
+  return `import { foreignComponent as __munForeignComponent } from "@mun-ui/vue"\n${result}`
 }
 
 function lowerReactComponentImports(source: string): string {
@@ -1985,7 +1985,7 @@ function lowerReactComponentImports(source: string): string {
   if (replacements.length === 0) return source
   let result = source
   for (const replacement of replacements.reverse()) result = result.slice(0, replacement.start) + replacement.value + result.slice(replacement.end)
-  return `import { reactComponent as __munReactComponent } from "@mun/react"\n${result}`
+  return `import { reactComponent as __munReactComponent } from "@mun-ui/react"\n${result}`
 }
 
 export interface MunTransformOptions {

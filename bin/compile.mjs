@@ -3,7 +3,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, relative, resolve } from 'node:path'
 import process from 'node:process'
-import { compileMunUiProgram } from '@mun/compiler'
+import { compileMunUiProgram } from '@mun-ui/compiler'
 
 function displayPath(path) {
   const local = relative(process.cwd(), path)

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import { formatSource } from '../bin/formatter.mjs'
-import { compileMunUiProgram } from '@mun/compiler'
+import { compileMunUiProgram } from '@mun-ui/compiler'
 
 const fixtures = [
   ['struct declaration', 'struct App:View{var body:some View{Text("Hi")}}', 'struct App: View {\n  var body: some View {\n    Text("Hi")\n  }\n}\n'],

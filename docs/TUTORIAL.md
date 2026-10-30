@@ -47,7 +47,7 @@ struct App: View {
 ## 2. Compile to Semantic UI IR
 
 The repository exposes `compileMunUiProgram(source, fileName)` from
-`@mun/compiler`. The native demo build script uses that same compiler path to
+`@mun-ui/compiler`. The native demo build script uses that same compiler path to
 serialize the fixture into `native/generated/NativeDemo.json`.
 
 The compiler parses the builder syntax, resolves Mün Views, state, actions, and

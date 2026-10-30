@@ -1,6 +1,6 @@
-import { Element, type ContentModifier, type ModifiableViewNode, type ViewNode } from "@mun/core"
+import { Element, type ContentModifier, type ModifiableViewNode, type ViewNode } from "@mun-ui/core"
 import { BlurProfile, focus, planBlur, type BlurCenter, type Easing, type Edge, type UnitPoint } from "./plan.js"
-import { observeRenderingQuality, type RenderingQuality } from "@mun/animation/rendering-quality"
+import { observeRenderingQuality, type RenderingQuality } from "@mun-ui/animation/rendering-quality"
 
 export { BlurProfile, focus, planBlur }
 export { prepareProgressiveBlur } from "./quality.js"

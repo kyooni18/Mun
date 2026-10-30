@@ -1,5 +1,5 @@
-import { Animation, type ContentTransition, type SymbolReplacementFallback, type TextTransitionDirection } from "@mun/core/compat"
-import { createInterpolator } from "@mun/animation"
+import { Animation, type ContentTransition, type SymbolReplacementFallback, type TextTransitionDirection } from "@mun-ui/core/compat"
+import { createInterpolator } from "@mun-ui/animation"
 import { munMotion, type MotionHandle } from "./element-motion.js"
 import {
   createSvgPathInterpolator,

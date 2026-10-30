@@ -1,1 +1,1 @@
-export * from "@mun/react/legacy/state"
+export * from "@mun-ui/react/legacy/state"

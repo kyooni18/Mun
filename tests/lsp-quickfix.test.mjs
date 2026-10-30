@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { LanguageService } from '../editors/lsp/service.mjs'
 import { offsetAt, rangeAt } from '../editors/lsp/source.mjs'
-import { compileMunUiProgram } from '@mun/compiler'
+import { compileMunUiProgram } from '@mun-ui/compiler'
 
 for (const [legacy, canonical, value] of [['string', 'String', '"😀"'], ['boolean', 'Bool', 'true']]) {
   test(`compiler-backed quickfix ${legacy} -> ${canonical}`, () => {

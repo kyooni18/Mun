@@ -12,7 +12,7 @@ The dependency direction is:
 
 ```text
 .mun
-  -> @mun/compiler
+  -> @mun-ui/compiler
   -> Mün Semantic UI IR
      -> native runtime/backend
         -> macOS
@@ -40,7 +40,7 @@ Raw HTML is rejected in canonical `.mun` source.
 
 ## Semantic UI IR
 
-`@mun/core` is the canonical backend-neutral surface. Its public contract is
+`@mun-ui/core` is the canonical backend-neutral surface. Its public contract is
 language semantics, motion values, and Semantic UI IR. The IR does not contain
 HTML tag names, DOM event objects, CSS declarations, React elements, or Vue
 VNodes.
@@ -87,8 +87,8 @@ the earlier Web-first implementation. It remains valuable for the React, Vue,
 Web, and migration surfaces while they move toward direct Semantic UI IR
 consumption.
 
-That graph is explicitly isolated behind `@mun/core/compat`. It is not the
-canonical `@mun/core` contract and must not be used to define new language
+That graph is explicitly isolated behind `@mun-ui/core/compat`. It is not the
+canonical `@mun-ui/core` contract and must not be used to define new language
 semantics.
 
 Compatibility renderers may keep their existing DOM-oriented implementation,

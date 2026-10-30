@@ -14,7 +14,7 @@
     "check": "node --check bin/create-mun.mjs"
   },
   "dependencies": {
-    "@mun/ui": "workspace:*"
+    "@mun-ui/ui": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

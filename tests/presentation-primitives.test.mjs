@@ -61,7 +61,7 @@ test("top-level presentation Views reevaluate Binding state through the core Vie
   dom.window.close()
 })
 
-test("@mun/react presentation Views are compatibility aliases of core Views", async t => {
+test("@mun-ui/react presentation Views are compatibility aliases of core Views", async t => {
 	const react = await optionalImport("../packages/react/dist/index.js")
 	if (!react) {
 		t.skip("React compatibility dependencies are not installed")

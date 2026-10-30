@@ -7,7 +7,7 @@ import {
   Text,
   VStack,
   VectorSymbol,
-} from "@mun/core/compat"
+} from "@mun-ui/core/compat"
 import { Pause, Play, Volume2, VolumeX } from "@lucide/icons"
 
 const phase = State(false)

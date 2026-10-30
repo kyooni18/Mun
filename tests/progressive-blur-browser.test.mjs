@@ -3,7 +3,7 @@ import { spawn } from "node:child_process"
 import test from "node:test"
 import { chromium, expect } from "@playwright/test"
 
-// The opt-in feature is imported from @mun/ui/progressive-blur by a .mun
+// The opt-in feature is imported from @mun-ui/ui/progressive-blur by a .mun
 // module, rendered on the server and hydrated in a real browser.
 async function startServer() {
   const server = spawn(process.execPath, ["examples/progressive-blur/server.mjs"], { cwd: new URL("..", import.meta.url), env: { ...process.env, PORT: "0" }, stdio: ["ignore", "pipe", "pipe"] })

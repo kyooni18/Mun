@@ -8,7 +8,7 @@ export async function discoverMunCommand({ cwd, command, expectedVersion, env = 
   else {
     let directory = resolve(cwd)
     while (true) {
-      const root = resolve(directory, 'node_modules/@mun/ui')
+      const root = resolve(directory, 'node_modules/@mun-ui/ui')
       if (existsSync(resolve(root, 'package.json'))) {
         const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
         if (manifest.version !== expectedVersion) throw new Error(`Workspace Mün ${manifest.version} does not match extension ${expectedVersion}. Install matching versions; refusing a global fallback.`)
@@ -40,7 +40,7 @@ function commandVersion(selected, cwd, env) {
     const timer = setTimeout(() => { child.kill(); reject(new Error('Mün version check timed out.')) }, 5000)
     child.stdout.on('data', chunk => { output += chunk; if (output.length > 8192) { child.kill(); reject(new Error('Invalid Mün version output.')) } })
     child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-8192) })
-    child.once('error', error => { clearTimeout(timer); reject(new Error(`Cannot start Mün: ${error.message}. Install @mun/ui or set mun.server.command.`)) })
+    child.once('error', error => { clearTimeout(timer); reject(new Error(`Cannot start Mün: ${error.message}. Install @mun-ui/ui or set mun.server.command.`)) })
     child.once('close', code => { clearTimeout(timer); code === 0 ? resolve(output.trim()) : reject(new Error(`Mün version check failed: ${stderr}`)) })
   })
 }

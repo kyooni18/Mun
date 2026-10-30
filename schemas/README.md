@@ -6,7 +6,7 @@ A v1 program has exactly one root `Window`. Descendants are content nodes (`colu
 
 The compiler must emit `version: 1` and `sourceLanguage: "mun"`. Consumers must reject unsupported versions or source languages before evaluating state, layout, actions, or motion.
 
-The motion property list is also an ABI. `propertyMask` uses the bit position assigned by the ordered `munMotionPropertyNames` list in `@mun/core`. Reordering existing properties changes existing mask meanings and is therefore a breaking wire-format change. New properties must only be emitted after every supported consumer understands their name, bit, value representation, and semantics.
+The motion property list is also an ABI. `propertyMask` uses the bit position assigned by the ordered `munMotionPropertyNames` list in `@mun-ui/core`. Reordering existing properties changes existing mask meanings and is therefore a breaking wire-format change. New properties must only be emitted after every supported consumer understands their name, bit, value representation, and semantics.
 
 Within one IR version, producers must not start emitting a field or node kind until all supported consumers can interpret it consistently. Renaming or removing fields, changing value representations, changing node meaning, or reassigning motion bits requires a new IR version.
 

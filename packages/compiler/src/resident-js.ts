@@ -2,7 +2,7 @@ import type {
   KernelExpression,
   PackedLayout,
   ResidentRegionIR,
-} from "@mun/core/internal/execution"
+} from "@mun-ui/core/internal/execution"
 
 interface EmitContext {
   readonly fields: ReadonlyMap<string, string>

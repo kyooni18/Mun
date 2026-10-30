@@ -7,7 +7,7 @@ import type {
   KernelMapOutput,
   KernelScalarIR,
   KernelUnaryOperator,
-} from "@mun/core/internal/execution"
+} from "@mun-ui/core/internal/execution"
 import { compilerFunctionResultExpression, unwrapCompilerExpression } from "./effect-analysis.js"
 
 export type MunKernelUnaryOperator = KernelUnaryOperator

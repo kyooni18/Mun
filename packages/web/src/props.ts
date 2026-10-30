@@ -1,5 +1,5 @@
 import { isSafeUrlAttribute } from "./url-policy.js"
-import { classNameOf, type Animation } from "@mun/core/compat"
+import { classNameOf, type Animation } from "@mun-ui/core/compat"
 import { cssPropertyName, isEventPropName, htmlAttributeName, isBooleanHtmlAttribute, isEnumeratedBooleanAttribute, normalizedTextAreaValue, type DomRenderContext } from "./shared.js"
 import { animateDomAttribute, animateDomStyles, cancelDomAnimations, cancelDomAttributeAnimation, cancelDomStyleAnimation, type DomStyleMotionChange } from "./motion.js"
 import { syncFocusScope } from "./focus.js"
@@ -254,7 +254,7 @@ function stageDomProps(element: Element, props: Record<string, unknown>, context
   const previous = context.domProps.get(element)
   const hasClass = Object.prototype.hasOwnProperty.call(renderable, "class") || Object.prototype.hasOwnProperty.call(renderable, "className")
   if (!previous && !hasClass) {
-    // Element props are already snapshotted by @mun/core. Keeping that
+    // Element props are already snapshotted by @mun-ui/core. Keeping that
     // immutable record directly avoids allocating another object for the very
     // common first staging pass; later modifiers still merge through the path
     // below when the same candidate receives more props.

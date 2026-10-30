@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { MunLoweringCache, compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, munStructParseStats, parseMunStructs, shiftMunStruct } from '@mun/compiler'
+import { MunLoweringCache, compileMunDevProgram, compileMunDevProgramFromStructs, compileMunUiProgram, munStructParseStats, parseMunStructs, shiftMunStruct } from '@mun-ui/compiler'
 
 const fields = new Set(['manifest_version', 'name', 'entry', 'identifier', 'version', 'minimum_mun_version', 'platforms', 'resources', 'fonts', 'icon', 'window_title'])
 const platforms = { darwin: 'macos', win32: 'windows', linux: 'linux' }

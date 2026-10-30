@@ -1,5 +1,5 @@
 {
-  "name": "@mun/legacy-react",
+  "name": "@mun-ui/legacy-react",
   "version": "0.1.20",
   "description": "Legacy React and compiler compatibility layer for Mün.",
   "type": "module",
@@ -52,7 +52,7 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@mun/core": "workspace:*",
+    "@mun-ui/core": "workspace:*",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

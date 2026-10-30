@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import {
   createViewIdentityStore as createCoreViewIdentityStore,
   ViewIdentityStore as CoreViewIdentityStore,
-} from '@mun/core/compat'
+} from '@mun-ui/core/compat'
 
 /**
  * Per-mounted-View storage. The storage is owned by Mun's View runtime; the

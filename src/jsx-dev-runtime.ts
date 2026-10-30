@@ -1,1 +1,1 @@
-export * from "@mun/react/legacy/jsx-dev-runtime"
+export * from "@mun-ui/react/legacy/jsx-dev-runtime"

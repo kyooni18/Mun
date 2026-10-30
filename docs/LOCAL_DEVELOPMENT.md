@@ -12,7 +12,7 @@ pnpm build
 ```
 
 Internal workspace dependencies use `workspace:*`. This guarantees that
-building Mün itself never depends on a previously published `@mun/*`
+building Mün itself never depends on a previously published `@mun-ui/*`
 version. `pnpm pack` rewrites those workspace dependencies to the package
 version for release archives.
 
@@ -29,13 +29,13 @@ The command edits the target `package.json` with direct source links:
 ```json
 {
   "dependencies": {
-    "@mun/ui": "link:/absolute/path/to/Mun",
-    "@mun/react": "link:/absolute/path/to/Mun/packages/react"
+    "@mun-ui/ui": "link:/absolute/path/to/Mun",
+    "@mun-ui/react": "link:/absolute/path/to/Mun/packages/react"
   },
   "devDependencies": {
-    "@mun/core": "link:/absolute/path/to/Mun/packages/core",
-    "@mun/compiler": "link:/absolute/path/to/Mun/packages/compiler",
-    "@mun/vite": "link:/absolute/path/to/Mun/packages/vite"
+    "@mun-ui/core": "link:/absolute/path/to/Mun/packages/core",
+    "@mun-ui/compiler": "link:/absolute/path/to/Mun/packages/compiler",
+    "@mun-ui/vite": "link:/absolute/path/to/Mun/packages/vite"
   }
 }
 ```
@@ -43,8 +43,8 @@ The command edits the target `package.json` with direct source links:
 `link:` packages do not install their own dependency graph, so the linker also
 adds the internal packages needed by the selected renderer directly as development
 dependencies. It writes `overrides:` to the target `pnpm-workspace.yaml` for all
-internal Mün packages as a second guard. This prevents a linked `@mun/vite` from trying to download `@mun/compiler`, or a linked
-React renderer from trying to download `@mun/core`, from npm.
+internal Mün packages as a second guard. This prevents a linked `@mun-ui/vite` from trying to download `@mun-ui/compiler`, or a linked
+React renderer from trying to download `@mun-ui/core`, from npm.
 
 Use another renderer explicitly when needed:
 
@@ -108,7 +108,7 @@ React:
 ```ts
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import { munPlugin } from '@mun/vite'
+import { munPlugin } from '@mun-ui/vite'
 
 export default defineConfig({
   plugins: [munPlugin(), react()],

@@ -2,7 +2,7 @@
 
 This directory retains the Rust runtime and platform renderer experiments.
 The supported default project direction is the SwiftUI-inspired JavaScript web
-frontend (`@mun/core` + `@mun/web`), not this backend.
+frontend (`@mun-ui/core` + `@mun-ui/web`), not this backend.
 
 Native scaffolding is explicitly opt-in:
 

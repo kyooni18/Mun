@@ -1,8 +1,8 @@
 # Adaptive rendering quality
 
-`@mun/ui/rendering-quality` exposes one browser rendering policy per `Window`, shared
+`@mun-ui/ui/rendering-quality` exposes one browser rendering policy per `Window`, shared
 by progressive blur, direct-web GPU island canvases (and their Canvas fallbacks), and
-`CanvasMotionRenderer`. The implementation lives in `@mun/animation/rendering-quality`;
+`CanvasMotionRenderer`. The implementation lives in `@mun-ui/animation/rendering-quality`;
 the pure numeric animation runtime does not start browser work merely by being imported.
 
 | Level | Progressive blur | Continuous GPU/Canvas drawing |
@@ -25,7 +25,7 @@ import {
   getRenderingQuality,
   observeRenderingQuality,
   prepareRenderingQuality,
-} from "@mun/ui/rendering-quality"
+} from "@mun-ui/ui/rendering-quality"
 
 // Optional preparation; never block startup by awaiting this.
 const initialQuality = prepareRenderingQuality(window)
@@ -57,7 +57,7 @@ pages' state.
 ### Opt-in development logging
 
 ```ts
-import { setRenderingQualityDebug } from "@mun/ui/rendering-quality"
+import { setRenderingQualityDebug } from "@mun-ui/ui/rendering-quality"
 
 setRenderingQualityDebug(true)  // enable before mounting renderers
 setRenderingQualityDebug(false) // disable without changing the rendering policy
@@ -142,7 +142,7 @@ screen changes, live blur/canvas adaptation, trailing motion values, and disposa
 Existing blur planner, SSR/hydration, GPU-residency and animation adapter suites cover
 the surrounding contracts.
 
-Build `@mun/animation`, then run `node benchmarks/progressive-blur.mjs` for cold/cache
+Build `@mun-ui/animation`, then run `node benchmarks/progressive-blur.mjs` for cold/cache
 cost measurements, or `node benchmarks/progressive-blur.mjs --monitor` for a real
 30-second cycle. On 2026-10-27, headless Chromium 156.0.8078.4 with SwiftShader
 measured 31.095 seconds between two patch insertions (30-second delay plus idle/paint

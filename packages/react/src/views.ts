@@ -1,6 +1,6 @@
 /**
  * Compatibility module: built-in Views are renderer-independent and are owned
- * by @mun/core. Keeping this path avoids breaking existing React imports.
+ * by @mun-ui/core. Keeping this path avoids breaking existing React imports.
  */
 export {
   BindingValue,
@@ -18,5 +18,5 @@ export {
   Text,
   VStack,
   ZStack,
-} from "@mun/core/compat"
-export type { HStackOptions, VStackOptions, ZStackOptions } from "@mun/core/compat"
+} from "@mun-ui/core/compat"
+export type { HStackOptions, VStackOptions, ZStackOptions } from "@mun-ui/core/compat"

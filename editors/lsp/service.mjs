@@ -1,4 +1,4 @@
-import { MunLoweringCache, parseMunStructs, diagnoseMunSource, compileMunUiProgram, nativeLanguageCatalog, munBuiltinSymbols, munOptInFeatures } from '@mun/compiler'
+import { MunLoweringCache, parseMunStructs, diagnoseMunSource, compileMunUiProgram, nativeLanguageCatalog, munBuiltinSymbols, munOptInFeatures } from '@mun-ui/compiler'
 import { formatSource } from '../../bin/formatter.mjs'
 import { offsetAt, positionAt, rangeAt, scan } from './source.mjs'
 

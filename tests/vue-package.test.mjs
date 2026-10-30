@@ -25,7 +25,7 @@ import {
   vueComponent,
 } from "../packages/vue/dist/index.js"
 
-test("@mun/vue renders the renderer-independent graph as Vue VNodes", async () => {
+test("@mun-ui/vue renders the renderer-independent graph as Vue VNodes", async () => {
   const value = VStack(() => [Text("Hello Vue"), Button("Save", () => undefined)])
   const html = await renderToString(createSSRApp({ render: () => h(MunView, { value }) }))
   assert.match(html, /Hello Vue/)
@@ -35,12 +35,12 @@ test("@mun/vue renders the renderer-independent graph as Vue VNodes", async () =
   assert.match(styled, /class="card active"/)
 })
 
-test("@mun/vue sizes a resizable Image to its frame and rounds it with cornerRadius", async () => {
+test("@mun-ui/vue sizes a resizable Image to its frame and rounds it with cornerRadius", async () => {
   const html = await renderToString(createSSRApp({ render: () => render(Image("/icon.png", { alt: "" }).resizable().cornerRadius(8).frame({ width: 38, height: 38 })) }))
   assert.match(html, /<div style="[^"]*width:38px;height:38px;[^"]*"><img src="\/icon.png" alt style="width:100%;height:100%;border-radius:8px;">/)
 })
 
-test("@mun/vue MunView can suppress explicit animation styles at the host boundary", async () => {
+test("@mun-ui/vue MunView can suppress explicit animation styles at the host boundary", async () => {
   const value = Text("Still").opacity(0.5).animation(Animation.linear(0.4), 0.5)
   const animated = await renderToString(createSSRApp({ render: () => h(MunView, { value }) }))
   const suppressed = await renderToString(createSSRApp({ render: () => h(MunView, { value, disablesAnimations: true }) }))
@@ -48,7 +48,7 @@ test("@mun/vue MunView can suppress explicit animation styles at the host bounda
   assert.doesNotMatch(suppressed, /transition-duration/)
 })
 
-test("@mun/vue materializes compiled templates as native Vue VNodes", async () => {
+test("@mun-ui/vue materializes compiled templates as native Vue VNodes", async () => {
   const template = defineCompiledTemplate({
     kind: "element", type: "div", props: { class: "compiled" }, children: [
       { kind: "element", type: "span", props: null, children: ["Static"] },
@@ -150,7 +150,7 @@ test("Vue async components and Suspense retain native slot semantics inside Mun"
   assert.match(html, /<strong>Async Vue<\/strong>/)
 })
 
-test("@mun/vue preserves component events, refs, and graph keys", () => {
+test("@mun-ui/vue preserves component events, refs, and graph keys", () => {
   const save = () => undefined
   const reference = ref(null)
   const vnode = render(Component("button", { onclick: save, ref: reference }, Text("Save")).keyed("save"))
@@ -190,7 +190,7 @@ test("toVueRef invalidates Vue effects exactly once per State change", () => {
   stop()
 })
 
-test("@mun/vue materializes GeometryReader through a measured host boundary", async () => {
+test("@mun-ui/vue materializes GeometryReader through a measured host boundary", async () => {
   const value = GeometryReader(geometry => Text(`${geometry.size.width}x${geometry.size.height}`))
   const html = await renderToString(createSSRApp({ render: () => render(value) }))
   assert.match(html, /data-mun="GeometryReader"/)

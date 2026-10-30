@@ -1,6 +1,6 @@
 import type { MunSemanticModel } from "./semantic.js"
 import type { MunExecutionPlan } from "./execution-plan.js"
-import type { ResidentComputeExperimentalOptions } from "@mun/execution"
+import type { ResidentComputeExperimentalOptions } from "@mun-ui/execution"
 
 export interface MunSourceMap {
   readonly version: 3

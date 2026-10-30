@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 
-import type { KernelBinaryOperator, KernelExpression, ResidentRegionIR } from "@mun/core/internal/execution"
+import type { KernelBinaryOperator, KernelExpression, ResidentRegionIR } from "@mun-ui/core/internal/execution"
 import { optimizeResidentKernelSequence } from "./resident-fusion.js"
 
 export interface CompiledGPURegionBinding {

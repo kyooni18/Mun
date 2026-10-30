@@ -1,4 +1,4 @@
-import { mount } from "@mun/web"
+import { mount } from "@mun-ui/web"
 import Demo from "./SymbolAnimationDemo.mun"
 import "./symbol-animation.css"
 

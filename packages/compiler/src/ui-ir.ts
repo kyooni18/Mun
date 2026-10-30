@@ -1,6 +1,6 @@
 import { horizontalAlignments, overlayAlignments, paddingEdges } from './native-member-contract.js'
 import ts from "typescript"
-import { compileMotionPlan as compileInheritedMotionPlan, curves as inheritedCurves, spring as inheritedSpring, timing as inheritedTiming } from "@mun/animation/core"
+import { compileMotionPlan as compileInheritedMotionPlan, curves as inheritedCurves, spring as inheritedSpring, timing as inheritedTiming } from "@mun-ui/animation/core"
 import {
   Animation,
   munMotionPropertyBit,
@@ -26,7 +26,7 @@ import {
   type MunUiWindowNode,
   type SemanticArgument,
   type SemanticInitializerSymbol,
-} from "@mun/core"
+} from "@mun-ui/core"
 import {
   munExtension,
   nativeModifierSymbols,
@@ -35,7 +35,7 @@ import {
   swiftUIUnsupportedInitializerSignatures,
   swiftUIUnsupportedModifierSignatures,
   type SwiftUIViewSpec,
-} from "@mun/core/swiftui-manifest"
+} from "@mun-ui/core/swiftui-manifest"
 import {
   parseMunBuilder,
   parseMunStructs,

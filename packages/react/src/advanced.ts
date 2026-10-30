@@ -1,6 +1,6 @@
 /**
  * Compatibility module: advanced native Views are renderer-independent and
- * owned by @mun/core.
+ * owned by @mun-ui/core.
  */
 export {
   Box,
@@ -18,7 +18,7 @@ export {
   ScrollView,
   Stepper,
   TextArea,
-} from "@mun/core/compat"
+} from "@mun-ui/core/compat"
 export type {
   BoxProps,
   GridOptions,
@@ -31,4 +31,4 @@ export type {
   RoundedRectangleProps,
   StepperProps,
   TextAreaProps,
-} from "@mun/core/compat"
+} from "@mun-ui/core/compat"

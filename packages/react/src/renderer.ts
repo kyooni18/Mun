@@ -41,8 +41,8 @@ import {
   type ViewGraphValue,
   type ViewHostNode,
   type ViewModifierNode,
-} from "@mun/core/compat"
-import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@mun/core/internal/runtime"
+} from "@mun-ui/core/compat"
+import { ignoresSafeAreaStyle, paddingStyle, safeAreaPaddingStyle } from "@mun-ui/core/internal/runtime"
 import {
   keyedCollectionEntryKey,
   keyedCollectionEntries,
@@ -50,9 +50,9 @@ import {
   type KeyedCollectionEntry,
   type KeyedCollectionViewNode,
   type StateMutationBatch,
-} from "@mun/core/internal/runtime"
-import type { GPUIslandViewNode } from "@mun/core/internal/runtime"
-import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@mun/core/corners"
+} from "@mun-ui/core/internal/runtime"
+import type { GPUIslandViewNode } from "@mun-ui/core/internal/runtime"
+import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "@mun-ui/core/corners"
 import { attachContinuousCorners, disposeContinuousCorners, isContinuousCornerStyle } from "./continuous-corners.js"
 
 function setForwardedRef(reference: unknown, value: HTMLElement | null): void {

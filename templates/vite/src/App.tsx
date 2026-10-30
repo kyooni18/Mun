@@ -10,7 +10,7 @@ import {
   Toggle,
   VStack,
   view,
-} from '@mun/ui/legacy'
+} from '@mun-ui/ui/legacy'
 import './App.css'
 
 const codeSample = `const App = view({

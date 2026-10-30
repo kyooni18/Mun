@@ -13,11 +13,11 @@ function containsMunSyntax(source: string): boolean {
 
 function ensureRuntimeImport(source: string, name: string): string {
   const existing = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@mun\/ui\/legacy\2[\t ]*;?/.exec(source)
-  if (!existing) return `import { ${name} } from '@mun/ui/legacy'\n${source}`
+  if (!existing) return `import { ${name} } from '@mun-ui/ui/legacy'\n${source}`
   const imported = existing[1].split(',').map(value => value.trim()).filter(Boolean)
   if (imported.includes(name)) return source
   imported.push(name)
-  const replacement = `import { ${imported.join(', ')} } from '@mun/ui/legacy'`
+  const replacement = `import { ${imported.join(', ')} } from '@mun-ui/ui/legacy'`
   return source.slice(0, existing.index) + replacement + source.slice(existing.index + existing[0].length)
 }
 

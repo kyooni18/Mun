@@ -22,8 +22,8 @@ test('npm release plan lists all publishable packages in dependency order', () =
   const result = run(['--plan'])
   assert.equal(result.status, 0, result.stderr)
   const names = discoverReleaseTargets(root).map(target => target.manifest.name)
-  assert.ok(names.includes('@mun/animation'), '@mun/animation must be a release target')
-  assert.ok(names.includes('@mun/astro'), '@mun/astro must be a release target')
+  assert.ok(names.includes('@mun-ui/animation'), '@mun-ui/animation must be a release target')
+  assert.ok(names.includes('@mun-ui/astro'), '@mun-ui/astro must be a release target')
   const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
   let offset = -1
   for (const name of names) {
@@ -37,11 +37,11 @@ test('release target discovery includes every public package and publishes depen
   const targets = discoverReleaseTargets(root)
   const indexByName = new Map(targets.map((target, index) => [target.manifest.name, index]))
 
-  assert.equal(indexByName.has('@mun/animation'), true)
-  assert.equal(indexByName.has('@mun/astro'), true)
-  assert.ok(indexByName.get('@mun/execution') < indexByName.get('@mun/animation'))
-  assert.ok(indexByName.get('@mun/animation') < indexByName.get('@mun/web'))
-  assert.ok(indexByName.get('@mun/animation') < indexByName.get('@mun/ui'))
+  assert.equal(indexByName.has('@mun-ui/animation'), true)
+  assert.equal(indexByName.has('@mun-ui/astro'), true)
+  assert.ok(indexByName.get('@mun-ui/execution') < indexByName.get('@mun-ui/animation'))
+  assert.ok(indexByName.get('@mun-ui/animation') < indexByName.get('@mun-ui/web'))
+  assert.ok(indexByName.get('@mun-ui/animation') < indexByName.get('@mun-ui/ui'))
 
   for (const target of targets) {
     const dependencies = {

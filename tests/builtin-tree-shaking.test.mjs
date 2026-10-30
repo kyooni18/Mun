@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 import { munPlugin } from '../packages/vite/dist/index.js'
 
-// Built inside the workspace so `@mun/web` and `@mun/ui/*` resolve as in an app.
+// Built inside the workspace so `@mun-ui/web` and `@mun-ui/ui/*` resolve as in an app.
 const root = fileURLToPath(new URL('../output/builtin-tree-shaking/', import.meta.url))
 const counter = `struct Counter: View {
   @State var count = 0
@@ -27,7 +27,7 @@ async function bundle(name, app) {
   const dir = join(root, name)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'App.mun'), app)
-  writeFileSync(join(dir, 'main.ts'), 'import { mount } from "@mun/web"\nimport App from "./App.mun"\nmount(App, document.body)\n')
+  writeFileSync(join(dir, 'main.ts'), 'import { mount } from "@mun-ui/web"\nimport App from "./App.mun"\nmount(App, document.body)\n')
   await build({ root: dir, logLevel: 'silent', configFile: false, plugins: [munPlugin()], build: { outDir: join(dir, 'dist'), minify: true, rollupOptions: { input: join(dir, 'main.ts') } } })
   const assets = join(dir, 'dist', 'assets')
   return readdirSync(assets).filter(file => file.endsWith('.js')).map(file => readFileSync(join(assets, file), 'utf8')).join('\n')
@@ -42,8 +42,8 @@ test('implicit built-ins and opt-in imports are tree-shaken per module', { timeo
   rmSync(root, { recursive: true, force: true })
   const plain = await bundle('plain', variant())
   const withSlider = await bundle('slider', variant('Slider(value: $level)'))
-  const unusedOptIn = await bundle('unused-opt-in', variant('', '', 'import { ProgressiveBlur, BlurProfile } from "@mun/ui/progressive-blur"\n'))
-  const usedOptIn = await bundle('used-opt-in', variant('', '.modifier(progressiveBlur(BlurProfile.edge("bottom", 40)))', 'import { BlurProfile, progressiveBlur } from "@mun/ui/progressive-blur"\n'))
+  const unusedOptIn = await bundle('unused-opt-in', variant('', '', 'import { ProgressiveBlur, BlurProfile } from "@mun-ui/ui/progressive-blur"\n'))
+  const usedOptIn = await bundle('used-opt-in', variant('', '.modifier(progressiveBlur(BlurProfile.edge("bottom", 40)))', 'import { BlurProfile, progressiveBlur } from "@mun-ui/ui/progressive-blur"\n'))
   assert.doesNotMatch(plain, slider, 'an unreferenced built-in View is not bundled')
   assert.match(withSlider, slider)
   assert.doesNotMatch(plain, blur)

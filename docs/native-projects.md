@@ -5,7 +5,7 @@
 
 ## Toolchain
 
-Install `@mun/ui` globally with npm or invoke its installed `mun` binary. Native
+Install `@mun-ui/ui` globally with npm or invoke its installed `mun` binary. Native
 projects contain no JavaScript package: they use the selected public CLI/compiler.
 Releases need a matching `native/bin/<os>-<arch>` host. `mun doctor` explains
 missing hosts; it does not download anything. `MUN_NATIVE_HOST` explicitly selects
@@ -312,7 +312,7 @@ This runs `codesign` with the hardened runtime and a secure timestamp, then
 configurations. All canonical `.mun` intelligence now comes from the standalone
 `mun lsp --stdio` server; `.mun.ts` and Vue are not classified as canonical Mün.
 The VS Code extension is a thin LSP client for source semantics. It checks
-workspace-local `@mun/ui` first, then global `mun`, and refuses a version mismatch
+workspace-local `@mun-ui/ui` first, then global `mun`, and refuses a version mismatch
 instead of silently using a different compiler. Set `mun.server.command` to
 select an executable. The LSP provides diagnostics, completion, hover,
 signatures, definition, references, rename, formatting, semantic tokens,

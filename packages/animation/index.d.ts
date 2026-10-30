@@ -1,4 +1,4 @@
-import { FrameBudgetGovernor as ExecutionFrameBudgetGovernor, type FrameBudgetSnapshot } from '@mun/execution';
+import { FrameBudgetGovernor as ExecutionFrameBudgetGovernor, type FrameBudgetSnapshot } from '@mun-ui/execution';
 
 export type AnimationStatus = 'finished' | 'interrupted' | 'cancelled';
 export type AnimationResult = { status: AnimationStatus; value: number; reducedMotion?: boolean };
@@ -160,7 +160,7 @@ export class MotionEngine {
 }
 
 
-export type { FrameBudgetLevel, FrameBudgetSnapshot } from '@mun/execution';
+export type { FrameBudgetLevel, FrameBudgetSnapshot } from '@mun-ui/execution';
 
 export class FrameBudgetGovernor extends ExecutionFrameBudgetGovernor {
   constructor(options?: { budgetMs?: number; alpha?: number; minWasmThreshold?: number; minWorkerThreshold?: number });

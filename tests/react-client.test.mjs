@@ -300,7 +300,7 @@ test('GeometryReader falls back to zero geometry when layout measurement throws'
   }
 })
 
-test('canonical @mun/react graph output hydrates through the standard React boundary', async () => {
+test('canonical @mun-ui/react graph output hydrates through the standard React boundary', async () => {
   const restore = installDOM()
   try {
     const container = document.getElementById('root')
@@ -333,7 +333,7 @@ test('canonical @mun/react graph output hydrates through the standard React boun
   }
 })
 
-test('@mun/react mount owns a root and hydrates its graph boundary', async () => {
+test('@mun-ui/react mount owns a root and hydrates its graph boundary', async () => {
   const restore = installDOM()
   try {
     const container = document.getElementById('root')

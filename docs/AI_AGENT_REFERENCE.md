@@ -5,11 +5,11 @@ JavaScript is the compilation and integration target.
 
 ## Package boundaries
 
-- `@mun/core` / `@mun/ui`: public View graphs, state, bindings, layout, modifiers,
+- `@mun-ui/core` / `@mun-ui/ui`: public View graphs, state, bindings, layout, modifiers,
   controls, identity, and animation. Keep the SwiftUI-like authoring model central.
-- `@mun/core/compat`: supported alias for existing graph imports.
-- `@mun/web`: primary DOM/HTML renderer, SSR and hydration; no React requirement.
-- `@mun/compiler` / `@mun/vite`: the primary `.mun` compilation path to JavaScript.
+- `@mun-ui/core/compat`: supported alias for existing graph imports.
+- `@mun-ui/web`: primary DOM/HTML renderer, SSR and hydration; no React requirement.
+- `@mun-ui/compiler` / `@mun-ui/vite`: the primary `.mun` compilation path to JavaScript.
 - React, Vue, Astro: optional integrations, not the definition of a Mün View.
 - `native/`: experimental Rust runtime and Semantic UI IR consumer. Native
   scaffolds require `--target native`; don't make Rust a web prerequisite.

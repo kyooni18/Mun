@@ -1,1 +1,1 @@
-export * from "@mun/core"
+export * from "@mun-ui/core"

@@ -12,7 +12,7 @@ process.argv = [
 
 let cliSpecifier
 try {
-  cliSpecifier = import.meta.resolve('@mun/ui/cli')
+  cliSpecifier = import.meta.resolve('@mun-ui/ui/cli')
 } catch {
   // Allows the workspace source package to be exercised before pnpm creates
   // its node_modules link. Published packages resolve the dependency above.

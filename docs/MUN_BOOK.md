@@ -149,7 +149,7 @@ Mün Views and follows the same compiler path as a standalone `.mun` file.
 ## 9. Compatibility
 
 The pre-native TypeScript View graph remains available at
-`@mun/core/compat` for React, Vue, and existing Web integrations. It is a
+`@mun-ui/core/compat` for React, Vue, and existing Web integrations. It is a
 migration surface, not the language specification. Canonical `.mun` never
 imports it, and its TypeScript spellings (`string`, `T[]`, `export default`)
 are compatibility syntax.

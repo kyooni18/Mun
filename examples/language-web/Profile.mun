@@ -1,4 +1,4 @@
-import { Element } from "@mun/core"
+import { Element } from "@mun-ui/core"
 
 struct NameField: View {
   @Binding var name: String

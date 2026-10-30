@@ -6,7 +6,7 @@ import type {
   MunUiProgram,
   MunUiScalar,
   MunUiValue,
-} from "@mun/core"
+} from "@mun-ui/core"
 
 export interface MunWebIrRenderOptions {
   readonly state?: Readonly<Record<string, MunUiValue>>

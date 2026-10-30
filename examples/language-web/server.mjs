@@ -2,7 +2,7 @@ import { createServer } from "node:http"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { createServer as createViteServer } from "vite"
-import { munPlugin } from "@mun/vite"
+import { munPlugin } from "@mun-ui/vite"
 
 // Demo deployment/transport boundary. No View or application state semantics here.
 const root = fileURLToPath(new URL(".", import.meta.url))
@@ -25,7 +25,7 @@ const server = createServer(async (req, res) => {
   if (req.url === "/") {
     try {
       const { default: App } = await vite.ssrLoadModule("/App.mun")
-      const { renderToHTML } = await vite.ssrLoadModule("@mun/web")
+      const { renderToHTML } = await vite.ssrLoadModule("@mun-ui/web")
       const template = await readFile(new URL("index.html", import.meta.url), "utf8")
       const html = await vite.transformIndexHtml("/", template.replace("<!--mun-html-->", renderToHTML(App)))
       res.writeHead(200, { "Content-Type": "text/html" }).end(html)

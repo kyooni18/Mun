@@ -19,8 +19,8 @@ async function load(name) {
     const loaded = await load(dependency)
     js = js.replace(`./${dependency}.mun`, loaded.url)
   }
-  js = js.replaceAll('"@mun/core/compat"', JSON.stringify(new URL("../packages/core/dist/compat.js", import.meta.url).href))
-    .replaceAll('"@mun/core"', JSON.stringify(new URL("../packages/core/dist/index.js", import.meta.url).href))
+  js = js.replaceAll('"@mun-ui/core/compat"', JSON.stringify(new URL("../packages/core/dist/compat.js", import.meta.url).href))
+    .replaceAll('"@mun-ui/core"', JSON.stringify(new URL("../packages/core/dist/index.js", import.meta.url).href))
   const url = `data:text/javascript;base64,${Buffer.from(js).toString("base64")}`
   const result = { url, module: await import(url) }
   moduleCache.set(name, result)

@@ -1,6 +1,6 @@
 # Memes (Mün)
 
-A minimal local swipe-to-next feed, not a video editor. The app is built with the actual Mün `@mun/core` view/state API and `@mun/web` renderer.
+A minimal local swipe-to-next feed, not a video editor. The app is built with the actual Mün `@mun-ui/core` view/state API and `@mun-ui/web` renderer.
 
 The app is managed by the `local.memes.web` launchd job in `~/local-services/`. It starts at login and runs through the dedicated production Node server, not Vite's development server. Double-click `start.command` to open it, or use:
 

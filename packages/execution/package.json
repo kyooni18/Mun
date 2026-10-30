@@ -1,5 +1,5 @@
 {
-  "name": "@mun/execution",
+  "name": "@mun-ui/execution",
   "version": "0.1.20",
   "description": "Shared resident-buffer, execution telemetry, and frame-budget substrate for Mün runtimes.",
   "type": "module",

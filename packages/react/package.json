@@ -1,5 +1,5 @@
 {
-  "name": "@mun/react",
+  "name": "@mun-ui/react",
   "version": "0.1.20",
   "description": "React renderer for the renderer-independent Mün core.",
   "type": "module",
@@ -56,7 +56,7 @@
     "watch": "tsc -w -p tsconfig.json --preserveWatchOutput"
   },
   "dependencies": {
-    "@mun/core": "workspace:*",
+    "@mun-ui/core": "workspace:*",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

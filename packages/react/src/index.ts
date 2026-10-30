@@ -1,4 +1,4 @@
-export * from "@mun/core/compat"
+export * from "@mun-ui/core/compat"
 export { MunView, createReactView, createRenderer, mount, render, statefulView, useMunState, view } from "./renderer.js"
 export type { ReactMountOptions, StatefulViewDefinition, MunViewProps } from "./renderer.js"
 export { Button, Divider, Element, ForEach, Group, HStack, LazyHStack, LazyVStack, List, Section, Spacer, Text, VStack, ZStack } from "./views.js"

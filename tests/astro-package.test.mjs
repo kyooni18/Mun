@@ -151,9 +151,9 @@ test("Astro integration registers Mün renderer and both source/compiler Vite pl
   })
 
   assert.deepEqual(registeredRenderer, {
-    name: "@mun/astro",
-    serverEntrypoint: "@mun/astro/server",
-    clientEntrypoint: "@mun/astro/client",
+    name: "@mun-ui/astro",
+    serverEntrypoint: "@mun-ui/astro/server",
+    clientEntrypoint: "@mun-ui/astro/client",
   })
   assert.deepEqual(
     updatedConfig.vite.plugins.map(plugin => plugin.name),

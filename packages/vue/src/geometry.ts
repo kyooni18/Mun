@@ -1,4 +1,4 @@
-import { edgeInsetsFromCss, zeroGeometry, type GeometryProxy } from "@mun/core/compat"
+import { edgeInsetsFromCss, zeroGeometry, type GeometryProxy } from "@mun-ui/core/compat"
 
 export function geometryFromElement(element: Element): GeometryProxy {
   let rect: DOMRect
