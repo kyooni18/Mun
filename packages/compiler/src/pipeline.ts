@@ -1811,9 +1811,13 @@ function lowerNamedModifierCalls(source: string): string {
       const close = matching(output, open, "(", ")")
       const argumentsSource = output.slice(open + 1, close)
       const contentTransitionShorthand = identifier.name === "contentTransition" && /^\s*\./.test(argumentsSource)
-      const swiftClosure = splitTopLevel(argumentsSource).some(argument => /^\s*\{\s*[A-Za-z_$][A-Za-z0-9_$]*\s+in\b/.test(argument))
-      if ((!swiftUIModifierLowering(identifier.name) && !swiftClosure)
-        || (!swiftClosure && !contentTransitionShorthand && !splitTopLevel(argumentsSource).some(argument => topLevelColon(argument) >= 0))) {
+      const argumentsList = splitTopLevel(argumentsSource)
+      const swiftClosure = argumentsList.some(argument => /^\s*\{\s*[A-Za-z_$][A-Za-z0-9_$]*\s+in\b/.test(argument))
+      // A positional implicit member is not valid TypeScript: resolve it
+      // before the TypeScript parser sees .font(.title) or .foregroundStyle(.blue).
+      const implicitMember = argumentsList.some(argument => /^\s*\.[A-Za-z_$][A-Za-z0-9_$]*\s*$/.test(argument))
+      if ((!swiftUIModifierLowering(identifier.name) && !swiftClosure && !implicitMember)
+        || (!swiftClosure && !contentTransitionShorthand && !implicitMember && !argumentsList.some(argument => topLevelColon(argument) >= 0))) {
         cursor = close
         continue
       }
@@ -1851,7 +1855,7 @@ function lowerNamedModifierCalls(source: string): string {
       if (candidate.name === "onLongPressGesture" && label === "perform") return lowerCallback(value, false)
       if (candidate.name === "onLongPressGesture" && label === "onPressingChanged") return lowerCallback(value, true)
       if (candidate.name === "onHover" && label === "perform") return lowerCallback(value, true)
-      return lowerImplicitMemberShorthand(lowerShorthand(value))
+      return lowerImplicitMemberShorthand(lowerShorthand(value), candidate.name === "font" ? "Font" : ["foregroundStyle", "foreground", "background", "fill", "stroke"].includes(candidate.name) ? "ShapeStyle" : undefined)
     }
     const positional = entries.filter(entry => !entry.label).map(entry => lowerModifierValue(entry.value))
     const named = new Map<string, string>()

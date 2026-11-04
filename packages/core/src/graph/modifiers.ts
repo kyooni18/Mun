@@ -6,7 +6,7 @@ import type { Transition } from "../transition.js"
 import type { ContentTransition } from "../content-transition.js"
 import type { MunStyleProperties } from "../html.js"
 import { APPLE_CONTINUOUS_CORNER_SMOOTHING } from "../corners.js"
-import { Color, LinearGradient, shapeStyleCss, type ShapeStyle } from "../style.js"
+import { Font, Color, LinearGradient, shapeStyleCss, type ShapeStyle } from "../style.js"
 import { arrayCheck, snapshotArrayValues } from "./arrays.js"
 import type { ClassValue, ContentModifier, Length, ModifiableViewNode, Modifiers, OffsetValue, ScaleEffectValue, ViewModifierNode, ViewNode } from "./types.js"
 
@@ -198,7 +198,7 @@ const modifierPrototype = Object.freeze(Object.assign(Object.create(Object.proto
   },
   gap(this: ViewNode, value: Length) { return applyModifier(this, "gap", [value]) },
   frame(this: ViewNode, options: FrameOptions = {}) { return applyModifier(this, "frame", [options]) },
-  font(this: ViewNode, value: string) { return applyModifier(this, "font", [value]) },
+  font(this: ViewNode, value: string | Font) { return applyModifier(this, "font", [String(value)]) },
   fontSize(this: ViewNode, value: Length) { return applyModifier(this, "fontSize", [value]) },
   bold(this: ViewNode, isActive = true) { return applyModifier(this, "bold", [isActive]) },
   fontWeight(this: ViewNode, value: unknown) { return applyModifier(this, "fontWeight", [value]) },

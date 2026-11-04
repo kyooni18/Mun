@@ -8,7 +8,7 @@ import type { ViewType } from "./initializers.js"
 import type { munForeignComponent, munInitializers, munView } from "./symbols.js"
 import type { Transition } from "../transition.js"
 import type { ContentTransition } from "../content-transition.js"
-import type { ShapeStyle } from "../style.js"
+import type { Font, ShapeStyle } from "../style.js"
 
 export type ViewGraphLeaf = string | number | bigint | boolean | null | undefined
 export type ViewGraphValue = ViewGraphLeaf | ViewNode | readonly ViewGraphValue[]
@@ -407,7 +407,7 @@ export interface Modifiers {
   onChange<T>(value: T, action: ((oldValue: T, newValue: T) => unknown) | (() => unknown), initial?: boolean): ModifiableViewNode
   gap(value: Length): ModifiableViewNode
   frame(options?: FrameOptions): ModifiableViewNode
-  font(value: string): ModifiableViewNode
+  font(value: string | Font): ModifiableViewNode
   fontSize(value: Length): ModifiableViewNode
   bold(isActive?: boolean): ModifiableViewNode
   fontWeight(value: FontWeight | null): ModifiableViewNode

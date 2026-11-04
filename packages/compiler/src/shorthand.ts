@@ -1,5 +1,5 @@
 import * as ts from "typescript"
-import { swiftUIAnimationFactoryArgumentLabels } from "@mun-ui/core"
+import { Color, Font, swiftUIAnimationFactoryArgumentLabels } from "@mun-ui/core"
 import { identifierAt, matching, skipComment, skipString, skipTrivia, splitTopLevel, syntaxError, topLevelColon } from "./scanner.js"
 
 function isIdentifierDeclaration(node: ts.Identifier): boolean {
@@ -118,7 +118,25 @@ function replaceOutsideOpaqueSpans(
  * existing Alignment/Edge-style runtime representation. Animation factories
  * keep their value semantics and are qualified with Animation instead.
  */
-export function lowerImplicitMemberShorthand(source: string): string {
+export function lowerImplicitMemberShorthand(source: string, expectedType?: "ShapeStyle" | "Color" | "Font"): string {
+  if (expectedType) {
+    // Parse the isolated argument as a member chain, not a source substitution.
+    const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, source)
+    const tokens: { kind: ts.SyntaxKind; text: string }[] = []
+    for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) tokens.push({ kind, text: scanner.getTokenText() })
+    const implicit = tokens[0]?.kind === ts.SyntaxKind.DotToken
+    const owner = expectedType === "Font" ? "Font" : "Color"
+    const explicit = tokens[0]?.text === owner && tokens[1]?.kind === ts.SyntaxKind.DotToken
+    if (implicit || explicit) {
+      const member = tokens[implicit ? 1 : 2]?.text
+      const type = owner === "Font" ? Font : Color
+      const members = Object.keys(type)
+      if (!member || !Object.hasOwn(type, member)) throw new SyntaxError(`Unknown ${owner} member '.${member ?? ""}'. Expected one of: ${members.join(", ")}`)
+      if (implicit) return `${owner}${source.trim()}`
+      return source
+    }
+  }
+
   const animationFactories = new Set(["linear", "easeIn", "easeOut", "easeInOut", "spring", "interactiveSpring", "smooth", "snappy", "bouncy"])
   const animationProperties = new Set(["default"])
   // Implicit members appear in expression-start positions: after opening

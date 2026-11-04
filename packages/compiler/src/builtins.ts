@@ -34,7 +34,7 @@ export const munBuiltinRuntimeModule = "@mun-ui/core/compat"
 const internalRuntimeModule = "@mun-ui/core/internal/runtime"
 
 /** Value types with static members (`Color.red`, `Animation.spring()`). */
-const builtinValues = ["Color", "LinearGradient", "Animation", "Transition", "ContentTransition", "SymbolEffect", "Transaction", "VectorSymbol"] as const
+const builtinValues = ["Color", "Font", "LinearGradient", "Animation", "Transition", "ContentTransition", "SymbolEffect", "Transaction", "VectorSymbol"] as const
 /** Language-level functions: property-wrapper storage, builders and transactions. */
 const builtinFunctions = ["State", "Binding", "Observable", "Element", "withAnimation", "withTransaction", "environmentValue"] as const
 /** Type names erased by lowering; known to editors, never imported. */
