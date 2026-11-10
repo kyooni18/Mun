@@ -229,11 +229,17 @@ pub struct UiLayout {
     #[serde(default)]
     pub min_width: Option<f32>,
     #[serde(default)]
+    pub ideal_width: Option<f32>,
+    #[serde(default)]
     pub max_width: Option<UiFrameBound>,
     #[serde(default)]
     pub min_height: Option<f32>,
     #[serde(default)]
+    pub ideal_height: Option<f32>,
+    #[serde(default)]
     pub max_height: Option<UiFrameBound>,
+    #[serde(default)]
+    pub layout_priority: Option<f32>,
 }
 
 /// Uniform padding or per-edge insets (leading/trailing follow layout direction).

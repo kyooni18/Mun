@@ -462,7 +462,7 @@ const modifiers: readonly SwiftUIModifierSpec[] = Object.freeze([
     name: "frame",
     signatures: [
       { signature: "frame(width:height:alignment:)", parameters: [labeled("width", "number", false), labeled("height", "number", false), alignmentDefault], contract: "exact", native: "parity", web: "approximation" },
-      { signature: "frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)", parameters: [labeled("minWidth", "number", false), labeled("idealWidth", "number", false), labeled("maxWidth", "number", false), labeled("minHeight", "number", false), labeled("idealHeight", "number", false), labeled("maxHeight", "number", false), alignmentDefault], contract: "subset", subset: "idealWidth and idealHeight are rejected with a diagnostic (native layout has no ideal-size proposal).", native: "parity", web: "approximation" },
+      { signature: "frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)", parameters: [labeled("minWidth", "number", false), labeled("idealWidth", "number", false), labeled("maxWidth", "number", false), labeled("minHeight", "number", false), labeled("idealHeight", "number", false), labeled("maxHeight", "number", false), alignmentDefault], contract: "subset", subset: "Ideal sizes are applied only when the corresponding stack/scroll axis has an unspecified size proposal.", native: "parity", web: "approximation" },
     ],
     compat: {
       signatures: ["frame(width:height:alignment:)", "frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)"],
@@ -599,7 +599,12 @@ const modifiers: readonly SwiftUIModifierSpec[] = Object.freeze([
   compatModifier("scaledToFit", ["scaledToFit()"], "approximation"),
   compatModifier("scaledToFill", ["scaledToFill()"], "approximation"),
   compatModifier("fixedSize", ["fixedSize()", "fixedSize(horizontal:vertical:)"], "approximation", { lowering: { kind: "slots", labels: ["horizontal", "vertical"] } }),
-  compatModifier("layoutPriority", ["layoutPriority(_:)"], "approximation"),
+  {
+    kind: "modifier",
+    name: "layoutPriority",
+    signatures: [{ signature: "layoutPriority(_:)", parameters: [positional("value", "number")], contract: "subset", subset: "Higher priorities resist stack compression before lower priorities.", native: "parity", web: "approximation" }],
+    compat: { signatures: ["layoutPriority(_:)"], lowering: { kind: "slots", labels: [null] } },
+  },
   compatModifier("position", ["position(_:)", "position(x:y:)"], "approximation", { animatable: true, lowering: { kind: "slots", labels: ["x", "y"] } }),
   compatModifier("zIndex", ["zIndex(_:)"], "approximation"),
   compatModifier("clipShape", ["clipShape(_:style:)"], "approximation", { lowering: { kind: "slots", labels: [null, "style"] } }),

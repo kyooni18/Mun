@@ -362,6 +362,8 @@ pub struct SceneText {
     pub x: f32,
     pub y: f32,
     pub font_size: f32,
+    /// Width proposal for ordinary Text; control labels remain single-line.
+    pub wrap_width: Option<f32>,
     pub color: Color,
 }
 

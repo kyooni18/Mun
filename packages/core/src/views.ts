@@ -65,7 +65,7 @@ export const Text = defineBuiltinView<TextProps>(
     args => ({ value: args[0] as string | number }),
     [textValue],
   )],
-  ({ value }) => viewElement("span", null, [value]),
+  ({ value }) => viewElement("span", { style: { maxWidth: "100%", overflowWrap: "anywhere" } }, [value]),
 ) as TypedViewConstructor<TextProps, TextCall>
 
 function stackChildren(value: unknown): ViewValue[] {
@@ -104,6 +104,46 @@ function stackInitializers(name: string, optionsParameter: ReturnType<typeof ini
   ]
 }
 
+/** A stack hugs its content unless a child can accept the offered width.
+ * Inspect only immutable View descriptors: never evaluate a custom View body
+ * (or materialize a lazy collection) during layout construction. */
+function acceptsProposedWidth(value: ViewValue, parentAxis: "horizontal" | "vertical" | "overlay"): boolean {
+  if (Array.isArray(value)) return value.some(child => acceptsProposedWidth(child, parentAxis))
+  if (!isViewNode(value)) return false
+  if (value.kind === "modified") {
+    if (value.modifiers.some(modifier => {
+      if (modifier.name !== "frame") return false
+      const options = modifier.arguments[0]
+      return !!options && typeof options === "object"
+        && Object.getOwnPropertyDescriptor(options, "maxWidth")?.value === "infinity"
+    })) return true
+    return acceptsProposedWidth(value.content, parentAxis)
+  }
+  if (value.kind === "fragment") return value.children.some(child => acceptsProposedWidth(child, parentAxis))
+  if (value.kind === "element") return value.props?.["data-mun"] === "Spacer" && parentAxis === "horizontal"
+  if (value.kind !== "view") return false
+  if (value.name === "Spacer") return parentAxis === "horizontal"
+  if (value.name === "ScrollView" || value.name === "GeometryReader") return true
+  if (value.name === "Group" || value.name === "Section") {
+    const content = value.props.content
+    return Array.isArray(content) && content.some(child => acceptsProposedWidth(child as ViewValue, parentAxis))
+  }
+  if (value.name !== "HStack" && value.name !== "VStack" && value.name !== "ZStack") {
+    // A user-defined View can hide a GeometryReader/Spacer in its body. The
+    // descriptor cannot inspect that body without executing user code; prefer
+    // preserving a size proposal over silently collapsing responsive content.
+    return !["Text", "Button", "Toggle", "Image", "Divider", "ProgressView", "Circle", "Capsule", "Rectangle", "RoundedRectangle"].includes(value.name)
+  }
+  const content = value.props.content
+  if (!Array.isArray(content)) return false
+  const axis = value.name === "HStack" ? "horizontal" : value.name === "VStack" ? "vertical" : "overlay"
+  return content.some(child => acceptsProposedWidth(child as ViewValue, axis))
+}
+
+function stackWidth(content: readonly ViewValue[], axis: "horizontal" | "vertical" | "overlay"): string {
+  return content.some(child => acceptsProposedWidth(child, axis)) ? "100%" : "fit-content"
+}
+
 export interface VStackProps { readonly options?: VStackOptions; readonly content: ViewValue[] }
 export interface StackCall<Options> {
   (content: ViewBuilderClosure): ReturnType<typeof viewElement>
@@ -120,7 +160,8 @@ export const VStack = defineBuiltinView<VStackProps>(
     style: {
       display: "flex",
       flexDirection: "column",
-      width: "100%",
+      width: stackWidth(content, "vertical"),
+      maxWidth: "100%",
       boxSizing: "border-box",
       alignItems: options.alignment === "leading" ? "flex-start" : options.alignment === "trailing" ? "flex-end" : options.alignment === "stretch" ? "stretch" : "center",
       gap: layoutLength(options.spacing),
@@ -138,9 +179,10 @@ export const HStack = defineBuiltinView<HStackProps>(
     style: {
       display: "flex",
       flexDirection: "row",
-      width: "100%",
+      width: stackWidth(content, "horizontal"),
+      maxWidth: "100%",
       boxSizing: "border-box",
-      justifyContent: "center",
+      justifyContent: "flex-start",
       alignItems: options.alignment === "top" ? "flex-start" : options.alignment === "bottom" ? "flex-end" : options.alignment === "stretch" ? "stretch" : "center",
       gap: layoutLength(options.spacing),
     },
@@ -177,11 +219,16 @@ export const ZStack = defineBuiltinView<ZStackProps>(
     "data-mun": "ZStack",
     style: {
       display: "grid",
-      width: "100%",
+      width: stackWidth(content, "overlay"),
+      maxWidth: "100%",
       boxSizing: "border-box",
       placeItems: zStackPlaceItems(options.alignment),
     },
-  }, content),
+  }, content.map(child => viewElement("div", {
+    // Explicitly share a grid cell. Unpositioned grid children would create
+    // successive rows, unlike SwiftUI's overlay-based ZStack sizing.
+    style: { gridArea: "1 / 1", display: "grid", placeItems: zStackPlaceItems(options.alignment) },
+  }, [child]))),
   "Content: View",
 ) as TypedViewConstructor<ZStackProps, StackCall<ZStackOptions>>
 

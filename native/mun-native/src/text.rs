@@ -223,6 +223,26 @@ impl IntrinsicMeasurer for TextShaping {
         })
     }
 
+    fn measure_text_for_width(&self, text: &str, available_width: Option<f32>) -> IntrinsicSize {
+        let natural = self.measure_text(text);
+        let Some(width) = available_width.filter(|width| width.is_finite() && *width > 0.0) else {
+            return natural;
+        };
+        if width >= natural.width { return natural; }
+        // Use the same cosmic-text word/glyph breaks and line metrics as the
+        // drawing buffer. A one-line intrinsic height cannot size a narrow View.
+        let mut fonts = self.font_system.borrow_mut();
+        let mut buffer = Buffer::new(&mut fonts, Metrics::new(TEXT_FONT_SIZE, TEXT_FONT_SIZE * LINE_HEIGHT_FACTOR));
+        buffer.set_wrap(Wrap::WordOrGlyph);
+        buffer.set_size(Some(width), None);
+        buffer.set_text(text, &text_attrs(), Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut fonts, false);
+        let (line_width, line_count) = buffer.layout_runs().fold((0.0_f32, 0usize), |(longest, count), line| {
+            (longest.max(line.line_w), count + 1)
+        });
+        IntrinsicSize::new(line_width.min(width).ceil(), (line_count.max(1) as f32 * TEXT_FONT_SIZE * LINE_HEIGHT_FACTOR + 2.0).ceil())
+    }
+
     fn measure_action(&self, label: &str) -> IntrinsicSize {
         self.with_line(label, CONTROL_FONT_SIZE, |line| {
             IntrinsicSize::new((line.width + 34.0).ceil().max(92.0), 38.0)
@@ -271,6 +291,17 @@ mod tests {
             (line.carets.last().unwrap().1 - line.width).abs() < 0.5,
             "{text:?}"
         );
+    }
+
+    #[test]
+    fn constrained_text_measures_multiple_shaped_lines() {
+        let shaping = TextShaping::new(FontSystem::new());
+        let text = "A line of text that must wrap when the proposed width is small.";
+        let natural = shaping.measure_text(text);
+        let narrow = shaping.measure_text_for_width(text, Some(110.0));
+        assert!(narrow.width <= 110.0);
+        assert!(narrow.height > natural.height, "narrow text needs multiple lines");
+        assert_eq!(shaping.measure_text_for_width(text, None), natural);
     }
 
     #[test]

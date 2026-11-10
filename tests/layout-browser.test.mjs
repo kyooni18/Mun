@@ -50,10 +50,15 @@ async function openPage(source, ready = "[data-mun-lazy-item]") {
   const page = await browser.newPage({ viewport: { width: 800, height: 600 } })
   const errors = []
   page.on("pageerror", error => errors.push(error))
-  await page.goto(`http://localhost:${server.address().port}/`)
-  await page.waitForSelector(ready)
   const close = async () => { await browser.close(); server.close() }
-  return { page, errors, close }
+  try {
+    await page.goto(`http://localhost:${server.address().port}/`)
+    await page.waitForSelector(ready)
+    return { page, errors, close }
+  } catch (error) {
+    await close()
+    throw error
+  }
 }
 
 async function scrollSteps(page, steps) {
@@ -119,4 +124,45 @@ test("a GeometryReader re-renders on resize without re-running unrelated Views",
   } finally {
     await close()
   }
+})
+
+const proposedLayoutEntry = `
+import { HStack, VStack, Spacer, Text, ZStack } from ${JSON.stringify(fileURLToPath(new URL("../packages/core/dist/compat.js", import.meta.url)))}
+import { mount } from ${JSON.stringify(fileURLToPath(new URL("../packages/web/dist/index.js", import.meta.url)))}
+document.querySelector('#root').style.width = '400px'
+mount(VStack({ alignment: 'leading', spacing: 10 },
+  HStack(Text('A'), Text('B')),
+  HStack(Text('A'), Spacer(), Text('B')),
+  VStack(Text('a wrapping sentence with several words and another sentence')).frame({ width: 100 }),
+  Text('fill').frame({ maxWidth: 'infinity' }),
+  ZStack(Text('Layer A'), Text('Longer Layer B')),
+), document.querySelector('#root'))
+`
+
+test("Stack and Text negotiate width and height in the browser", async () => {
+  const { page, errors, close } = await openPage(proposedLayoutEntry, '[data-mun="HStack"]')
+  try {
+    const geometry = await page.evaluate(() => {
+      const stacks = [...document.querySelectorAll('[data-mun="HStack"]')]
+      const wrappedText = [...document.querySelectorAll('span')].find(el => el.textContent.startsWith('a wrapping sentence'))
+      const fillText = [...document.querySelectorAll('span')].find(el => el.textContent === 'fill')
+      const zstack = document.querySelector('[data-mun="ZStack"]')
+      const layers = [...zstack.querySelectorAll('span')].map(node => node.getBoundingClientRect())
+      return {
+        layersOverlap: layers.length === 2 && Math.abs(layers[0].top - layers[1].top) < 1,
+        zstackWidth: zstack.getBoundingClientRect().width,
+        hug: stacks[0].getBoundingClientRect().width,
+        fill: stacks[1].getBoundingClientRect().width,
+        wrappedHeight: wrappedText.getBoundingClientRect().height,
+        frameWidth: fillText.parentElement.getBoundingClientRect().width,
+      }
+    })
+    assert.ok(geometry.hug < 100, `intrinsic HStack should hug its content: ${JSON.stringify(geometry)}`)
+    assert.equal(geometry.fill, 400, `HStack with Spacer should accept the offered width: ${JSON.stringify(geometry)}`)
+    assert.ok(geometry.wrappedHeight > 20, `Text should wrap inside a narrow proposal: ${JSON.stringify(geometry)}`)
+    assert.equal(geometry.frameWidth, 400, `maxWidth infinity should fill: ${JSON.stringify(geometry)}`)
+    assert.equal(geometry.layersOverlap, true, `ZStack layers should overlay: ${JSON.stringify(geometry)}`)
+    assert.ok(geometry.zstackWidth < 300 && geometry.zstackWidth > 20, `ZStack should hug its widest layer: ${JSON.stringify(geometry)}`)
+    assert.deepEqual(errors, [])
+  } finally { await close() }
 })

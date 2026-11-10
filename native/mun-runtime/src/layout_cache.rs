@@ -9,9 +9,9 @@
 use rustc_hash::FxHashMap;
 use taffy::{TaffyError, prelude::*};
 
-use crate::layout::IntrinsicSize;
+use crate::layout::LeafMeasure;
 
-pub(crate) type LayoutTree = TaffyTree<IntrinsicSize>;
+pub(crate) type LayoutTree = TaffyTree<LeafMeasure>;
 /// Semantic node id -> retained layout node. Keys are long node-id strings
 /// hashed for every node every frame, so a fast non-DoS hasher is used.
 pub(crate) type LayoutNodes = FxHashMap<String, NodeId>;
@@ -21,7 +21,7 @@ pub(crate) struct LayoutSpec<'a> {
     pub id: &'a str,
     pub style: Style,
     /// Intrinsic size of a leaf; always `None` for a node with children.
-    pub context: Option<IntrinsicSize>,
+    pub context: Option<LeafMeasure>,
     /// Indices into the frame's spec list.
     pub children: Vec<usize>,
 }
@@ -103,7 +103,7 @@ impl LayoutCache {
                         stats.restyled += 1;
                     }
                     if self.taffy.get_node_context(node) != spec.context.as_ref() {
-                        self.taffy.set_node_context(node, spec.context)?;
+                        self.taffy.set_node_context(node, spec.context.clone())?;
                         self.invalidate(node)?;
                         stats.remeasured += 1;
                     }
@@ -111,10 +111,10 @@ impl LayoutCache {
                     node
                 }
                 None => {
-                    let node = match spec.context {
+                    let node = match &spec.context {
                         Some(context) => self
                             .taffy
-                            .new_leaf_with_context(spec.style.clone(), context)?,
+                            .new_leaf_with_context(spec.style.clone(), context.clone())?,
                         None => self.taffy.new_leaf(spec.style.clone())?,
                     };
                     stats.created += 1;

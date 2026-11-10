@@ -16,6 +16,15 @@ impl IntrinsicSize {
     }
 }
 
+/// Retained layout input for a leaf. Text keeps its content as well as its
+/// unconstrained size, so the Taffy measurement callback can answer a width
+/// proposal instead of reusing a fixed single-line measurement.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum LeafMeasure {
+    Intrinsic(IntrinsicSize),
+    Text { content: String, natural: IntrinsicSize },
+}
+
 /// Shaped geometry of one single-line text run, exposed by a text backend.
 ///
 /// `carets` holds one `(scalar offset, x)` stop for every extended grapheme
@@ -72,6 +81,13 @@ impl TextLineLayout {
 /// the Taffy adapter.
 pub trait IntrinsicMeasurer {
     fn measure_text(&self, text: &str) -> IntrinsicSize;
+    /// Return the text's proposed size when laid out at the available width.
+    /// `None` means an unspecified width (its ideal, unwrapped measurement).
+    /// Default measurers preserve existing single-line headless behavior.
+    fn measure_text_for_width(&self, text: &str, available_width: Option<f32>) -> IntrinsicSize {
+        let _ = available_width;
+        self.measure_text(text)
+    }
     fn measure_action(&self, label: &str) -> IntrinsicSize;
     fn measure_panel(&self) -> IntrinsicSize;
 

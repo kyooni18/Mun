@@ -371,6 +371,10 @@
           "type": "number",
           "minimum": 0
         },
+        "idealWidth": {
+          "type": "number",
+          "minimum": 0
+        },
         "maxWidth": {
           "oneOf": [
             {
@@ -385,6 +389,13 @@
         "minHeight": {
           "type": "number",
           "minimum": 0
+        },
+        "idealHeight": {
+          "type": "number",
+          "minimum": 0
+        },
+        "layoutPriority": {
+          "type": "number"
         },
         "maxHeight": {
           "oneOf": [

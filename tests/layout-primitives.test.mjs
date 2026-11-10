@@ -15,9 +15,20 @@ test("migrated layout primitives keep the graph-first contract", () => {
   assert.equal(value.kind, "modified")
   const html = renderToStaticMarkup(renderReact(value))
   assert.match(html, /data-mun="HStack"/)
-  assert.match(html, /justify-content:center/)
+  assert.match(html, /justify-content:flex-start/)
   assert.match(html, /flex-grow:1/)
   assert.match(html, /padding:8px/)
+})
+
+test("stacks hug content unless a child offers to fill proposed width", () => {
+  const hug = renderToStaticMarkup(renderReact(HStack(Text("A"), Text("B"))))
+  const fill = renderToStaticMarkup(renderReact(HStack(Text("A"), Spacer(), Text("B"))))
+  const nested = renderToStaticMarkup(renderReact(VStack(HStack(Text("A"), Spacer()))))
+  const bounded = renderToStaticMarkup(renderReact(Text("Bounded").frame({ maxWidth: "infinity" })))
+  assert.match(hug, /width:fit-content/)
+  assert.match(fill, /width:100%/)
+  assert.match(nested, /width:100%/)
+  assert.match(bounded, /width:100%;max-width:100%/)
 })
 
 test("stack stretch alignment fills the cross axis", () => {

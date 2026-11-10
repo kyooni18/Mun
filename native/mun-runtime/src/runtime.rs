@@ -19,7 +19,7 @@ use crate::{
         UiAction, UiAlignment, UiBinaryOperator, UiExpression, UiNode, UiOverlayAlignment, UiPaint,
         UiProgram, UiShapeKind, UiTransition,
     },
-    layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer},
+    layout::{FallbackIntrinsicMeasurer, IntrinsicMeasurer, LeafMeasure},
     layout_cache::{LayoutCache, LayoutNodes, LayoutSpec, LayoutSyncStats, LayoutTree},
     motion::{MotionChannelKey, MotionScheduler},
     retained::{
@@ -98,6 +98,8 @@ struct FrameLayoutSpec<'a> {
     spec: LayoutSpec<'a>,
     /// Flexible-frame intent ([width, height]); applied by the parent.
     flexible: [bool; 2],
+    ideal: [Option<f32>; 2],
+    priority: f32,
     axis_leaf: Option<AxisLeaf>,
 }
 
@@ -2675,14 +2677,34 @@ impl Runtime {
                     height: AvailableSpace::Definite(height),
                 },
                 |inputs, _, context, style| {
-                    let intrinsic = context.copied().unwrap_or_default();
                     taffy::compute_leaf_layout(
                         inputs,
                         style,
                         |_, _| 0.0,
-                        |known_dimensions, _| Size {
-                            width: known_dimensions.width.unwrap_or(intrinsic.width),
-                            height: known_dimensions.height.unwrap_or(intrinsic.height),
+                        |known_dimensions, available_space| {
+                            let intrinsic = match context {
+                                Some(LeafMeasure::Text { content, natural }) => {
+                                    let proposed_width = known_dimensions.width.or_else(|| {
+                                        match available_space.width {
+                                            AvailableSpace::Definite(width) if width.is_finite() => Some(width.max(0.0)),
+                                            _ => None,
+                                        }
+                                    });
+                                    // Keep unbounded proposals cheap; shaping a wrapped
+                                    // run is only necessary if it might actually wrap.
+                                    if proposed_width.is_some_and(|width| width < natural.width) {
+                                        measurer.measure_text_for_width(content, proposed_width)
+                                    } else {
+                                        *natural
+                                    }
+                                }
+                                Some(LeafMeasure::Intrinsic(size)) => *size,
+                                None => Default::default(),
+                            };
+                            Size {
+                                width: known_dimensions.width.unwrap_or(intrinsic.width),
+                                height: known_dimensions.height.unwrap_or(intrinsic.height),
+                            }
                         },
                     )
                 },
@@ -3293,6 +3315,12 @@ impl Runtime {
             .map(crate::ir::UiPadding::edges)
             .unwrap_or([0.0; 4]);
         let spacing = layout.and_then(|layout| layout.spacing).unwrap_or(0.0);
+        let ideal = [
+            layout.and_then(|layout| layout.ideal_width).filter(|value| value.is_finite() && *value >= 0.0),
+            layout.and_then(|layout| layout.ideal_height).filter(|value| value.is_finite() && *value >= 0.0),
+        ];
+        let priority = layout.and_then(|layout| layout.layout_priority)
+            .filter(|value| value.is_finite()).unwrap_or(0.0);
         // Flexible frames: a max bound on an axis without a fixed size makes the
         // view take what its parent offers on that axis (applied by the parent,
         // which knows its main axis), clamped to [min, max].
@@ -3412,8 +3440,15 @@ impl Runtime {
                 style.align_items = Some(vertical);
                 style.justify_items = Some(horizontal);
             }
-            UiNode::Text { .. }
-            | UiNode::Action { .. }
+            UiNode::Text { .. } => {
+                // Text accepts a bounded width proposal and reports the
+                // corresponding wrapped height, instead of forcing a stack
+                // to fit its unbounded single-line ideal width.
+                if width.is_none() && layout.and_then(|layout| layout.max_width).is_none() {
+                    style.max_size.width = LengthPercentageAuto::percent(1.0);
+                }
+            }
+            UiNode::Action { .. }
             | UiNode::Panel { .. }
             | UiNode::TextField { .. }
             | UiNode::RadioGroup { .. }
@@ -3439,24 +3474,27 @@ impl Runtime {
         }
 
         let intrinsic = match node {
-            UiNode::Text { value, .. } => Some(measurer.measure_text(&self.eval_text(value))),
-            UiNode::Action { label, .. } => Some(measurer.measure_action(label)),
-            UiNode::Panel { .. } => Some(measurer.measure_panel()),
+            UiNode::Text { value, .. } => {
+                let content = self.eval_text(value);
+                Some(LeafMeasure::Text { natural: measurer.measure_text(&content), content })
+            },
+            UiNode::Action { label, .. } => Some(LeafMeasure::Intrinsic(measurer.measure_action(label))),
+            UiNode::Panel { .. } => Some(LeafMeasure::Intrinsic(measurer.measure_panel())),
             UiNode::TextField {
                 state, placeholder, ..
             } => {
                 let value = self.state.get(state).and_then(Value::as_str).unwrap_or("");
-                Some(measurer.measure_text_field(value, placeholder.as_deref()))
+                Some(LeafMeasure::Intrinsic(measurer.measure_text_field(value, placeholder.as_deref())))
             }
             UiNode::RadioGroup { options, .. } => {
                 let labels = options
                     .iter()
                     .map(|option| option.label.clone())
                     .collect::<Vec<_>>();
-                Some(measurer.measure_radio_group(&labels))
+                Some(LeafMeasure::Intrinsic(measurer.measure_radio_group(&labels)))
             }
-            UiNode::Toggle { label, .. } => Some(measurer.measure_toggle(label)),
-            UiNode::Progress { label, .. } => Some(measurer.measure_progress(label.as_deref())),
+            UiNode::Toggle { label, .. } => Some(LeafMeasure::Intrinsic(measurer.measure_toggle(label))),
+            UiNode::Progress { label, .. } => Some(LeafMeasure::Intrinsic(measurer.measure_progress(label.as_deref()))),
             _ => None,
         };
 
@@ -3475,7 +3513,31 @@ impl Runtime {
             for &child_id in &child_nodes {
                 let axis_leaf = specs[child_id].axis_leaf;
                 let child_flex = specs[child_id].flexible;
+                let child_ideal = specs[child_id].ideal;
+                let is_text = matches!(specs[child_id].spec.context, Some(LeafMeasure::Text { .. }));
                 let child_style = &mut specs[child_id].spec.style;
+                if is_text && main_axis_horizontal == Some(true)
+                    && child_style.min_size.width == LengthPercentageAuto::auto()
+                {
+                    // CSS flexbox defaults to an automatic min-content width.
+                    // SwiftUI instead lets Text give up width and gain lines.
+                    child_style.min_size.width = LengthPercentageAuto::length(0.0);
+                }
+                // A ScrollView proposes nil on its scrolling axis; this is
+                // precisely where SwiftUI's idealWidth / idealHeight matters.
+                // A definite Stack/window proposal must not turn the ideal
+                // size into an unconditional fixed size.
+                if let UiNode::Scroll { axis, .. } = node {
+                    let horizontal = matches!(axis, crate::ir::UiScrollAxis::Horizontal);
+                    let (chosen, ideal) = if horizontal {
+                        (&mut child_style.size.width, child_ideal[0])
+                    } else {
+                        (&mut child_style.size.height, child_ideal[1])
+                    };
+                    if *chosen == Dimension::auto() {
+                        if let Some(ideal) = ideal { *chosen = Dimension::length(ideal); }
+                    }
+                }
                 if let (Some(leaf), Some(main)) = (axis_leaf, main_axis_horizontal) {
                     let fixed = |dimension: Dimension| dimension != Dimension::auto();
                     match leaf {
@@ -3572,6 +3634,19 @@ impl Runtime {
             }
             children.extend(child_nodes);
         }
+        // Relative layoutPriority influences resistance to compression, not
+        // intrinsic size. With equal priorities, preserve ordinary flex sizing.
+        if matches!(node, UiNode::Row { .. } | UiNode::Column { .. }) && children.len() > 1 {
+            let highest = children.iter().map(|&id| specs[id].priority).fold(f32::NEG_INFINITY, f32::max);
+            let lowest = children.iter().map(|&id| specs[id].priority).fold(f32::INFINITY, f32::min);
+            if highest > lowest {
+                for &id in &children {
+                    let rank_below_highest = (highest - specs[id].priority).clamp(0.0, 10.0);
+                    specs[id].spec.style.flex_shrink = if rank_below_highest == 0.0 { 0.001 }
+                        else { (rank_below_highest * 10.0).exp().min(1_000.0) };
+                }
+            }
+        }
         let axis_leaf = match node {
             UiNode::Spacer { min_length, .. } => Some(AxisLeaf::Spacer {
                 min_length: min_length.unwrap_or(DEFAULT_SPACER_LENGTH),
@@ -3587,6 +3662,8 @@ impl Runtime {
                 children,
             },
             flexible,
+            ideal,
+            priority,
             axis_leaf,
         });
         vec![specs.len() - 1]
@@ -3829,6 +3906,7 @@ impl Runtime {
                     x,
                     y: y + 3.0,
                     font_size: 24.0,
+                    wrap_width: Some(rect.width.max(0.0)),
                     color: base
                         .visual
                         .as_ref()
@@ -3868,6 +3946,7 @@ impl Runtime {
                     x: x + 16.0,
                     y: y + 8.0,
                     font_size: 16.0,
+                    wrap_width: None,
                     color: base
                         .visual
                         .as_ref()
@@ -4034,6 +4113,7 @@ impl Runtime {
                     x: text_x,
                     y: origin_y,
                     font_size: TEXT_FIELD_FONT_SIZE,
+                    wrap_width: None,
                     color: foreground.with_opacity(opacity * text_opacity),
                 });
                 scene.actions.push(ActionHit {
@@ -4101,6 +4181,7 @@ impl Runtime {
                         x: x + 28.0,
                         y: row_y + 5.0,
                         font_size: 16.0,
+                        wrap_width: None,
                         color: foreground.with_opacity(if option.disabled {
                             opacity * 0.45
                         } else {
@@ -4167,6 +4248,7 @@ impl Runtime {
                     x: x + TOGGLE_BOX + 6.0,
                     y: y + (rect.height - line.line_height) * 0.5,
                     font_size: CONTROL_LABEL_FONT_SIZE,
+                    wrap_width: None,
                     color: foreground.with_opacity(opacity),
                 });
                 scene.actions.push(ActionHit {
@@ -4187,6 +4269,7 @@ impl Runtime {
                         x,
                         y,
                         font_size: CONTROL_LABEL_FONT_SIZE,
+                        wrap_width: None,
                         color: base
                             .visual
                             .as_ref()

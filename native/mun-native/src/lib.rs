@@ -142,8 +142,10 @@ struct CachedTextBuffer {
     buffer: Buffer,
     text: String,
     font_size: f32,
-    /// Shaped advance width of the line (logical points).
+    wrap_width: Option<f32>,
+    /// Shaped content bounds in logical points (may span multiple lines).
     width: f32,
+    height: f32,
 }
 
 fn shaped_width(buffer: &Buffer) -> f32 {
@@ -153,29 +155,33 @@ fn shaped_width(buffer: &Buffer) -> f32 {
         .fold(0.0, f32::max)
 }
 
+fn shaped_height(buffer: &Buffer, font_size: f32) -> f32 {
+    buffer.layout_runs().count().max(1) as f32 * font_size * LINE_HEIGHT_FACTOR
+}
+
 impl CachedTextBuffer {
-    fn new(font_system: &mut FontSystem, text: &str, font_size: f32) -> Self {
+    fn new(font_system: &mut FontSystem, text: &str, font_size: f32, wrap_width: Option<f32>) -> Self {
         let mut buffer = Buffer::new(
             font_system,
             Metrics::new(font_size, font_size * LINE_HEIGHT_FACTOR),
         );
-        // Scene text is single-line in the runtime layout model; wrapping here
-        // would desynchronize drawn glyphs from layout and caret geometry. The
-        // buffer is unbounded: clipping belongs to text-area bounds and
-        // scissors, so window resizes never reshape text.
-        buffer.set_wrap(Wrap::None);
-        buffer.set_size(None, None);
+        // Ordinary Text uses the same proposal used during intrinsic layout.
+        // Editing and control labels intentionally keep unbounded single lines.
+        buffer.set_wrap(if wrap_width.is_some() { Wrap::WordOrGlyph } else { Wrap::None });
+        buffer.set_size(wrap_width, None);
         buffer.set_text(text, &text_attrs(), Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
         Self {
             width: shaped_width(&buffer),
+            height: shaped_height(&buffer, font_size),
             buffer,
             text: text.to_owned(),
             font_size,
+            wrap_width,
         }
     }
 
-    fn update(&mut self, font_system: &mut FontSystem, text: &str, font_size: f32) -> bool {
+    fn update(&mut self, font_system: &mut FontSystem, text: &str, font_size: f32, wrap_width: Option<f32>) -> bool {
         let mut dirty = false;
         if self.font_size.to_bits() != font_size.to_bits() {
             self.buffer
@@ -190,9 +196,16 @@ impl CachedTextBuffer {
             self.text.push_str(text);
             dirty = true;
         }
+        if self.wrap_width != wrap_width {
+            self.buffer.set_wrap(if wrap_width.is_some() { Wrap::WordOrGlyph } else { Wrap::None });
+            self.buffer.set_size(wrap_width, None);
+            self.wrap_width = wrap_width;
+            dirty = true;
+        }
         if dirty {
             self.buffer.shape_until_scroll(font_system, false);
             self.width = shaped_width(&self.buffer);
+            self.height = shaped_height(&self.buffer, font_size);
         }
         dirty
     }
@@ -624,15 +637,19 @@ impl GpuRenderer {
                 };
                 let transform = presentation.transform_for(&text.id);
                 let margin = text.font_size;
-                let bottom = text.y + text.font_size * LINE_HEIGHT_FACTOR + margin;
-                let width = self
-                    .text_buffers
-                    .get(&text.id)
-                    .filter(|cached| {
-                        cached.text == text.text
-                            && cached.font_size.to_bits() == text.font_size.to_bits()
-                    })
-                    .map(|cached| cached.width);
+                let cached = self.text_buffers.get(&text.id).filter(|cached| {
+                    cached.text == text.text
+                        && cached.font_size.to_bits() == text.font_size.to_bits()
+                        && cached.wrap_width == text.wrap_width
+                });
+                let width = cached.map(|cached| cached.width);
+                // A not-yet-shaped wrapped text may reach below its first
+                // line; don't cull it using a one-line height estimate.
+                let height = cached.map(|cached| cached.height).unwrap_or_else(|| {
+                    if text.wrap_width.is_some() { self.config.height as f32 }
+                    else { text.font_size * LINE_HEIGHT_FACTOR }
+                });
+                let bottom = text.y + height + margin;
                 let (left, top) = transform.transform_point(text.x - margin, text.y - margin);
                 let (right, bottom) =
                     transform.transform_point(text.x + width.unwrap_or(0.0) + margin, bottom);
@@ -657,7 +674,7 @@ impl GpuRenderer {
         {
             match self.text_buffers.get_mut(&text.id) {
                 Some(cached) => {
-                    if cached.update(&mut font_system, &text.text, text.font_size) {
+                    if cached.update(&mut font_system, &text.text, text.font_size, text.wrap_width) {
                         self.stats.text_reshapes += 1;
                     }
                 }
@@ -665,7 +682,7 @@ impl GpuRenderer {
                     self.stats.text_reshapes += 1;
                     self.text_buffers.insert(
                         text.id.clone(),
-                        CachedTextBuffer::new(&mut font_system, &text.text, text.font_size),
+                        CachedTextBuffer::new(&mut font_system, &text.text, text.font_size, text.wrap_width),
                     );
                 }
             }
@@ -1453,12 +1470,12 @@ mod tests {
     fn retained_text_buffer_reshapes_only_when_text_or_size_change() {
         // The window size is deliberately not an input: resizing never reshapes.
         let mut font_system = FontSystem::new();
-        let mut cached = CachedTextBuffer::new(&mut font_system, "Hello", 16.0);
+        let mut cached = CachedTextBuffer::new(&mut font_system, "Hello", 16.0, None);
 
-        assert!(!cached.update(&mut font_system, "Hello", 16.0));
-        assert!(cached.update(&mut font_system, "World", 16.0));
-        assert!(!cached.update(&mut font_system, "World", 16.0));
-        assert!(cached.update(&mut font_system, "World", 18.0));
+        assert!(!cached.update(&mut font_system, "Hello", 16.0, None));
+        assert!(cached.update(&mut font_system, "World", 16.0, None));
+        assert!(!cached.update(&mut font_system, "World", 16.0, None));
+        assert!(cached.update(&mut font_system, "World", 18.0, None));
     }
 
     #[test]

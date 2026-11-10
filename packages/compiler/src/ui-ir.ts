@@ -1683,19 +1683,25 @@ const nativeModifiers: Readonly<Record<string, (context: NativeModifierContext) 
     applyFrame(context, update, alignment(argumentSource(context, "alignment"), "frame alignment"))
   },
   "frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)": context => {
-    for (const ideal of ["idealWidth", "idealHeight"]) {
-      if (context.args.has(ideal)) throw new SyntaxError(`.frame(${ideal}:) is not implemented in native Mün: layout has no ideal-size proposal. Use width/height or min/max bounds.`)
-    }
-    const update: { minWidth?: number; maxWidth?: number | "infinity"; minHeight?: number; maxHeight?: number | "infinity" } = {}
+    const update: { minWidth?: number; idealWidth?: number; maxWidth?: number | "infinity"; minHeight?: number; idealHeight?: number; maxHeight?: number | "infinity" } = {}
     const minWidth = frameBound(argumentSource(context, "minWidth"), "minWidth", context.bindings, false)
+    const idealWidth = frameBound(argumentSource(context, "idealWidth"), "idealWidth", context.bindings, false)
     const maxWidth = frameBound(argumentSource(context, "maxWidth"), "maxWidth", context.bindings, true)
     const minHeight = frameBound(argumentSource(context, "minHeight"), "minHeight", context.bindings, false)
+    const idealHeight = frameBound(argumentSource(context, "idealHeight"), "idealHeight", context.bindings, false)
     const maxHeight = frameBound(argumentSource(context, "maxHeight"), "maxHeight", context.bindings, true)
     if (typeof minWidth === "number") update.minWidth = minWidth
+    if (typeof idealWidth === "number") update.idealWidth = idealWidth
     if (maxWidth !== undefined) update.maxWidth = maxWidth
     if (typeof minHeight === "number") update.minHeight = minHeight
+    if (typeof idealHeight === "number") update.idealHeight = idealHeight
     if (maxHeight !== undefined) update.maxHeight = maxHeight
     applyFrame(context, update, alignment(argumentSource(context, "alignment"), "frame alignment"))
+  },
+  "layoutPriority(_:)": context => {
+    const priority = numberValue(argumentSource(context, "value"), undefined, context.bindings)
+    if (priority === undefined || !Number.isFinite(priority)) throw new SyntaxError(".layoutPriority(_:) needs a finite number")
+    context.composer.layout({ layoutPriority: priority }, context.index)
   },
   "padding(_:)": context => padding(context, undefined, numberValue(argumentSource(context, "length"), undefined, context.bindings) ?? defaultPadding),
   "padding(_:_:)": context => padding(context, argumentSource(context, "edges"), numberValue(argumentSource(context, "length"), defaultPadding, context.bindings) ?? defaultPadding),

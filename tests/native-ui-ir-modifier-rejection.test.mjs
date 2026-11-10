@@ -28,3 +28,17 @@ export default App()`
   assert.equal(rounded.kind, "panel")
   assert.equal(rounded.visual.cornerRadius, 12)
 })
+
+
+test("native frame ideals and layout priority survive semantic compilation", () => {
+  const source = `@main
+struct App: View {
+  var body: some View {
+    Text("Priority").frame(idealWidth: 140, idealHeight: 38).layoutPriority(2)
+  }
+}`
+  const node = compileMunUiProgram(source, "ideal-priority.mun").root.child
+  assert.equal(node.layout?.idealWidth, 140)
+  assert.equal(node.layout?.idealHeight, 38)
+  assert.equal(node.layout?.layoutPriority, 2)
+})

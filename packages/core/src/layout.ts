@@ -70,8 +70,10 @@ export function frameStyle(options: FrameOptions): Record<string, string | undef
     boxSizing: "border-box",
     display: "grid",
     placeItems: framePlaceItems(typeof alignment === "string" ? alignment as FrameAlignment : undefined),
-    width: layoutLength(width === undefined ? idealWidth : width),
-    height: layoutLength(height === undefined ? idealHeight : height),
+    // A flexible frame accepts the parent's proposal; a CSS max-width alone
+    // only caps the box and never asks it to expand. Explicit sizes still win.
+    width: width === undefined && maxWidth === "infinity" ? "100%" : layoutLength(width === undefined ? idealWidth : width),
+    height: height === undefined && maxHeight === "infinity" ? "100%" : layoutLength(height === undefined ? idealHeight : height),
     minWidth: layoutLength(minWidth),
     maxWidth: maxWidth === "infinity" ? "100%" : layoutLength(maxWidth),
     minHeight: layoutLength(minHeight),

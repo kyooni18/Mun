@@ -132,9 +132,13 @@ export interface MunUiLayout {
    * parent offers on that axis, up to the bound ("infinity" = unbounded).
    */
   readonly minWidth?: number
+  readonly idealWidth?: number
   readonly maxWidth?: number | "infinity"
   readonly minHeight?: number
+  readonly idealHeight?: number
   readonly maxHeight?: number | "infinity"
+  /** Priority used when a stack must compress its children. */
+  readonly layoutPriority?: number
 }
 
 export interface MunUiVisual {

@@ -27,7 +27,6 @@ const rejected = [
   ["value type", 'ProgressView(value: "half")', /'value:' expects Double, received String/],
   ["unimplemented SDK overload", 'Toggle("Wi-Fi", systemImage: "wifi", isOn: $on)', /Toggle\(_:systemImage:isOn:\) is a SwiftUI initializer that Mün does not implement/],
   ["closure role", 'Text("x").onAppear(perform: 3)', /'perform:' requires a closure/],
-  ["unimplemented parameter", 'Text("x").frame(idealWidth: 10)', /idealWidth:\) is not implemented/],
   ["compatibility-only spelling", 'Text("x").foregroundColor(Color.red)', /compatibility-only/],
   ["unsupported View", "List { Text(\"x\") }", /List/],
 ]
