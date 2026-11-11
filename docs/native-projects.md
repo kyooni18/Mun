@@ -304,7 +304,8 @@ This runs `codesign` with the hardened runtime and a secure timestamp, then
 | --- | --- |
 | macOS arm64: `mun dev` hot reload, `mun inspect`, packaged `.app` launched from the executable and via `open` | Yes, locally |
 | macOS: Finder launch, signing and notarization with a real identity | Not exercised |
-| Windows, Linux: dev, build, package | Implemented but not exercised; no CI coverage yet |
+| Linux x64: `mun run`, `mun dev` hot reload, `mun inspect`, `mun build`, `mun package` (portable directory) | Yes, headless under Xvfb with Mesa software rendering (see `docs/native-hardening-status.md`, 2026-11-11) |
+| Windows: dev, build, package | Implemented but not exercised locally |
 
 ## Editors and local framework development
 

@@ -265,9 +265,9 @@ try {
     if (typeof canonical.Animation !== "function" || canonical.Text !== Text) throw new Error("packed canonical entry boundary failed");
     if (spring().kind !== "spring") throw new Error("packed animation runtime failed");
     if (new FrameBudgetSignal().snapshot().level !== "idle") throw new Error("packed execution runtime failed");
-    if (renderToStaticMarkup(renderReact(Text("react"))) !== "<span>react</span>") throw new Error("packed React render failed");
+    if (renderToStaticMarkup(renderReact(Text("react"))) !== '<span style="max-width:100%;overflow-wrap:anywhere">react</span>') throw new Error("packed React render failed");
     if (!renderVue(Text("vue"))) throw new Error("packed Vue render failed");
-    if (renderToHTML(Text("packed")) !== "<span>packed</span>") throw new Error("packed Web render failed");
+    if (renderToHTML(Text("packed")) !== '<span style="max-width:100%;overflow-wrap:anywhere">packed</span>') throw new Error("packed Web render failed");
     const compiled = compileMunFile('import { Text } from "@mun-ui/core/compat"\\nexport const value = Text("ok")', "packed.mun.ts");
     if (!compiled.code.includes('export const value')) throw new Error("packed compiler failed");
     if (munPlugin().name !== "mun-compiler") throw new Error("packed Vite plugin failed");

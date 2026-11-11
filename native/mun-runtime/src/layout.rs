@@ -22,7 +22,10 @@ impl IntrinsicSize {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum LeafMeasure {
     Intrinsic(IntrinsicSize),
-    Text { content: String, natural: IntrinsicSize },
+    Text {
+        content: String,
+        natural: IntrinsicSize,
+    },
 }
 
 /// Shaped geometry of one single-line text run, exposed by a text backend.

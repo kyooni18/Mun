@@ -15,8 +15,12 @@ impl IntrinsicMeasurer for WrappingMeasurer {
         IntrinsicSize::new(natural.width.min(proposed), lines * natural.height)
     }
 
-    fn measure_action(&self, _: &str) -> IntrinsicSize { IntrinsicSize::new(50.0, 30.0) }
-    fn measure_panel(&self) -> IntrinsicSize { IntrinsicSize::new(50.0, 40.0) }
+    fn measure_action(&self, _: &str) -> IntrinsicSize {
+        IntrinsicSize::new(50.0, 30.0)
+    }
+    fn measure_panel(&self) -> IntrinsicSize {
+        IntrinsicSize::new(50.0, 40.0)
+    }
 }
 
 #[test]
@@ -29,7 +33,9 @@ fn text_height_tracks_the_width_proposed_by_a_stack() {
         }
     });
     let runtime = Runtime::from_json(&value.to_string()).unwrap();
-    let frame = runtime.build_frame_with_measurer(300.0, 220.0, &WrappingMeasurer).unwrap();
+    let frame = runtime
+        .build_frame_with_measurer(300.0, 220.0, &WrappingMeasurer)
+        .unwrap();
     let rect = frame.accessibility.node("text").unwrap().bounds;
     assert_eq!(rect.width, 100.0);
     assert_eq!(rect.height, 40.0);

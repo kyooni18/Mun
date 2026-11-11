@@ -28,5 +28,8 @@
   "sideEffects": false,
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
   }
 }

@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import { DEV_PROTOCOL_VERSION, createFrameDecoder, encodeFrame, listenForHost } from './dev-protocol.mjs'
 import { analyzeCompatibility } from './hot-reload.mjs'
 import { createProgramUpdate } from './program-patch.mjs'
@@ -178,6 +178,45 @@ export function enrichInspectorSnapshot(snapshot, metadata, devRevision, runtime
   }
 }
 
+const ignoredDirectory = name => name.startsWith('.') || ['node_modules', 'build', 'dist'].includes(name)
+
+/**
+ * Reports changes to project sources and configuration. Returns `{ close() }`.
+ *
+ * Linux watches each directory itself: Node's recursive watch there follows
+ * individual files and stops reporting one once an editor replaces it by
+ * rename (the usual atomic save), so only the first edit would be seen.
+ */
+export function watchProject(root, changed, failed = () => {}) {
+  const relevant = path => {
+    if (!path || path.split(/[\\/]/u).some(ignoredDirectory)) return
+    if (path.endsWith('.mun') || path === 'mun.toml' || path === 'mun.local.json') changed()
+  }
+  if (process.platform !== 'linux') {
+    const watcher = watch(root, { recursive: true }, (_, path) => relevant(path))
+    watcher.on('error', failed)
+    return watcher
+  }
+  const watchers = new Map()
+  const add = directory => {
+    if (watchers.has(directory)) return
+    let entries
+    try { entries = readdirSync(directory, { withFileTypes: true }) } catch { return }
+    const watcher = watch(directory, (_, name) => {
+      if (!name) return
+      const path = resolve(directory, name)
+      // A directory created or moved in later is watched from then on.
+      if (!ignoredDirectory(name)) add(path)
+      relevant(relative(root, path))
+    })
+    watcher.on('error', error => { watcher.close(); watchers.delete(directory); if (directory === root) failed(error) })
+    watchers.set(directory, watcher)
+    for (const entry of entries) if (entry.isDirectory() && !ignoredDirectory(entry.name)) add(resolve(directory, entry.name))
+  }
+  add(root)
+  return { close() { for (const watcher of watchers.values()) watcher.close(); watchers.clear() } }
+}
+
 export async function develop(project, { env, verbose = false }) {
   requirePlatform(project)
   const compiler = createProjectCompiler(project)
@@ -254,11 +293,7 @@ export async function develop(project, { env, verbose = false }) {
   })
   const session = await openInspectorEndpoint(project, () => loop.running)
   console.log('Mün dev: state-preserving hot reload for compatible edits; structural changes relaunch. Ctrl-C to stop.')
-  const watcher = watch(project.root, { recursive: true }, (_, path) => {
-    if (!path || path.split(/[\\/]/u).some(part => part.startsWith('.') || ['node_modules', 'build', 'dist'].includes(part))) return
-    if (path.endsWith('.mun') || path === 'mun.toml' || path === 'mun.local.json') loop.changed()
-  })
-  watcher.on('error', error => console.error(`Watch error: ${error.message}`))
+  const watcher = watchProject(project.root, () => loop.changed(), error => console.error(`Watch error: ${error.message}`))
   return new Promise(resolve => {
     let closing = false
     const close = async () => {

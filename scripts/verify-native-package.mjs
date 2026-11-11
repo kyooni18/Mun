@@ -69,7 +69,7 @@ try {
   run(host, ['--smoke', 'app.json'], consumer)
   for (const file of ['templates/native/App.mun', 'templates/native/mun.toml', 'bin/project.mjs', 'bin/workflow.mjs', 'bin/watch.mjs', 'editors/lsp/mun-lsp.mjs']) assert(packed.files.some(entry => entry.path === file), `${file} must be in tarball`)
   const publicCli = resolve(consumer, 'node_modules/@mun-ui/ui/bin/mun.mjs')
-  run(process.execPath, [publicCli, 'new', 'HelloMun'], consumer)
+  run(process.execPath, [publicCli, 'new', 'HelloMun', '--target', 'native'], consumer)
   const nativeProject = resolve(consumer, 'HelloMun')
   assert(!existsSync(resolve(nativeProject, 'package.json')), 'native app must not depend on Web packages')
   mkdirSync(resolve(nativeProject, 'Sources/Nested'))

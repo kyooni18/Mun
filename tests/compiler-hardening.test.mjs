@@ -350,10 +350,12 @@ Switch(Binding(isOn))`
 
 test("implicit member arguments survive static modifier chain specialization", () => {
   // `.red` is not valid TypeScript, so the checker recovers with a zero-width
-  // base; the emitted argument must still be the lowered string literal.
+  // base; the emitted argument must still be the lowered semantic color, and
+  // the Color it names must be imported.
   const source = `import { Text } from "@mun-ui/core/compat"\nconst view = Text("x").foregroundStyle(.red)`
   const output = transformMunSource(source, "ImplicitMemberModifier.mun.ts")
-  assert.match(output, /\[\["foregroundStyle", \["red"\]\]\]/)
+  assert.match(output, /\[\["foregroundStyle", \[Color\.red\]\]\]/)
+  assert.match(output, /import \{[^}]*\bColor\b[^}]*\} from "@mun-ui\/core\/compat"/)
   assert.doesNotMatch(output, /\[red\]/)
   parses(output)
 })
