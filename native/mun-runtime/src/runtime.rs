@@ -2686,7 +2686,11 @@ impl Runtime {
                                 Some(LeafMeasure::Text { content, natural }) => {
                                     let proposed_width = known_dimensions.width.or_else(|| {
                                         match available_space.width {
-                                            AvailableSpace::Definite(width) if width.is_finite() => Some(width.max(0.0)),
+                                            AvailableSpace::Definite(width)
+                                                if width.is_finite() =>
+                                            {
+                                                Some(width.max(0.0))
+                                            }
                                             _ => None,
                                         }
                                     });
@@ -3316,11 +3320,17 @@ impl Runtime {
             .unwrap_or([0.0; 4]);
         let spacing = layout.and_then(|layout| layout.spacing).unwrap_or(0.0);
         let ideal = [
-            layout.and_then(|layout| layout.ideal_width).filter(|value| value.is_finite() && *value >= 0.0),
-            layout.and_then(|layout| layout.ideal_height).filter(|value| value.is_finite() && *value >= 0.0),
+            layout
+                .and_then(|layout| layout.ideal_width)
+                .filter(|value| value.is_finite() && *value >= 0.0),
+            layout
+                .and_then(|layout| layout.ideal_height)
+                .filter(|value| value.is_finite() && *value >= 0.0),
         ];
-        let priority = layout.and_then(|layout| layout.layout_priority)
-            .filter(|value| value.is_finite()).unwrap_or(0.0);
+        let priority = layout
+            .and_then(|layout| layout.layout_priority)
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0);
         // Flexible frames: a max bound on an axis without a fixed size makes the
         // view take what its parent offers on that axis (applied by the parent,
         // which knows its main axis), clamped to [min, max].
@@ -3476,25 +3486,38 @@ impl Runtime {
         let intrinsic = match node {
             UiNode::Text { value, .. } => {
                 let content = self.eval_text(value);
-                Some(LeafMeasure::Text { natural: measurer.measure_text(&content), content })
-            },
-            UiNode::Action { label, .. } => Some(LeafMeasure::Intrinsic(measurer.measure_action(label))),
+                Some(LeafMeasure::Text {
+                    natural: measurer.measure_text(&content),
+                    content,
+                })
+            }
+            UiNode::Action { label, .. } => {
+                Some(LeafMeasure::Intrinsic(measurer.measure_action(label)))
+            }
             UiNode::Panel { .. } => Some(LeafMeasure::Intrinsic(measurer.measure_panel())),
             UiNode::TextField {
                 state, placeholder, ..
             } => {
                 let value = self.state.get(state).and_then(Value::as_str).unwrap_or("");
-                Some(LeafMeasure::Intrinsic(measurer.measure_text_field(value, placeholder.as_deref())))
+                Some(LeafMeasure::Intrinsic(
+                    measurer.measure_text_field(value, placeholder.as_deref()),
+                ))
             }
             UiNode::RadioGroup { options, .. } => {
                 let labels = options
                     .iter()
                     .map(|option| option.label.clone())
                     .collect::<Vec<_>>();
-                Some(LeafMeasure::Intrinsic(measurer.measure_radio_group(&labels)))
+                Some(LeafMeasure::Intrinsic(
+                    measurer.measure_radio_group(&labels),
+                ))
             }
-            UiNode::Toggle { label, .. } => Some(LeafMeasure::Intrinsic(measurer.measure_toggle(label))),
-            UiNode::Progress { label, .. } => Some(LeafMeasure::Intrinsic(measurer.measure_progress(label.as_deref()))),
+            UiNode::Toggle { label, .. } => {
+                Some(LeafMeasure::Intrinsic(measurer.measure_toggle(label)))
+            }
+            UiNode::Progress { label, .. } => Some(LeafMeasure::Intrinsic(
+                measurer.measure_progress(label.as_deref()),
+            )),
             _ => None,
         };
 
@@ -3514,9 +3537,11 @@ impl Runtime {
                 let axis_leaf = specs[child_id].axis_leaf;
                 let child_flex = specs[child_id].flexible;
                 let child_ideal = specs[child_id].ideal;
-                let is_text = matches!(specs[child_id].spec.context, Some(LeafMeasure::Text { .. }));
+                let is_text =
+                    matches!(specs[child_id].spec.context, Some(LeafMeasure::Text { .. }));
                 let child_style = &mut specs[child_id].spec.style;
-                if is_text && main_axis_horizontal == Some(true)
+                if is_text
+                    && main_axis_horizontal == Some(true)
                     && child_style.min_size.width == LengthPercentageAuto::auto()
                 {
                     // CSS flexbox defaults to an automatic min-content width.
@@ -3535,7 +3560,9 @@ impl Runtime {
                         (&mut child_style.size.height, child_ideal[1])
                     };
                     if *chosen == Dimension::auto() {
-                        if let Some(ideal) = ideal { *chosen = Dimension::length(ideal); }
+                        if let Some(ideal) = ideal {
+                            *chosen = Dimension::length(ideal);
+                        }
                     }
                 }
                 if let (Some(leaf), Some(main)) = (axis_leaf, main_axis_horizontal) {
@@ -3637,13 +3664,22 @@ impl Runtime {
         // Relative layoutPriority influences resistance to compression, not
         // intrinsic size. With equal priorities, preserve ordinary flex sizing.
         if matches!(node, UiNode::Row { .. } | UiNode::Column { .. }) && children.len() > 1 {
-            let highest = children.iter().map(|&id| specs[id].priority).fold(f32::NEG_INFINITY, f32::max);
-            let lowest = children.iter().map(|&id| specs[id].priority).fold(f32::INFINITY, f32::min);
+            let highest = children
+                .iter()
+                .map(|&id| specs[id].priority)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let lowest = children
+                .iter()
+                .map(|&id| specs[id].priority)
+                .fold(f32::INFINITY, f32::min);
             if highest > lowest {
                 for &id in &children {
                     let rank_below_highest = (highest - specs[id].priority).clamp(0.0, 10.0);
-                    specs[id].spec.style.flex_shrink = if rank_below_highest == 0.0 { 0.001 }
-                        else { (rank_below_highest * 10.0).exp().min(1_000.0) };
+                    specs[id].spec.style.flex_shrink = if rank_below_highest == 0.0 {
+                        0.001
+                    } else {
+                        (rank_below_highest * 10.0).exp().min(1_000.0)
+                    };
                 }
             }
         }

@@ -160,14 +160,23 @@ fn shaped_height(buffer: &Buffer, font_size: f32) -> f32 {
 }
 
 impl CachedTextBuffer {
-    fn new(font_system: &mut FontSystem, text: &str, font_size: f32, wrap_width: Option<f32>) -> Self {
+    fn new(
+        font_system: &mut FontSystem,
+        text: &str,
+        font_size: f32,
+        wrap_width: Option<f32>,
+    ) -> Self {
         let mut buffer = Buffer::new(
             font_system,
             Metrics::new(font_size, font_size * LINE_HEIGHT_FACTOR),
         );
         // Ordinary Text uses the same proposal used during intrinsic layout.
         // Editing and control labels intentionally keep unbounded single lines.
-        buffer.set_wrap(if wrap_width.is_some() { Wrap::WordOrGlyph } else { Wrap::None });
+        buffer.set_wrap(if wrap_width.is_some() {
+            Wrap::WordOrGlyph
+        } else {
+            Wrap::None
+        });
         buffer.set_size(wrap_width, None);
         buffer.set_text(text, &text_attrs(), Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
@@ -181,7 +190,13 @@ impl CachedTextBuffer {
         }
     }
 
-    fn update(&mut self, font_system: &mut FontSystem, text: &str, font_size: f32, wrap_width: Option<f32>) -> bool {
+    fn update(
+        &mut self,
+        font_system: &mut FontSystem,
+        text: &str,
+        font_size: f32,
+        wrap_width: Option<f32>,
+    ) -> bool {
         let mut dirty = false;
         if self.font_size.to_bits() != font_size.to_bits() {
             self.buffer
@@ -197,7 +212,11 @@ impl CachedTextBuffer {
             dirty = true;
         }
         if self.wrap_width != wrap_width {
-            self.buffer.set_wrap(if wrap_width.is_some() { Wrap::WordOrGlyph } else { Wrap::None });
+            self.buffer.set_wrap(if wrap_width.is_some() {
+                Wrap::WordOrGlyph
+            } else {
+                Wrap::None
+            });
             self.buffer.set_size(wrap_width, None);
             self.wrap_width = wrap_width;
             dirty = true;
@@ -646,8 +665,11 @@ impl GpuRenderer {
                 // A not-yet-shaped wrapped text may reach below its first
                 // line; don't cull it using a one-line height estimate.
                 let height = cached.map(|cached| cached.height).unwrap_or_else(|| {
-                    if text.wrap_width.is_some() { self.config.height as f32 }
-                    else { text.font_size * LINE_HEIGHT_FACTOR }
+                    if text.wrap_width.is_some() {
+                        self.config.height as f32
+                    } else {
+                        text.font_size * LINE_HEIGHT_FACTOR
+                    }
                 });
                 let bottom = text.y + height + margin;
                 let (left, top) = transform.transform_point(text.x - margin, text.y - margin);
@@ -674,7 +696,12 @@ impl GpuRenderer {
         {
             match self.text_buffers.get_mut(&text.id) {
                 Some(cached) => {
-                    if cached.update(&mut font_system, &text.text, text.font_size, text.wrap_width) {
+                    if cached.update(
+                        &mut font_system,
+                        &text.text,
+                        text.font_size,
+                        text.wrap_width,
+                    ) {
                         self.stats.text_reshapes += 1;
                     }
                 }
@@ -682,7 +709,12 @@ impl GpuRenderer {
                     self.stats.text_reshapes += 1;
                     self.text_buffers.insert(
                         text.id.clone(),
-                        CachedTextBuffer::new(&mut font_system, &text.text, text.font_size, text.wrap_width),
+                        CachedTextBuffer::new(
+                            &mut font_system,
+                            &text.text,
+                            text.font_size,
+                            text.wrap_width,
+                        ),
                     );
                 }
             }
