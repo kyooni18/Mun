@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -9,7 +9,7 @@ import { DEV_PROTOCOL_VERSION, MAX_FRAME_BYTES, createFrameDecoder, encodeFrame,
 import { analyzeCompatibility } from '../bin/hot-reload.mjs'
 import { applyProgramPatch, createProgramUpdate } from '../bin/program-patch.mjs'
 import { createProjectCompiler } from '../bin/project.mjs'
-import { HotUpdateRejected, createDevLoop, enrichInspectorSnapshot, formatRuntimeDiagnostic } from '../bin/watch.mjs'
+import { HotUpdateRejected, createDevLoop, enrichInspectorSnapshot, formatRuntimeDiagnostic, watchProject } from '../bin/watch.mjs'
 import { formatSnapshot, macInfoPlist, packagedExecutableName } from '../bin/workflow.mjs'
 
 const app = ({ type = 'Int', initial = '0', label = 'Count', step = 1, entry = 'App', row = 'Bool' } = {}) => `struct Row: View {
@@ -220,4 +220,30 @@ test('inspector and runtime diagnostics attach project-relative source locations
   assert.match(text, /Text\s+App\/body @ Sources\/App\.mun:7:5/u)
   assert.match(text, /dev revision 4/u)
   assert.equal(formatRuntimeDiagnostic({ severity: 'error', message: 'bad write', node }, metadata), 'Sources/App.mun:7:5: Runtime error: bad write')
+})
+
+test('the project watcher keeps reporting a source that editors replace by rename', async () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'mun-watch-'))
+  mkdirSync(resolve(root, 'Sources'))
+  const source = resolve(root, 'Sources/App.mun')
+  writeFileSync(source, 'a')
+  let changes = 0
+  const watcher = watchProject(root, () => { changes += 1 })
+  const reported = async action => {
+    const before = changes
+    action()
+    for (let attempt = 0; attempt < 100 && changes === before; attempt += 1) await new Promise(done => setTimeout(done, 20))
+    return changes > before
+  }
+  try {
+    await new Promise(done => setTimeout(done, 100))
+    // Atomic save: write a sibling, rename it over the source. Every save counts, not only the first.
+    for (const text of ['b', 'c', 'd']) {
+      assert.equal(await reported(() => { writeFileSync(`${source}.tmp`, text); renameSync(`${source}.tmp`, source) }), true, `save ${text}`)
+    }
+    assert.equal(await reported(() => writeFileSync(source, 'e')), true, 'in-place write after replacement')
+    mkdirSync(resolve(root, 'Sources/Nested'))
+    await new Promise(done => setTimeout(done, 100))
+    assert.equal(await reported(() => writeFileSync(resolve(root, 'Sources/Nested/Row.mun'), 'f')), true, 'source in a directory created later')
+  } finally { watcher.close(); rmSync(root, { recursive: true, force: true }) }
 })
