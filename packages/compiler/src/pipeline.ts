@@ -1687,7 +1687,8 @@ function importMunBuiltins(source: string, lowered: string, fileName: string, ex
 function ensureImports(source: string, includeViewBuiltins = false): string {
   const callableRequired = ["defineView", "initializer", "resolveBuilderInput", "namedArguments", "overloadClosure", "viewFragment", "withAnimation", "withTransaction", "Binding", "State", "Element", "modifiedContent", "modifiedContentCompiled", "compiledTemplate", "defineCompiledTemplate", "Observable", "environmentValue"]
     .filter(name => new RegExp(`\\b${name}(?:<[^()\\n]*>)?\\s*\\(`).test(source) || (name === "defineView" && /const\s+[A-Z]\w*\s*=\s*defineView/.test(source)))
-  const valueRequired = ["Transition", "Animation", "ContentTransition", "SymbolEffect"].filter(name => {
+  // Color and Font: contextual members (.foregroundStyle(.red), .font(.title)) lower to Color.red / Font.title.
+  const valueRequired = ["Transition", "Animation", "ContentTransition", "SymbolEffect", "Color", "Font"].filter(name => {
     if (!new RegExp(`\\b${name}\\s*\\.`).test(source)) return false
     return !new RegExp(`\\b(?:const|let|var|class|function|enum|namespace)\\s+${name}\\b`).test(source)
   })
