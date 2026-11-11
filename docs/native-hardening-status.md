@@ -83,16 +83,21 @@ Not verified here:
   the smoke. `docs/native-manual-validation.md` was not run.
 - macOS and Windows: not executed in this environment.
 
-Failing and left alone (Web frontend, not the native backend): in `pnpm test`,
-`test:packages` fails 10 Web/React/Vue markup and specialization expectations
-and `test:release` fails its packed React render check. Nine of the ten and the
-release check pass again with the previous `packages/core/src/views.ts` and
-`layout.ts` (commit 4892cfe changed Web `Text` to a styled `span` and stack
-widths); whether the markup or the expectations are right is a Web decision.
-The tenth (`implicit member arguments survive static modifier chain
-specialization`, which emits `Color.red` where `"red"` is expected) fails
-either way. One more `test:packages` case needs a Chromium build this sandbox
-does not have for the pinned Playwright version.
+Web frontend, fixed in the same pass so `pnpm test` passes as a whole (116
+animation, 107 runtime, 753 package, 54 DX tests, docs and release checks):
+
+- Compatibility `.mun.ts` sources using a contextual member
+  (`.foregroundStyle(.red)`, `.font(.title)`) lowered to `Color.red` /
+  `Font.title` without importing `Color` or `Font`; they are imported now.
+- Ten Web/React/Vue expectations and the packed render check in
+  `scripts/verify-release.mjs` still described `Text` as a bare `span`. Commit
+  4892cfe made it a `span` with `max-width:100%;overflow-wrap:anywhere`; the
+  expectations now state that markup.
+- `tests/unsafe-html-browser.test.mjs` needs the Chromium revision the pinned
+  Playwright asks for. The sandbox ships another revision, so the full run
+  used `PLAYWRIGHT_BROWSERS_PATH` pointing at a directory that aliases the
+  installed build under the expected name. Without that the one test fails to
+  launch a browser here; CI installs the matching build.
 
 ## Text editing
 

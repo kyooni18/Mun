@@ -29,9 +29,9 @@ test("the shared Text/VStack/Button/Card graph has renderer-conformant SSR seman
   for (const html of outputs) {
     assert.match(html, /data-mun="VStack"/)
     assert.match(html, /padding:8px/)
-    assert.match(html, /<span>Title<\/span>/)
-    assert.match(html, /<button type="button"><span>Save<\/span><\/button>/)
-    assert.match(html, /<article data-card="root"><span>Card body<\/span><\/article>/)
+    assert.match(html, /<span style="max-width:100%;overflow-wrap:anywhere;?">Title<\/span>/)
+    assert.match(html, /<button type="button"><span style="max-width:100%;overflow-wrap:anywhere;?">Save<\/span><\/button>/)
+    assert.match(html, /<article data-card="root"><span style="max-width:100%;overflow-wrap:anywhere;?">Card body<\/span><\/article>/)
   }
 })
 
@@ -210,7 +210,7 @@ test("lazy graph boundaries keep renderer-conformant SSR fallback markup", async
   for (const html of outputs) {
     assert.match(html, /data-mun="LazyVStack"/)
     assert.match(html, /data-mun-lazy="vertical"/)
-    assert.match(html, /<span>One<\/span><span>Two<\/span>/)
+    assert.match(html, /<span style="max-width:100%;overflow-wrap:anywhere;?">One<\/span><span style="max-width:100%;overflow-wrap:anywhere;?">Two<\/span>/)
   }
 })
 

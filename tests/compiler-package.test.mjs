@@ -670,7 +670,7 @@ test("compiler specializes imported Views from a unique typed call signature", (
   const source = `import { Text } from "@mun-ui/core/compat"
 const value = Text("Hello")`
   const output = transformMunSource(source, "ImportedText.mun.ts")
-  assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "span", props: null, children: \["Hello"\] \}, 0, \[\]\)/)
+  assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "span", props: \{ "style": \{ "maxWidth": "100%", "overflowWrap": "anywhere" \} \}, children: \["Hello"\] \}, 0, \[\]\)/)
   assert.match(output, /const value = compiledTemplate\(__munTemplate0, \[\]\)/)
   assert.doesNotMatch(output, /Text\(\"Hello\"\)/)
   assert.equal(ts.createSourceFile("ImportedText.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
@@ -692,7 +692,7 @@ export function App() {
   assert.doesNotMatch(output, /2 \* \(3 \+ 1\)|1 \+ 2|expensive/)
   assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "div"/)
   assert.match(output, /"gap": "8px"/)
-  assert.match(output, /children: \[\{ kind: "element", type: "span", props: null, children: \["Total: 3"\] \}, \{ kind: "element", type: "span", props: null, children: \["ready"\] \}\]/)
+  assert.match(output, /children: \[\{ kind: "element", type: "span", props: \{ "style": \{ "maxWidth": "100%", "overflowWrap": "anywhere" \} \}, children: \["Total: 3"\] \}, \{ kind: "element", type: "span", props: \{ "style": \{ "maxWidth": "100%", "overflowWrap": "anywhere" \} \}, children: \["ready"\] \}\]/)
   assert.match(output, /return compiledTemplate\(__munTemplate0, \[\]\)/)
   assert.equal(ts.createSourceFile("StaticResults.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
 })
@@ -865,7 +865,7 @@ export function App(active: boolean) {
   return Text("Static").opacity(active ? 1 : 0.25)
 }`
   const output = transformMunSource(source, "StaticModifierTemplate.mun.ts")
-  assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "span", props: null, children: \["Static"\] \}, 0, \[\]\)/)
+  assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "span", props: \{ "style": \{ "maxWidth": "100%", "overflowWrap": "anywhere" \} \}, children: \["Static"\] \}, 0, \[\]\)/)
   assert.match(output, /modifiedContentCompiled\(compiledTemplate\(__munTemplate0, \[\]\), \[\["opacity", \[active \? 1 : 0\.25\]\]\]\)/)
   assert.doesNotMatch(output, /const __munStatic/)
   assert.equal(ts.createSourceFile("StaticModifierTemplate.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
@@ -890,7 +890,7 @@ test("compiler specializes a resolved imported ViewBuilder overload by declarati
 const value = VStack() { Text("Hello") }`
   const output = transformMunSource(source, "ImportedVStack.mun.ts")
   assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "div"/)
-  assert.match(output, /children: \[\{ kind: "element", type: "span", props: null, children: \["Hello"\] \}\]/)
+  assert.match(output, /children: \[\{ kind: "element", type: "span", props: \{ "style": \{ "maxWidth": "100%", "overflowWrap": "anywhere" \} \}, children: \["Hello"\] \}\]/)
   assert.match(output, /const value = compiledTemplate\(__munTemplate0, \[\]\)/)
   assert.doesNotMatch(output, /createNode(?:Compiled|Specialized)/)
 })
@@ -900,7 +900,7 @@ test("compiler lowers a statically typed modifier chain into one flat graph cons
 const value = Text("Hello").padding(8).background("red").bold()`
   const output = transformMunSource(source, "StaticModifiers.mun.ts")
   assert.match(output, /modifiedContentCompiled\(compiledTemplate\(__munTemplate0, \[\]\), \[\["padding", \[8\]\], \["background", \["red"\]\], \["bold", \[\]\]\]\)/)
-  assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "span", props: null, children: \["Hello"\] \}, 0, \[\]\)/)
+  assert.match(output, /defineCompiledTemplate\(\{ kind: "element", type: "span", props: \{ "style": \{ "maxWidth": "100%", "overflowWrap": "anywhere" \} \}, children: \["Hello"\] \}, 0, \[\]\)/)
   assert.doesNotMatch(output, /\.padding\(|\.background\(|\.bold\(/)
   assert.equal(ts.createSourceFile("StaticModifiers.ts", output, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS).parseDiagnostics.length, 0)
   const generated = output.replace(/^import [^\n]+\n/gm, "")
